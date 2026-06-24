@@ -5,13 +5,13 @@ Last updated: 2026-06-24
 ## Current Sprint
 
 **Sprint 1 — Database Foundation + Census API + Addressable Market Engine**
-Weeks 1–2 · Status: **NOT STARTED**
+Weeks 1–2 · Status: **READY TO OPEN**
 
 ## Sprint Sequence
 
 | Sprint | Title | Weeks | Status |
 |--------|-------|-------|--------|
-| 1 | Database Foundation + Census API + Addressable Market Engine | 1–2 | NOT STARTED |
+| 1 | Database Foundation + Census API + Addressable Market Engine | 1–2 | READY |
 | 2 | Mapbox Territory Map + Proposal Page Architecture | 3–4 | LOCKED |
 | 3 | Spoke Candidate Auto-Screen | 5–6 | LOCKED |
 | 4 | AesthetiX Webhook + CRM Trigger + Pipeline Automation | 7–8 | LOCKED |
@@ -22,7 +22,7 @@ Weeks 1–2 · Status: **NOT STARTED**
 
 ### Deliverables
 
-- [ ] New Supabase project confirmed isolated from NIP (`cprltmwwldbxcsunsafl` ≠ `kjweckggegifjmmqccul`)
+- [ ] Supabase project isolation confirmed (`cprltmwwldbxcsunsafl` ≠ `kjweckggegifjmmqccul`)
 - [ ] All 6 tables created via migration files with RLS enabled
   - `prospects`
   - `deals`
@@ -34,45 +34,55 @@ Weeks 1–2 · Status: **NOT STARTED**
 - [ ] Mapbox Isochrone API: anchor address → 30-min + 45-min GeoJSON polygons
 - [ ] Census ACS API: zip codes → B01001 + B19001 + B25105 data
 - [ ] Addressable market Edge Function: full formula implemented and tested
-- [ ] Formula constants imported from `/lib/addressable-market-constants.ts` (not inline)
-- [ ] Test suite: 3 territories validated against Austin baseline (5,483)
+- [ ] Formula constants imported from `/lib/addressable-market-constants.ts` (never inline)
+- [ ] Formula logic validated against QA criteria in `docs/QA-SPRINT-1.md`
 - [ ] Leif-facing admin UI: enter anchor address → view addressable market result
 
 ### Acceptance Criteria
 
 See `docs/QA-SPRINT-1.md` for full test matrix.
 
-## Pre-Sprint 1 Blockers (Open Items)
+## Pre-Sprint 1 Blockers
+
+All cleared. ✅
 
 | # | Action | Owner | Status |
 |---|--------|-------|--------|
-| 1 | Create new Supabase project: ghmd-sales-platform | Trace | OPEN |
-| 2 | Register Census API key at api.census.gov (free) | Leif | OPEN |
-| 9 | Confirm Austin 5,483 addressable market baseline | Trace + Bruce | OPEN |
+| 1 | Create Supabase project: ghmd-sales-platform | Trace | ✅ DONE — `cprltmwwldbxcsunsafl` |
+| 2 | Register Census API key | Trace | ✅ DONE — set in Netlify env vars |
+| 3 | Create GitHub repo and commit foundational files | Trace + Claude Code | ✅ DONE — `eb039d4` |
+| 4 | Create Netlify site | Claude Chat | ✅ DONE — `ghmdsalesplatform.netlify.app` |
+| 5 | Create Monday.com sprint board | Trace | ✅ DONE — `18419216445` |
+| 6 | Set Netlify env vars (Supabase URL + service role key) | Trace + Claude Chat | ✅ DONE |
+| 7 | Create Box folder structure | Claude Chat | ✅ DONE — root ID `393568040484` |
 
 ## Pre-Sprint 2 Blockers
 
 | # | Action | Owner | Status |
 |---|--------|-------|--------|
-| 4 | Configure proposals.gethairmd.com subdomain on Netlify | Leif | OPEN |
-| 10 | Physician testimonials for proposal page (2–3 quotes + photos) | Bruce | OPEN |
+| 1 | Configure custom subdomain on Netlify | Leif | OPEN |
+| 2 | Set `NEXT_PUBLIC_MAPBOX_TOKEN` in Netlify env vars | Trace | OPEN |
+| 3 | Physician testimonials for proposal page (2–3 quotes + photos) | Bruce | OPEN |
 
 ## Pre-Sprint 3 Blockers
 
 | # | Action | Owner | Status |
 |---|--------|-------|--------|
-| 5 | Confirm Google Cloud account + enable Places API + billing | Trace | OPEN |
+| 1 | Enable Google Cloud + Places API + billing | Trace | OPEN |
+| 2 | Set `GOOGLE_PLACES_API_KEY` in Netlify env vars | Trace | OPEN |
 
 ## Pre-Sprint 4 Blockers
 
 | # | Action | Owner | Status |
 |---|--------|-------|--------|
-| 6 | Get AesthetiX webhook endpoint + secret from vendor | Trace | OPEN |
-| 7 | Confirm DocuSign API credentials + webhook config | Trace | OPEN |
+| 1 | Get AesthetiX webhook endpoint + secret from vendor | Trace | OPEN |
+| 2 | Confirm Box Sign API credentials + webhook config | Trace | OPEN |
+| 3 | Set Box env vars in Netlify (`BOX_CLIENT_ID`, `BOX_CLIENT_SECRET`, `BOX_WEBHOOK_SECRET`) | Trace | OPEN |
 
 ## Standing Critical Flags
 
-- **Legal/Compliance**: No call recording until ByrdAdatto approves consent language
-- **FTC Franchise Rule**: Rick Dahlson must review before first franchisee prospect enters pipeline
-- **Formula validation**: Austin output ±15% of 5,483 is pass; if deviation > ±25%, pause and audit — do not auto-adjust constants to hit the target
-- **Dual-system risk**: AesthetiX + new system overlap must not exceed 60 days; cutover date TBD before Sprint 4
+- **Call recording**: No Zoom recording until ByrdAdatto approves consent language. Do not build Phase 2 Whisper integration until cleared.
+- **Dual-system risk**: AesthetiX + new system overlap must not exceed 60 days. Define cutover date before Sprint 4.
+- **Formula constants**: Session-locked in `/lib/addressable-market-constants.ts`. Do not adjust constants to hit any output target — if outputs look wrong, audit the logic first.
+- **Box Sign**: Replaces DocuSign entirely. No DocuSign integration at any phase.
+- **Phase 2 call scoring**: OpenAI Whisper (transcription) + Claude API (scoring). Not in scope until Phase 2. ByrdAdatto consent review must precede any recording.

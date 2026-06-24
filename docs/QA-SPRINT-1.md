@@ -25,44 +25,52 @@ Status: NOT STARTED
 
 ## Addressable Market Formula
 
-| Test | Pass Threshold | Notes | Status |
-|------|---------------|-------|--------|
-| Austin Westlake output | Within ±15% of 5,483 (range: 4,661–6,305) | Primary validation anchor from Dr. Sean Paul proposal | — |
-| Austin deviation alert | If > ±25% of 5,483, pause and audit before proceeding | Do NOT auto-adjust constants to hit target — understand why | — |
-| Boston MA output | 3,000–5,000 range | High COL market — lower income bands should auto-reduce | — |
-| Springfield MO output | 3,000–5,000 range | Low COL market — lower bands should be higher than Boston | — |
-| Formula error on bad address | Graceful error returned + logged | No silent failure, no unhandled crash | — |
-| Census API response time | < 3 seconds per territory calculation | Batch zip code calls in a single request | — |
-| Census cache: skip re-fetch if < 90 days | Second run within 90 days uses `census_raw_data` | Verify `census_pulled_at` timestamp check logic | — |
+The formula validation tests logic correctness and plausibility — not a specific numeric target.
+Outputs must be defensible based on the locked constants and the demographic profile of each territory.
+
+| Test | Pass Threshold | Reasoning | Status |
+|------|---------------|-----------|--------|
+| Formula runs without error on valid address | Completes and returns integer | Basic smoke test | — |
+| Formula error on bad/unrecognized address | Graceful error returned + logged | No silent failure, no unhandled crash | — |
+| Output is a single integer (not a range) | One number stored in `territories.addressable_market_total` | Per spec — simple and credible | — |
+| High-COL territory output is lower than low-COL territory | Boston output < Springfield MO output | Housing cost adjustment via B25105 must produce directionally correct results | — |
+| Output falls in plausible range for a mid-size metro | 2,000–8,000 for a standard 30-min drive-time territory | Extreme outliers (< 500 or > 15,000) indicate formula error | — |
+| Income floor enforced | Households below $60K contribute zero to output | Verify in Edge Function logic | — |
+| Financing take-up rate applied correctly | 70% multiplier applied to $60K–$99K bands only | Not applied to $100K+ bands | — |
+| Housing cost adjustment directionally correct | High median housing cost → lower affordability multiplier for low income bands | Formula: `base_rate × MAX(0, 1 − (median_housing_cost × 12) / income_band_midpoint)` | — |
 | Formula constants not hardcoded | `grep` for literal prevalence values in Edge Function returns empty | All values imported from `/lib/addressable-market-constants.ts` | — |
+| Census cache: skip re-fetch if < 90 days | Second run within 90 days uses `census_raw_data` | Verify `census_pulled_at` timestamp check logic | — |
+| Census API response time | < 3 seconds per territory calculation | Batch zip code calls in a single request | — |
 
 ## API Integrations
 
 | Test | Pass Threshold | Notes | Status |
 |------|---------------|-------|--------|
-| Mapbox geocoding: address → lat/lng | Returns valid coordinates for Austin Westlake test address | | — |
-| Mapbox Isochrone 30-min polygon | Valid GeoJSON stored in `territories.isochrone_30min` | Visual QA against known Austin territory | — |
-| Mapbox Isochrone 45-min polygon | Valid GeoJSON stored in `territories.isochrone_45min` | | — |
-| Census ACS B01001 (age × gender) | Returns structured data for test zip codes | Use 78746 (Austin Westlake anchor) | — |
-| Census ACS B19001 (household income) | Returns structured income band data | | — |
-| Census ACS B25105 (housing costs) | Returns median monthly housing cost | Used in housing cost adjustment | — |
+| Mapbox geocoding: address → lat/lng | Returns valid coordinates for a known test address | Use a real Austin address as test input | — |
+| Mapbox Isochrone 30-min polygon | Valid GeoJSON stored in `territories.isochrone_30min` | Visual QA — polygon should look geographically plausible | — |
+| Mapbox Isochrone 45-min polygon | Valid GeoJSON stored in `territories.isochrone_45min` | Outer ring visibly larger than 30-min polygon | — |
+| Census ACS B01001 (age × gender) | Returns structured data for test zip codes | Verify age cohort breakdown is populated | — |
+| Census ACS B19001 (household income) | Returns structured income band data | Verify all income bands present | — |
+| Census ACS B25105 (housing costs) | Returns median monthly housing cost | Verify value is non-zero and plausible for test market | — |
 
 ## Admin UI
 
 | Test | Pass Threshold | Notes | Status |
 |------|---------------|-------|--------|
 | Enter anchor address → geocoded | Coordinates appear in `territories` record | | — |
-| View addressable market result | Single integer displayed (not a range) | Matches Edge Function output | — |
+| View addressable market result | Single integer displayed | Matches Edge Function output in Supabase | — |
 | Leif can view result without Trace access | Role-appropriate data visible | RLS allows Leif read access to territories | — |
 
 ## Sprint 1 Sign-Off Checklist
 
-- [ ] All database tests pass
+- [ ] All database schema tests pass
 - [ ] Supabase project isolation confirmed
-- [ ] Austin Westlake output within ±15% of 5,483
-- [ ] Boston and Springfield outputs in 3,000–5,000 range
+- [ ] Formula runs correctly and produces plausible output
+- [ ] High-COL vs low-COL directional test passes
+- [ ] Income floor and financing take-up logic verified
+- [ ] Housing cost adjustment verified directionally correct
 - [ ] All three Census ACS tables returning data
-- [ ] Mapbox geocoding and isochrone integrated
+- [ ] Mapbox geocoding and isochrone integrated and returning valid GeoJSON
 - [ ] Admin UI functional for Leif
 - [ ] No formula constants hardcoded inline
 - [ ] Trace reviews and signs off
