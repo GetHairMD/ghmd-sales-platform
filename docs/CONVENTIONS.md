@@ -60,7 +60,8 @@ Never in `.env` committed to git.
 
 ## Git
 
-- Branch strategy Sprint 1: **main only** (no feature branches)
+- Branch strategy Sprint 1: **direct commits to main** — no feature branches, no PRs
+- The draft PR used to land the initial file set (PR #2) was a one-time exception; all Sprint 1 work commits straight to main
 - Commit messages: `type: description` (feat / fix / chore / docs / test / migration)
 - Never force-push main
 - Never commit secrets (pre-commit hook validates)
