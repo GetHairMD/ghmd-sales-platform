@@ -42,6 +42,8 @@ Never:
 
 ## Standing Rules for Every Session
 
+0. **Rule 0 — Confirm git remote before writing any files.**
+   Run `git remote -v` at the start of every session. Remote must be `traceh-ghmd/ghmd-sales-platform`. If remote shows `traceh-ghmd/gethairmd-network` (the NIP) or any other unexpected repo: STOP immediately. Do not write any files. Do not open any sprint. Flag to Trace and wait for instruction.
 1. **Confirm Supabase project isolation** before any schema or data operation
 2. All migrations go in `/supabase/migrations/` with timestamp prefix (`YYYYMMDDHHMMSS_description.sql`)
 3. **RLS enabled on every table from creation** — never disabled
