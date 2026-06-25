@@ -43,7 +43,17 @@ Never:
 ## Standing Rules for Every Session
 
 0. **Rule 0 — Confirm git remote before writing any files.**
-   Run `git remote -v` at the start of every session. Remote must be `traceh-ghmd/ghmd-sales-platform`. If remote shows `traceh-ghmd/gethairmd-network` (the NIP) or any other unexpected repo: STOP immediately. Do not write any files. Do not open any sprint. Flag to Trace and wait for instruction.
+   Run `git remote -v` at the start of every session. Remote must be `GetHairMD/ghmd-sales-platform`. If remote shows `GetHairMD/gethairmd-network` (the NIP) or any other unexpected repo: STOP immediately. Do not write any files. Do not open any sprint. Flag to Trace and wait for instruction.
+0-B. **Rule 0-B — CLAUDE.md first-line check.**
+   Before any other action, run: `cat CLAUDE.md | head -1`
+   Must return: `# GHMD Sales Platform — Claude Code Session Instructions`
+   If it returns anything else — STOP immediately and flag. Do not proceed.
+0-C. **Rule 0-C — One repo per session.**
+   Never open the NIP repo (`GetHairMD/gethairmd-network`) and the Sales Platform repo in the same Claude Code cloud session. If both are open, close one before proceeding.
+0-D. **Rule 0-D — git status after cloud session.**
+   After any Claude Code cloud session, run `git status` before assuming the working tree is clean. Cloud sessions can write files to disk without staging.
+0-E. **Rule 0-E — NIP contamination scan (when in doubt).**
+   Run: `git grep -r "kjweckggegifjmmqccul"` and `git grep -r "gethairmd-network"` in the Sales Platform repo. Both must return empty (or hits only in `docs/` or `CLAUDE.md` as boundary markers — never in `.ts` or `.tsx` files).
 1. **Confirm Supabase project isolation** before any schema or data operation
 2. All migrations go in `/supabase/migrations/` with timestamp prefix (`YYYYMMDDHHMMSS_description.sql`)
 3. **RLS enabled on every table from creation** — never disabled
