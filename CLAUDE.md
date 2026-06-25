@@ -1,4 +1,4 @@
-# GHMD Sales Platform — Claude Code Session Instructions
+# GHMD Sales Platform — CLAUDE.md
 
 > Read this file at the start of every session. No exceptions.
 
@@ -46,7 +46,7 @@ Never:
    Run `git remote -v` at the start of every session. Remote must be `GetHairMD/ghmd-sales-platform`. If remote shows `GetHairMD/gethairmd-network` (the NIP) or any other unexpected repo: STOP immediately. Do not write any files. Do not open any sprint. Flag to Trace and wait for instruction.
 0-B. **Rule 0-B — CLAUDE.md first-line check.**
    Before any other action, run: `cat CLAUDE.md | head -1`
-   Must return: `# GHMD Sales Platform — Claude Code Session Instructions`
+   Must return: `# GHMD Sales Platform — CLAUDE.md`
    If it returns anything else — STOP immediately and flag. Do not proceed.
 0-C. **Rule 0-C — One repo per session.**
    Never open the NIP repo (`GetHairMD/gethairmd-network`) and the Sales Platform repo in the same Claude Code cloud session. If both are open, close one before proceeding.
@@ -64,6 +64,13 @@ Never:
 8. Sprint acceptance criteria must pass before closing the sprint
 9. Report blockers immediately — do not work around schema issues silently
 10. Branch strategy Sprint 1: **main only**
+
+## Session Safety Rules (added June 25, 2026)
+
+- CLAUDE.md first-line stop condition: if `cat CLAUDE.md | head -1` does not return `# GHMD Sales Platform — CLAUDE.md` exactly — STOP.
+- One repo per Coder session: never open NIP and Sales Platform in the same session simultaneously.
+- `git status` after every cloud session: run before assuming working tree is clean.
+- Contamination scan: `git grep -r "kjweckggegifjmmqccul"` and `git grep -r "gethairmd-network"` must return empty.
 
 ## Formula Constants Location
 
@@ -86,6 +93,13 @@ See `docs/AGENTS.md` for full role definitions.
 - **Claude Chat**: PM + MCP ops (planning, Drive, Supabase console, Monday.com)
 - **Claude Code**: All code, migrations, git operations, Edge Functions
 - **Claude Chrome**: GitHub UI fallback only (PR review, branch ops if CLI unavailable)
+
+## Agent Names (locked June 25, 2026)
+
+- Claude Chat = **Chat**
+- Claude Code = **Coder**
+- Claude Chrome = **Pilot**
+- Use these names exclusively. "Claude Code" and "Claude Chrome" are retired to prevent mis-attribution.
 
 ## Environment Variables
 
