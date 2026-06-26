@@ -37,7 +37,7 @@ const ALL_ACS_VARS: string[] = [
   CENSUS_HOUSING_COST_VAR,
 ]
 
-const UNIQUE_ACS_VARS = [...new Set(ALL_ACS_VARS)]
+const UNIQUE_ACS_VARS = Array.from(new Set(ALL_ACS_VARS))
 
 export interface FipsResult {
   stateFips: string
