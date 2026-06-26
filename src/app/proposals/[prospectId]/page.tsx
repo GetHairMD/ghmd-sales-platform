@@ -42,13 +42,14 @@ export default async function ProposalPage({ params }: PageProps) {
     .limit(1)
     .single()
 
-  const territory = deal?.territories as {
+  // Supabase infers FK join results as arrays; cast through unknown then take [0]
+  const territory = (deal?.territories as unknown as {
     id: string
     name: string
     addressable_patients_primary: number | null
     center_lat: number
     center_lng: number
-  } | null
+  }[] | undefined)?.[0] ?? null
 
   const territoryPrice = deal?.territory_price
     ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(
