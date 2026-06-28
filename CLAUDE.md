@@ -64,6 +64,8 @@ Never:
 8. Sprint acceptance criteria must pass before closing the sprint
 9. Report blockers immediately — do not work around schema issues silently
 10. Branch strategy Sprint 1: **main only**
+11. **Coder reads the current handoff from `/handoffs/LATEST.md` at session start** — repo-hosted, never pulled from Drive (consistent with the no-Drive-fetch rule in Decision Logging)
+12. **Rule changes are specified by quoting the rule's current text and its replacement** — never by rule number, since numbering differs across CLAUDE.md, the handoff, and docs/ files.
 
 ## Session Safety Rules (added June 25, 2026)
 
@@ -90,6 +92,11 @@ Never:
 - Coder does NOT fetch historical/source content from Google Drive directly. Trace pastes
   it into the session. Rationale: Drive Docs are rich-text and parse unreliably, and
   legal-flagged content requires a human-verified source, not an auto-pull.
+- Session handoffs are repo-hosted at `/handoffs/` (markdown), NOT Google Docs. The latest
+  handoff is always at `/handoffs/LATEST.md` — Coder reads it at session start (see standing
+  rule #11). Versioned copies live alongside it (e.g. `/handoffs/GHMD_Sales_Platform_Handoff_vX.YZ.md`).
+- Google Drive is reference + human-read only. System-of-record artifacts — the decision log
+  and session handoffs — live in the repo or Supabase, never Drive.
 
 ## Formula Constants Location
 
