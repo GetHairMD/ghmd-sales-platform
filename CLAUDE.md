@@ -65,6 +65,7 @@ Never:
 9. Report blockers immediately — do not work around schema issues silently
 10. Branch strategy Sprint 1: **main only**
 11. **Coder reads the current handoff from `/handoffs/LATEST.md` at session start** — repo-hosted, never pulled from Drive (consistent with the no-Drive-fetch rule in Decision Logging)
+12. **Rule changes are specified by quoting the rule's current text and its replacement** — never by rule number, since numbering differs across CLAUDE.md, the handoff, and docs/ files.
 
 ## Session Safety Rules (added June 25, 2026)
 
