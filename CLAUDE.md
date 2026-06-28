@@ -72,6 +72,25 @@ Never:
 - `git status` after every cloud session: run before assuming working tree is clean.
 - Contamination scan: `git grep -r "kjweckggegifjmmqccul"` and `git grep -r "gethairmd-network"` must return empty.
 
+## Decision Logging (system of record)
+
+- System of record for all consequential decisions is the Supabase table `ops.decision_log`
+  (project cprltmwwldbxcsunsafl), NOT Google Docs. Logged via a single INSERT through the
+  Supabase MCP connector — no Pilot, no manual Doc editing for routine logging.
+- The git mirror `/decisions/DECISION_LOG.md` is the durable backup, regenerated via
+  `npm run log:export`. Never hand-edit it. Git history = supersede history.
+- Google Drive is EXPORT-ONLY. The legacy Decision Log Doc
+  (1SEZcEVzTw_DKHUjaij6jdK7BEMYDFWm0iB5BMTcdcOY) is a FROZEN pre-2026-06-27 archive —
+  read-only, never appended.
+- Supersede-never-delete: superseded entries set `superseded_by`; nothing is deleted.
+  The field is binary — partial supersessions are explained in the entry prose, not the link.
+- `ops.decision_log` holds legal-sensitive operator-selection criteria. It lives in the
+  `ops` schema with service-role-only RLS, inside existing infra. Do NOT move decision
+  logging to any third-party SaaS logger or outside the current security boundary.
+- Coder does NOT fetch historical/source content from Google Drive directly. Trace pastes
+  it into the session. Rationale: Drive Docs are rich-text and parse unreliably, and
+  legal-flagged content requires a human-verified source, not an auto-pull.
+
 ## Formula Constants Location
 
 All addressable market formula constants are in `/lib/addressable-market-constants.ts`.
