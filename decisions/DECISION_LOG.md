@@ -1,9 +1,18 @@
 # GHMD Sales Platform — Decision Log
-
 > **Git mirror — generated file. Do not edit by hand.**  
 > Source of record: `ops.decision_log` (Supabase project `ghmd-sales-platform` / `cprltmwwldbxcsunsafl`).  
 > Regenerate with `npm run log:export`. The original Google Doc is a frozen archive and is never edited.  
 > Newest entries first.
+
+---
+
+## [2026-06-28] Session Handoffs Repo-Hosted at /handoffs/ — ADOPTED (PR #9, c79e985)
+
+**Decision:** Session handoffs repo-hosted at /handoffs/; LATEST.md is a byte-identical mirror of the latest versioned handoff (v2.16) and links to SPRINT-STATE.md for sprint status (never restates it). CLAUDE.md handoff-read directive landed as new rule #11 (RLS rule #3 left untouched); rule-change-by-quote meta-rule added as #12. Merged via PR #9 squash commit c79e985.
+
+**Reasoning:** Resolves the Coder-cannot-fetch-Drive conflict by moving system-of-record handoffs into the repo. Establishes drift guardrail between LATEST.md (mirror) and SPRINT-STATE.md (sprint tracker). Pre-merge drift check confirmed PR #9 is docs-only against current main — decision-log implementation already live via #7/#8 (origin/main 42d157c); migration no-op, zero clobber risk, RLS enabled and untouched. foyfhh branch confirmed local-only strict subset, abandoned.
+
+**Status:** ADOPTED
 
 ---
 
