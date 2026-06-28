@@ -66,7 +66,7 @@ Group A walled off as non-scoring to prevent verifiable enrichment context from 
 
 **Reasoning:** GHMD is the sole supplier of treatment disposables, so reorder velocity is an involuntary, tamper-proof, near-real-time measure of actual patient throughput — exogenous to Trace, removing motivated-reasoning risk. This converts "proven by data" from narrative into a falsifiable instrument: do operators scored high at intro predict higher reorder velocity than those scored low.
 
-**Status:** ADOPTED
+**Status:** LOCKED
 
 ---
 

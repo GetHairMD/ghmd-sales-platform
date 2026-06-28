@@ -127,12 +127,12 @@ Spend caps — hard caps AND alerts on every paid surface before any prospect-fa
  $RSN$Legal opinion obtained: all-party-aware recording is cleared. Recorded intro calls are the richest single source of operator-underwriting and sales-psychology data. The legal opinion resolves the gate; notification becomes procedure, not blocker.$RSN$,
  'ADOPTED', true, null),
 
--- [2026-06-26] Outcome Metrics — LOCKED  (STATUS line = ADOPTED)
+-- [2026-06-26] Outcome Metrics — LOCKED  (locked dependent-variable definition)
 ('2026-06-26', 'sales',
  'Outcome Metrics — LOCKED',
  $DEC$Two dependent variables locked. (1) Sales outcome: signed AND funded deal (binary; funding is part of the definition). (2) Territory-performance outcome: patient conversion volume, proxied by disposable reorder velocity (units/month, trended), cross-validated by machine-usage logs at instrumented locations. Data-quality rule: tag every location by machine-instrumentation status (instrumented = two throughput signals; non-instrumented = disposables only) — a capture-time field, unrecoverable if skipped.$DEC$,
  $RSN$GHMD is the sole supplier of treatment disposables, so reorder velocity is an involuntary, tamper-proof, near-real-time measure of actual patient throughput — exogenous to Trace, removing motivated-reasoning risk. This converts "proven by data" from narrative into a falsifiable instrument: do operators scored high at intro predict higher reorder velocity than those scored low.$RSN$,
- 'ADOPTED', false, null),
+ 'LOCKED', false, null),
 
 -- [2026-06-25] MedSpaLists.com — REJECTED (prompt injection / vendor integrity)  (STATUS line = ADOPTED)
 ('2026-06-25', 'sales',
