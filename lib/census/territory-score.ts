@@ -13,6 +13,7 @@ import {
   getMHHIByCounty,
   type CohortPopulation,
 } from './queries'
+import { getPhysicianCountByCounty } from '../npi/queries'
 
 // Placeholder weight for PPI's contribution to the future composite territory
 // score. Higher PPI = stronger market, so this coefficient is positive once set.
@@ -36,6 +37,7 @@ export type TerritorySignals = {
   mhhi: number
   mhhiTier: 'low' | 'mid' | 'high'
   ppi: number // Purchasing Power Index — relative ranking signal (see ppi.ts)
+  npiDensity: number // raw physician count from NPI Registry; additive signal, unweighted
 }
 
 /** Bucket MHHI into low (<$60k) / mid ($60k–$100k inclusive) / high (>$100k). */
@@ -65,8 +67,6 @@ export function computeDemandByAgeBand(cohorts: CohortPopulation[]): AgeBandDema
   return result
 }
 
-// TODO: Physician density signal — pull from NPI Registry (separate scaffold, Sprint 1 Task 2)
-
 /**
  * Orchestrate the territory signal computation for a 5-digit county FIPS.
  * Sequential by design — no parallel fan-out in this scaffold.
@@ -74,6 +74,10 @@ export function computeDemandByAgeBand(cohorts: CohortPopulation[]): AgeBandDema
 export async function computeTerritorySignals(fips: string): Promise<TerritorySignals> {
   const cohorts = await getCohortPopulationByCounty(fips)
   const { mhhi } = await getMHHIByCounty(fips)
+  // Physician density (NPI Registry). Raw count only — never throws; degrades to
+  // 0 so Census signals still score if NPI is unavailable. Weighting is defined
+  // by Chat in a future session.
+  const npiDensity = await getPhysicianCountByCounty(fips)
 
   const demandByAgeBand = computeDemandByAgeBand(cohorts)
   const totalEstimatedDemandMale = demandByAgeBand.reduce((s, d) => s + d.estimatedDemandMale, 0)
@@ -97,5 +101,6 @@ export async function computeTerritorySignals(fips: string): Promise<TerritorySi
     mhhi,
     mhhiTier: mhhiTier(mhhi),
     ppi,
+    npiDensity,
   }
 }
