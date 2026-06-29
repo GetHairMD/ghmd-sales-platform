@@ -70,3 +70,9 @@ Pending backlog (do not block Sprint 1 on this):
 - **Chat** — PM + planning (this agent)
 - **Coder** — git + schema + code (Local folder, fresh context each session)
 - **Pilot** — GitHub UI + browser tasks
+
+## Pending PRs
+
+| PR | Title | Branch | Status |
+|---|---|---|---|
+| [#21](https://github.com/GetHairMD/ghmd-sales-platform/pull/21) | feat: NPI Registry scaffold — physician density signal (Sprint 1 Task 2) | `feature/npi-registry-scaffold` | Open — awaiting review, do not merge |
