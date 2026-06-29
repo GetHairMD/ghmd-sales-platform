@@ -7,11 +7,19 @@
  */
 
 import { DEMAND_COEFFICIENTS, MHHI_TIERS } from './constants'
+import { computePpi } from './ppi'
 import {
   getCohortPopulationByCounty,
   getMHHIByCounty,
   type CohortPopulation,
 } from './queries'
+
+// Placeholder weight for PPI's contribution to the future composite territory
+// score. Higher PPI = stronger market, so this coefficient is positive once set.
+// Exported so future scoring code consumes it as the single source of truth.
+// TODO: calibrate in future session — do not invent a weight. At 0.0 the PPI
+// signal is carried through the pipeline but is inert in any weighted total.
+export const PPI_WEIGHT = 0.0
 
 export type AgeBandDemand = {
   ageBand: string
@@ -27,6 +35,7 @@ export type TerritorySignals = {
   demandByAgeBand: AgeBandDemand[] // cohort-level breakdown, retained for debugging
   mhhi: number
   mhhiTier: 'low' | 'mid' | 'high'
+  ppi: number // Purchasing Power Index — relative ranking signal (see ppi.ts)
 }
 
 /** Bucket MHHI into low (<$60k) / mid ($60k–$100k inclusive) / high (>$100k). */
@@ -70,6 +79,15 @@ export async function computeTerritorySignals(fips: string): Promise<TerritorySi
   const totalEstimatedDemandMale = demandByAgeBand.reduce((s, d) => s + d.estimatedDemandMale, 0)
   const totalEstimatedDemandFemale = demandByAgeBand.reduce((s, d) => s + d.estimatedDemandFemale, 0)
 
+  // RPP (BEA Regional Price Parities) and rent-burden share (ACS B25070_010E)
+  // are not yet fetched in this scaffold — they arrive via the Census module in
+  // Sprint 2. Until then rpp = 0, so computePpi() returns 0 (no divide-by-zero)
+  // and rentBurdenPct is omitted. Wiring the upstream fetch flips PPI live with
+  // no change to this call site.
+  const rpp = 0 // TODO: Sprint 2 — source from BEA Regional Price Parities upstream
+  const ppi = computePpi({ medianHouseholdIncome: mhhi, rpp })
+  // Future composite score will add (ppi × PPI_WEIGHT); inert at PPI_WEIGHT = 0.0.
+
   return {
     fips,
     totalEstimatedDemandMale,
@@ -78,5 +96,6 @@ export async function computeTerritorySignals(fips: string): Promise<TerritorySi
     demandByAgeBand,
     mhhi,
     mhhiTier: mhhiTier(mhhi),
+    ppi,
   }
 }
