@@ -1,63 +1,72 @@
-# GHMD Sales Platform Handoff v2.19
+# GHMD Sales Platform Handoff v2.20
 
 Date: 2026-06-29
-Session type: Chat (PM + Planning)
-Prepared by: Claude Chat
+Session type: Pilot (GitHub UI)
+Prepared by: Claude Pilot
 Status: Ready for commit
 
 ## What Was Completed This Session
 
-Operator scoring schema confirmed merged — migrations 20260629000000_operator_scoring_schema.sql and 20260629000001_fix_override_rates_view_security.sql both present and verified in supabase/migrations/. PRs #13, #15, #16, #17 confirmed merged and closed.
+Sprint 1 Task 1 — Census API scaffold — **merged and closed** via PR #19.
 
-Census API scaffold fully designed — Sprint 1 Task 1 Coder prompt authored, reviewed, and corrected through two rounds:
+PR #19 (`feat: Census API scaffold — territory signals (Sprint 1 Task 1)`) merged into `main` from `feature/census-api-scaffold`. 1 commit, 10 files changed (+6,318 / -4,033). All verification gates passed:
 
-- Demographic model corrected: male and female cohorts 20–79 (80+ excluded — propensity to act negligible), coefficients sourced from GHMD proprietary demand model table
-- Physician density proxy (C24030_044E) dropped — NPI Registry confirmed as source (separate scaffold, Sprint 1 Task 2)
-- Architecture decision: raw cohort counts returned from Census layer; coefficients applied in scoring layer (territory-score.ts); constants in /lib/census/constants.ts structured to mirror future Supabase config row
+- `npm run test` → 13 passed
+- `npm run build` → passes, no type errors (`tsc --noEmit` clean)
+- NIP contamination scan on new files → clean
+- Deploy preview confirmed live on Netlify
 
-CENSUS_API_KEY added to Netlify env vars for ghmdsalesplatform, confirmed activated by Census Bureau API Team.
+Files delivered in PR #19:
 
-Backlog item carried forward — log:export script missing from package.json; decision log markdown mirror is one row behind (row 20 absent). Supabase table remains authoritative.
+| File | Purpose |
+|---|---|
+| `lib/census/client.ts` | Typed `censusClient` singleton, `CensusError`, `CENSUS_YEAR` constant. Server-side only; `CENSUS_API_KEY` read at call time, never logged/bundled. |
+| `lib/census/constants.ts` | `DEMAND_COEFFICIENTS` (bands 20–79; 80+ excluded), `DemandCoefficient` type, `MHHI_TIERS`. Shaped as flat rows to mirror a future Supabase config table. |
+| `lib/census/queries.ts` | Raw ACS5 pulls: `getCohortPopulationByCounty` (B01001), `getMHHIByCounty` (B19013), `splitFips`. No coefficients applied here. |
+| `lib/census/territory-score.ts` | `computeTerritorySignals` orchestration + `computeDemandByAgeBand`/`mhhiTier` pure helpers. NPI density TODO placeholder. |
+| `src/app/api/census/territory/route.ts` | `GET /api/census/territory?fips=XXXXX`, Supabase-session gated, fips validated, sequential. |
+| `lib/census/__tests__/queries.test.ts` | 13 unit tests, all Census HTTP mocked. |
+| `.env.local.example` | Documents env vars (incl. `CENSUS_API_KEY`). |
+| `package.json` | Added `vitest` devDep + `test` script. |
+| `tsconfig.json` | Excluded `**/__tests__/**` from Next production typecheck. |
+
+Census variable code corrections verified against live Census Bureau variable list on 2026-06-29. ACS B01001 sub-cohort summing corrected (18-24 and 60-69 ranges split into finer sub-cohorts). Corrected mapping confirmed matching `src/lib/census.ts`.
+
+SPRINT-STATE.md created this session — tracks PR merge history and sprint task completion.
 
 ## Confirmed State
 
 | Item | State |
-|------|-------|
+|---|---|
 | Repo | GetHairMD/ghmd-sales-platform |
 | Supabase project | cprltmwwldbxcsunsafl |
 | Netlify site | ghmdsalesplatform (ID: 0a339783) |
 | Sprint 1 | OPEN |
-| Migrations | 20260629000000, 20260629000001 — both present |
-| Working tree | Clean, no NIP contamination |
-| CLAUDE.md | First line correct |
+| Sprint 1 Task 1 | COMPLETE — PR #19 merged |
+| Sprint 1 Task 2 | NEXT — NPI Registry scaffold |
+| Working tree | Clean post-merge |
 | CENSUS_API_KEY | In Netlify env vars, activated |
+| SPRINT-STATE.md | Created — PR #19 entry logged |
 
 ## Decisions Logged This Session
 
-Decision: Census scaffold returns raw cohort counts; coefficients applied in separate scoring layer.
-Rationale: Decouples Census data release cycle from model tuning cycle. Constants structured for easy promotion to Supabase config table when per-market tuning is required.
-Authority: Chat (Trace confirmed)
-
-Decision: Physician density signal deferred to NPI Registry scaffold (Sprint 1 Task 2). Census proxy (C24030_044E) dropped entirely.
-Authority: Chat (Trace confirmed)
-
-Decision: Demographic cohorts 80–84 and 85+ excluded from demand model. Propensity to act at 0.5%/1.0% contributes negligible signal.
-Authority: Chat (Trace confirmed)
+No new architectural decisions this session. PR #19 merge closes all open Census scaffold decisions from v2.19.
 
 ## NEXT SESSION — IMMEDIATE WORK
 
-Sprint 1, Task 1: Census API Scaffold
-Coder prompt is complete and reviewed. Coder session was blocked this session on missing v2.19 handoff (gate held correctly). With this handoff committed, Coder is cleared to proceed.
+**Sprint 1, Task 2: NPI Registry Scaffold**
 
-Coder first action: Re-run session start checks against v2.19. All other pre-flight items confirmed green. Proceed directly to feature/census-api-scaffold branch.
+Census layer is complete and merged. Next scaffold pulls physician density signal from NPI Registry to feed into `computeTerritorySignals` (NPI density TODO placeholder already present in `lib/census/territory-score.ts`).
+
+Coder first action: Re-run session start checks against v2.20. Proceed to `feature/npi-registry-scaffold` branch.
 
 Pending backlog (do not block Sprint 1 on this):
 
-- Add log:export script to package.json
+- Add `log:export` script to `package.json`
 - Commit missing decision log row 20 to markdown mirror
 
 ## Agent Roles Reminder
 
-- Chat — PM + planning (this agent)
-- Coder — git + schema + code (Local folder, fresh context each session)
-- Pilot — GitHub UI + browser tasks
+- **Chat** — PM + planning (this agent)
+- **Coder** — git + schema + code (Local folder, fresh context each session)
+- **Pilot** — GitHub UI + browser tasks
