@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computePpi, PPI_SIGNAL_NOTE, type PpiInputs } from './ppi'
+import { computePpi, PPI_SIGNAL_NOTE, type PpiInputs } from '../ppi'
 
 // ---------------------------------------------------------------------------
 // Base formula: PPI = medianHouseholdIncome / (RPP / 100)
