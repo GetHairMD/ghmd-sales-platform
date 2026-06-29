@@ -1,17 +1,26 @@
 # Sprint State — GHMD Sales Platform
 
-Last updated: 2026-06-24
+Last updated: 2026-06-29
 
 ## Current Sprint
 
 **Sprint 1 — Database Foundation + Census API + Addressable Market Engine**
-Weeks 1–2 · Status: **READY TO OPEN**
+Weeks 1–2 · Status: **OPEN** · Opened: 2026-06-29
+
+### Sprint 1 — Open Notes (2026-06-29)
+
+- Migration `20260629000000_operator_scoring_schema.sql` applied to `cprltmwwldbxcsunsafl` and verified (tables `operators`, `operator_enrichment`, `operator_scores`, `operator_score_records` created with RLS; `capture_source` enum and `operator_score_override_rates` view present).
+- PR [#15](https://github.com/GetHairMD/ghmd-sales-platform/pull/15) open — security view fix (`operator_score_override_rates` recreated `WITH (security_invoker = true)` to clear `security_definer_view` advisor ERROR). DB already updated; PR syncs the migration file to the repo. Pending merge.
+
+### Sprint 1 — Backlog
+
+- [ ] `log:export` script missing from `package.json` — add it (referenced in ops tooling but not defined; only `dev`/`build`/`start`/`lint` exist).
 
 ## Sprint Sequence
 
 | Sprint | Title | Weeks | Status |
 |--------|-------|-------|--------|
-| 1 | Database Foundation + Census API + Addressable Market Engine | 1–2 | READY |
+| 1 | Database Foundation + Census API + Addressable Market Engine | 1–2 | OPEN |
 | 2 | Mapbox Territory Map + Proposal Page Architecture | 3–4 | LOCKED |
 | 3 | Spoke Candidate Auto-Screen | 5–6 | LOCKED |
 | 4 | AesthetiX Webhook + CRM Trigger + Pipeline Automation | 7–8 | LOCKED |
