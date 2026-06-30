@@ -6,6 +6,58 @@
 
 ---
 
+## [2026-06-30] Second-Opinion Gate — Coder-Side residual_risk Integrity Gap — Accepted, Not Enforced
+
+**Decision:** The Second-Opinion Gate reads Coder's residual_risk disposition from a structured field in the PR description (coder_residual_risk: none|accepted|unresolved), not by querying ops.decision_log directly from the CI runner. Nothing currently verifies that the PR-body value matches the corresponding ops.decision_log row at gate-run time. An author could declare coder_residual_risk: none in a PR description while the related decision_log entry (once written) says accepted, and the gate would trust the PR-body value as written.
+
+**Reasoning:** This is a known, accepted gap, not an oversight. The PR-body-block design (vs. direct decision_log query) was chosen deliberately for two independent reasons: (1) security - keeping the legal-sensitive ops.decision_log table out of reach of an ephemeral CI runner, consistent with CLAUDE.md's rule against moving decision logging outside the existing security boundary; (2) correctness - per A5, a decision_log row for an accepted escalation is written only after Trace reviews and accepts it, which happens after the gate runs, so a literal query-at-gate-time read would frequently find no row to read at all.
+
+Partial mitigating control: GPT-5's verdict is an independent second read of the same PR diff. A mis-declared coder_residual_risk value still gets an adversarial check from the GPT-5 side per the asymmetric-agreement logic (A3) - if GPT-5 also returns RESIDUAL_RISK: none, the PR passes silently despite the false declaration; if GPT-5 finds anything, the PR still escalates regardless of what Coder declared. The gap is real only in the narrow case where both a false "none" declaration and a clean GPT-5 NO_ISSUE coincide on the same PR.
+
+Revisit trigger: if a real instance of a mis-declared coder_residual_risk value reaching production is ever discovered, or if a higher-trust verification mechanism (e.g., a narrow SECURITY DEFINER lookup scoped to a single row, similar to the residual_risk_overdue() pattern used for the sweep) can be built without re-introducing broad CI access to ops.decision_log, that is the trigger to close this gap rather than continue accepting it.
+
+**Status:** ADOPTED
+
+---
+
+## [2026-06-30] Second-Opinion Gate — Escalation Delivery — GitHub Mobile Only, No SMS Channel
+
+**Decision:** Second-Opinion Gate escalations (A4) deliver solely via GitHub Mobile native push notifications on PR comments. No SMS/Twilio or other real-time channel built. This applies equally to per-PR escalations (A4) and the weekly overdue-item sweep (A5/Step 6, delivered via a persistent tracking GitHub issue).
+
+**Reasoning:** Accepted tradeoff, stated explicitly at design time (A10): SMS/Twilio integration requires A2P 10DLC carrier registration, which is not instant and the build timeline could not absorb. If a BLOCK verdict lands on a PR that other queued sprint work genuinely depends on, there is no dedicated urgency signal distinguishing it from any other escalation - Trace sees it via the same PR-comment notification as everything else, with no guaranteed faster response time than GitHub Mobile's normal notification delivery. This is a conscious acceptance under a real time constraint, not an oversight.
+
+Verified live as of gate go-live: GitHub Mobile push notification for the forced-escalation test case (PR #30, GPT-side BLOCK) was confirmed received by Trace on his device before this entry was logged.
+
+Revisit trigger: if a real stoppage scenario occurs and per-comment GitHub notifications prove insufficiently prompt, that is the signal to revisit a dedicated real-time channel - not a reason to build one preemptively now.
+
+**Status:** ADOPTED
+
+---
+
+## [2026-06-30] Second-Opinion Gate — OpenAI Egress Boundary — No BAA Required, Confirmed by Code Audit
+
+**Decision:** No BAA pursued. Trigger category 3 (PHI-adjacent data paths) confirmed to have zero live code matches on ghmd-sales-platform as of this date. PR diffs and decision-log excerpts may be sent to OpenAI (GPT-5-class model) per the Second-Opinion Gate design (A1-A9) without a BAA in place. Step 4 (GPT-5 comparison script) unblocked for this repo.
+
+**Reasoning:** Verified, not asserted, via direct schema query and code audit (5 evidence points): (1) no PHI/clinical columns exist in any of 13 tables across public/ops/territories schemas - no dob, mrn, diagnosis, medical_history, insurance, or treatment fields anywhere; (2) the only person-level PII is on public.prospects (full_name, email, phone), which identifies franchise/territory buyers (physicians and practice owners being sold a territory license), not patients receiving care - business-contact PII, not PHI; (3) every "patient" reference in code is an aggregate statistical estimate (addressable_patients_primary/outer, Census ACS-derived market sizing) - no individual patient ever appears; (4) NPI-related code (lib/npi-enrichment.ts, spoke_candidates) handles provider/practice identity from the public CMS NPI Registry, not patient PHI; (5) no Supabase edge functions exist yet, no OpenAI/Anthropic/external-LLM call exists anywhere in code today, and all 13 tables have 0 rows - no live data, real or synthetic, currently flows anywhere.
+
+Time-bounded caveat, not a blocker: this conclusion is "zero PHI today," not "structurally impossible." The one identified future path is call_scores + Phase 2 call-scoring (Whisper transcription + Claude-based scoring of physician-prospect sales calls), which is designed, not built (0 rows, scoring engine not implemented). If and when that feature ships, it introduces recorded conversation content into the data path for the first time, which could surface patient-related disclosures depending on call content even though the calls themselves are sales calls with physician-prospects, not clinical encounters. Category 3 (PHI-adjacent data paths) is the gate's own designed tripwire for this - re-evaluate this decision against live Phase 2 code before Phase 2 ships, not retroactively after.
+
+Step 6 (overdue-item sweep) notification channel deferred separately - not resolved by this entry.
+
+**Status:** ADOPTED
+
+---
+
+## [2026-06-29] Operator Scoring Schema — Capture Taxonomy v1
+
+**Decision:** Built operator-scoring Supabase migration (20260629000000_operator_scoring_schema.sql) implementing Capture Taxonomy v1 field dictionary. Four tables: operators (stub, Sprint 1 replace), operator_enrichment (Group A, non-scoring, RLS), operator_scores (Groups B/C/D, 14 fields × 4-column quad, RLS), operator_score_records (Group F, RLS). Plus operator_score_override_rates view. Capture_source enum: enriched / ai_extracted / ai_derived / human_entered / human_override. Group A walled off from composite. override_requires_notes constraint written for all 14 fields. Low-confidence gate on composite. objections_raised and questions_asked included in Group B per Trace approval. Enum idempotency via guarded DO $$ block (CREATE TYPE IF NOT EXISTS invalid in Postgres). PR #14 draft: https://github.com/GetHairMD/ghmd-sales-platform/pull/14.
+
+**Reasoning:** Capture Taxonomy v1 confirmed authoritative and in-repo (scripts/seed_capture_taxonomy.sql + decisions/DECISION_LOG.md line 35 — byte-identical). Wide-column over normalized child table for v1. Four-column pattern enforces source provenance and override auditability per locked architecture. Group A separated to prevent enrichment context leaking into future weighted composite without explicit weighting decision. ai_derived as fifth source type preserved to maintain distinct confidence semantics between extraction certainty and computational completeness.
+
+**Status:** ADOPTED
+
+---
+
 ## [2026-06-28] Session Handoffs Repo-Hosted at /handoffs/ — ADOPTED (PR #9, c79e985)
 
 **Decision:** Session handoffs repo-hosted at /handoffs/; LATEST.md is a byte-identical mirror of the latest versioned handoff (v2.16) and links to SPRINT-STATE.md for sprint status (never restates it). CLAUDE.md handoff-read directive landed as new rule #11 (RLS rule #3 left untouched); rule-change-by-quote meta-rule added as #12. Merged via PR #9 squash commit c79e985.

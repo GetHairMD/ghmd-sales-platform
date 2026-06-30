@@ -26,7 +26,7 @@ This is **entirely separate** from the GHMD Network Intelligence Platform (NIP).
 - **Maps**: Mapbox GL JS + Isochrone API (drive-time, not radius)
 - **Demographics**: Census ACS API (B01001, B19001, B25105)
 - **Phase 2**: Whisper + Claude API call scoring
-- **Signing**: DocuSign (owned)
+- **Signing**: Box Sign (replaces DocuSign entirely — no DocuSign integration at any phase)
 - **CRM stopgap**: AesthetiX / GHL (pipeline tracking only during build)
 
 ## NIP Separation — Hard Boundary
@@ -144,8 +144,9 @@ Never committed to git.
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Client | Restricted to proposals.gethairmd.com domain |
 | `CENSUS_API_KEY` | Server only | Edge Function only |
 | `GOOGLE_PLACES_API_KEY` | Server only | Edge Function only; restricted to server IP |
-| `DOCUSIGN_INTEGRATION_KEY` | Server only | |
-| `DOCUSIGN_WEBHOOK_SECRET` | Server only | Verify webhook signatures |
+| `BOX_CLIENT_ID` | Server only | Box Sign (signing integration). **Not yet set in Netlify** — SPRINT-STATE tasks 2–3 OPEN |
+| `BOX_CLIENT_SECRET` | Server only | Box Sign. **Not yet set in Netlify** — pending provisioning |
+| `BOX_WEBHOOK_SECRET` | Server only | Verify Box Sign webhook signatures. **Not yet set in Netlify** — pending |
 | `GHL_WEBHOOK_SECRET` | Server only | Verify AesthetiX webhook signatures |
 | `ANTHROPIC_API_KEY` | Server only | Phase 2: call scoring engine |
 

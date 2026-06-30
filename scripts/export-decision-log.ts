@@ -81,14 +81,12 @@ async function main(): Promise<void> {
 
   const supabase = createClient(url, serviceKey, {
     auth: { persistSession: false },
-    db: { schema: 'ops' },
   });
 
-  const { data, error } = await supabase
-    .from('decision_log')
-    .select('id, decided_on, platform, title, decision, reasoning, status, legal_flag, superseded_by, source_session')
-    .order('decided_on', { ascending: false })
-    .order('id', { ascending: false });
+  // ops is intentionally not exposed to PostgREST, so we cannot read
+  // ops.decision_log directly. Read via the service-role-only SECURITY DEFINER
+  // helper public.decision_log_export() (returns newest-first).
+  const { data, error } = await supabase.rpc('decision_log_export');
 
   if (error) fail(`Query failed: ${error.message}`);
   if (!data || data.length === 0) fail('No rows returned from ops.decision_log.');
