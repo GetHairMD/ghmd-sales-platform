@@ -68,6 +68,7 @@ export async function fetchNpiByName(name: string, state: string): Promise<NpiRe
   const res = await fetch(url.toString(), { cache: 'no-store' })
   if (!res.ok) throw new Error(`NPI Registry error: ${res.status}`)
 
+  // result_count is 0 (not absent) when NPPES finds no match for the query.
   const data: NpiApiResponse = await res.json()
   if (!data.result_count || !data.results.length) return null
 
