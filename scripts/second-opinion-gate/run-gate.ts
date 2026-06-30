@@ -102,6 +102,8 @@ async function getSecondOpinion(spec: string, diff: string): Promise<GptVerdict 
       console.error('OpenAI returned empty content.')
       return null
     }
+    // Auditability: the second opinion is part of the gate's reasoning record.
+    console.log(`----- GPT-5 raw response (model ${model}) -----\n${content}\n----- end GPT-5 response -----`)
     const parsed = parseGptOutput(content)
     if (parsed.residualRisk === null) {
       console.error('OpenAI output malformed — could not parse RESIDUAL_RISK/VERDICT.')

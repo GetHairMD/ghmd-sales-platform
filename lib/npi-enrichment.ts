@@ -65,6 +65,8 @@ export async function fetchNpiByName(name: string, state: string): Promise<NpiRe
     url.searchParams.set('organization_name', name)
   }
 
+  // NPPES is a public US provider registry; results identify the provider
+  // (physician/organization), never a patient.
   const res = await fetch(url.toString(), { cache: 'no-store' })
   if (!res.ok) throw new Error(`NPI Registry error: ${res.status}`)
 
