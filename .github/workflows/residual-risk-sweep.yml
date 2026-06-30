@@ -1,0 +1,42 @@
+name: Residual-Risk Overdue Sweep
+
+# Weekly check (A5 / Step 6): flags ops.decision_log rows that are
+# residual_risk = accepted and overdue (or have no target date), maintaining a
+# single persistent GitHub tracking issue tagging Trace. Reuses the existing
+# decision_log via a safe SECURITY DEFINER projection — no new infrastructure.
+#
+# Shipped DORMANT: runs only when repo variable
+# SECOND_OPINION_GATE_ENABLED == 'true'. workflow_dispatch allows manual test.
+
+on:
+  schedule:
+    - cron: '0 13 * * 1' # Mondays 13:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    if: vars.SECOND_OPINION_GATE_ENABLED == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run sweep
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GATE_TRACE_HANDLE: ${{ vars.GATE_TRACE_HANDLE }}
+        run: npx tsx scripts/second-opinion-gate/run-sweep.ts

@@ -1,0 +1,54 @@
+name: Second-Opinion Gate
+
+# Adversarial second review (A1–A7) for PRs in the trigger list (A6).
+# Classification is via a `second-opinion-gate` block in the PR description
+# (see docs/SECOND-OPINION-GATE.md). PRs with no block are not in scope and
+# pass automatically — keeping this safe to make a required check (Step 7).
+#
+# Shipped DORMANT: the job only runs when repo variable
+# SECOND_OPINION_GATE_ENABLED == 'true'. Until then it reports success
+# (so it never blocks merges) without calling OpenAI.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: second-opinion-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dormant notice
+        if: vars.SECOND_OPINION_GATE_ENABLED != 'true'
+        run: echo "Second-Opinion Gate is dormant (SECOND_OPINION_GATE_ENABLED != 'true'). Passing."
+
+      - name: Checkout
+        if: vars.SECOND_OPINION_GATE_ENABLED == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        if: vars.SECOND_OPINION_GATE_ENABLED == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        if: vars.SECOND_OPINION_GATE_ENABLED == 'true'
+        run: npm ci
+
+      - name: Run gate
+        if: vars.SECOND_OPINION_GATE_ENABLED == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          GATE_TRACE_HANDLE: ${{ vars.GATE_TRACE_HANDLE }}
+        run: npx tsx scripts/second-opinion-gate/run-gate.ts
