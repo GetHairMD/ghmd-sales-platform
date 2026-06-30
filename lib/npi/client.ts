@@ -26,6 +26,89 @@ const NPI_API_VERSION = '2.1'
 export const NPI_TAXONOMY_HAIR = 'Dermatology'
 
 /**
+ * Target NPPES taxonomy CODES for the hair-restoration physician-density signal.
+ *
+ * Refines the single-description Sprint 1 approximation ({@link NPI_TAXONOMY_HAIR})
+ * into the full set of surgical + aesthetic specialties relevant to hair
+ * restoration. These are NPPES *codes* (10-char), distinct from the
+ * *description* string the count query still sends — see the note on
+ * {@link filterProvidersByTargetTaxonomy} for how the two relate.
+ *
+ * A provider is in-scope if ANY of its taxonomies matches a code in this set.
+ */
+export const TARGET_TAXONOMIES = [
+  '208200000X', // Plastic Surgery
+  '207XS0114X', // Plastic Surgery — Surgery of the Hand
+  '207YS0123X', // Otolaryngology — Facial Plastic Surgery
+  '207ND0900X', // Dermatology
+  '207N00000X', // Dermatology (general)
+  '204D00000X', // Neuromusculoskeletal Medicine
+] as const
+
+/**
+ * NPPES taxonomy codes explicitly EXCLUDED from the hair-restoration signal.
+ *
+ * Cardiovascular Disease is not relevant to hair restoration; it is enumerated
+ * here (rather than merely absent from {@link TARGET_TAXONOMIES}) so the filter
+ * can flag it if a provider record carries it — see
+ * {@link filterProvidersByTargetTaxonomy}.
+ */
+export const EXCLUDED_TAXONOMIES = [
+  '207RC0000X', // Cardiovascular Disease — explicitly excluded
+] as const
+
+/** Fast-membership sets derived from the exported code arrays. */
+const TARGET_TAXONOMY_SET: ReadonlySet<string> = new Set(TARGET_TAXONOMIES)
+const EXCLUDED_TAXONOMY_SET: ReadonlySet<string> = new Set(EXCLUDED_TAXONOMIES)
+
+/** Minimal NPPES taxonomy entry — only the fields the code filter reads. */
+export type NpiTaxonomy = {
+  code: string
+  desc?: string
+  primary?: boolean
+}
+
+/** Minimal NPPES provider record consumed by {@link filterProvidersByTargetTaxonomy}. */
+export type NpiProviderRecord = {
+  number?: string
+  taxonomies?: NpiTaxonomy[]
+}
+
+/**
+ * Filter NPI provider records to those matching a {@link TARGET_TAXONOMIES} code.
+ *
+ * A provider is kept if ANY of its taxonomies has a code in TARGET_TAXONOMIES.
+ * Records with no taxonomies (or none matching) are dropped. When a provider
+ * carries an {@link EXCLUDED_TAXONOMIES} code it is flagged via a console log
+ * ("flag if present") — it can still be kept if it ALSO holds a target code,
+ * since multi-specialty providers are common.
+ *
+ * Why a separate code filter? The Sprint 1 density count
+ * ({@link npiClient} via the query layer) filters server-side by taxonomy
+ * *description* and reads `result_count`; it cannot express a multi-code set.
+ * This client-side filter is the canonical TARGET_TAXONOMIES consumer for any
+ * flow that holds the actual provider records (e.g. the npi_provider_cache
+ * enrichment path).
+ */
+export function filterProvidersByTargetTaxonomy<T extends NpiProviderRecord>(
+  providers: T[],
+): T[] {
+  return providers.filter((provider) => {
+    const taxonomies = provider.taxonomies ?? []
+
+    for (const taxonomy of taxonomies) {
+      if (EXCLUDED_TAXONOMY_SET.has(taxonomy.code)) {
+        console.warn(
+          `[npi] provider ${provider.number ?? '(unknown)'} carries excluded taxonomy ${taxonomy.code}`,
+        )
+      }
+    }
+
+    return taxonomies.some((taxonomy) => TARGET_TAXONOMY_SET.has(taxonomy.code))
+  })
+}
+
+/**
  * Raw NPI Registry response shape. Only the fields this scaffold consumes are
  * typed; individual provider records are left as `unknown` (no per-record
  * parsing is needed for a density count).
