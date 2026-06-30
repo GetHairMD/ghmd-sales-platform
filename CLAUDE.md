@@ -70,6 +70,7 @@ CI and deploy-preview pass.
 11. **Coder reads the current handoff from `/handoffs/LATEST.md` at session start** — repo-hosted, never pulled from Drive (consistent with the no-Drive-fetch rule in Decision Logging)
 12. **Rule changes are specified by quoting the rule's current text and its replacement** — never by rule number, since numbering differs across CLAUDE.md, the handoff, and docs/ files.
 13. Do not arm self-check-in wakeups (ScheduleWakeup / cron self-poll) on draft PRs that are awaiting Trace's manual merge. Trace reports the merge; re-polling a soon-closed PR only creates orphaned timers that must be manually disarmed.
+14. Every `ops.decision_log` entry must set `residual_risk` explicitly (`none` | `accepted` | `unresolved`) — never leave it at the column default without deliberately confirming `none` is correct. This field is read literally by the Second-Opinion Gate comparison logic and must never be inferred from the `reasoning` text field.
 
 ## Session Safety Rules (added June 25, 2026)
 
