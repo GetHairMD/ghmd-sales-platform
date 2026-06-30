@@ -110,7 +110,9 @@ projection only** (id, title, owner, target_date; never `reasoning`/`decision`),
 service-role-execute-only — and maintains **one persistent** GitHub issue
 (label `residual-risk-overdue`) tagging Trace. Reopened/refreshed on each hit,
 closed when the list is empty. Flags rows that are `residual_risk = accepted`
-and either past `residual_risk_target_date` or with no target date set.
+and either past `residual_risk_target_date` or with no target date set —
+**except** rows marked `residual_risk_standing = true`, which are intentionally
+undated standing decisions (not deadline-bearing tasks) and are never flagged.
 
 ## How Trace clears an escalation (A9)
 
@@ -121,9 +123,10 @@ admin-merge. To reject: send back to Coder for a fix; the next push re-runs the 
 
 ## Setup — enabling the gate (confirm-before-ship)
 
-Ships **dormant**. Both workflows are gated on repo variable
-`SECOND_OPINION_GATE_ENABLED`. Until it is `true`, the gate passes without calling
-OpenAI and the sweep does not run.
+**Status: LIVE as of 2026-06-30** (`SECOND_OPINION_GATE_ENABLED = true`, secrets
+provisioned). Both workflows are gated on repo variable
+`SECOND_OPINION_GATE_ENABLED`; setting it back to `false` reverts them to dormant
+(the gate passes without calling OpenAI and the sweep does not run).
 
 **Repository secrets** (Settings → Secrets and variables → Actions → Secrets):
 
@@ -143,15 +146,16 @@ OpenAI and the sweep does not run.
 | `OPENAI_MODEL` | optional; defaults to `gpt-5`. |
 | `GATE_TRACE_HANDLE` | optional; defaults to `traceh-ghmd`. |
 
-## Step 7 (pending) — make it a required check
+## Step 7 (done) — required status check
 
-Once enabled and tested: branch protection on `main` → require the
-`Second-Opinion Gate / gate` status check. Because no-block PRs pass, this does
-not block ordinary PRs.
+Branch protection on `main` requires the `gate` status check (`enforce_admins:
+false`, so Trace can admin-merge to clear an escalation). Because no-block PRs
+pass, ordinary PRs are not blocked.
 
-## Step 8 (pending) — test before it governs real work
+## Step 8 (done) — end-to-end tested; gate is LIVE
 
-Run one trivial-but-classifiable PR through the gate; confirm the OpenAI call
-fires and returns structured output, the A3 logic produces the right result on
-both a silent-pass and a forced-escalation case, and the PR comment posts with a
-GitHub Mobile notification. Report to Trace before treating the gate as live.
+Verified live via test PRs: the OpenAI call fires and returns structured A1
+output; silent-pass (both `none`) posts no comment and the check is green;
+forced escalation from either side (GPT `BLOCK` or Coder `accepted`) posts the
+A4 comment and fails the check; branch protection blocks the merge; the GitHub
+Mobile push was received. **The gate governs real PRs as of 2026-06-30.**
