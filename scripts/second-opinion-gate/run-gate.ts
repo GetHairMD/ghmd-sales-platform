@@ -84,8 +84,8 @@ async function getSecondOpinion(spec: string, diff: string): Promise<GptVerdict 
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
+        // No temperature override: GPT-5-class models only support the default (1).
         model,
-        temperature: 0,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: `SPEC:\n${spec}\n\nDIFF:\n${diff}` },
