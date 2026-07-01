@@ -6,6 +6,16 @@
 
 ---
 
+## [2026-07-01] Merge Strategy — Squash-Merge Only (matches NIP Rule 5)
+
+**Decision:** All PRs are merged via squash-merge only; regular merge and rebase-merge are disabled at the repo level.
+
+**Reasoning:** grep returned empty; SHA-citation pattern already assumes squash behavior (e.g. PR #27 → 30ca5f5, PR #9 → c79e985); repo settings updated manually by Trace on 2026-07-01 (merge commits and rebase merging disabled, squash-merge set to Pull request title).
+
+**Status:** ADOPTED  ·  ⚖ Legal flag
+
+---
+
 ## [2026-06-30] Second-Opinion Gate — Coder-Side residual_risk Integrity Gap — Accepted, Not Enforced
 
 **Decision:** The Second-Opinion Gate reads Coder's residual_risk disposition from a structured field in the PR description (coder_residual_risk: none|accepted|unresolved), not by querying ops.decision_log directly from the CI runner. Nothing currently verifies that the PR-body value matches the corresponding ops.decision_log row at gate-run time. An author could declare coder_residual_risk: none in a PR description while the related decision_log entry (once written) says accepted, and the gate would trust the PR-body value as written.
@@ -16,7 +26,7 @@ Partial mitigating control: GPT-5's verdict is an independent second read of the
 
 Revisit trigger: if a real instance of a mis-declared coder_residual_risk value reaching production is ever discovered, or if a higher-trust verification mechanism (e.g., a narrow SECURITY DEFINER lookup scoped to a single row, similar to the residual_risk_overdue() pattern used for the sweep) can be built without re-introducing broad CI access to ops.decision_log, that is the trigger to close this gap rather than continue accepting it.
 
-**Status:** ADOPTED
+**Status:** ADOPTED  ·  ⚖ Legal flag
 
 ---
 
@@ -30,7 +40,7 @@ Verified live as of gate go-live: GitHub Mobile push notification for the forced
 
 Revisit trigger: if a real stoppage scenario occurs and per-comment GitHub notifications prove insufficiently prompt, that is the signal to revisit a dedicated real-time channel - not a reason to build one preemptively now.
 
-**Status:** ADOPTED
+**Status:** ADOPTED  ·  ⚖ Legal flag
 
 ---
 
@@ -44,7 +54,7 @@ Time-bounded caveat, not a blocker: this conclusion is "zero PHI today," not "st
 
 Step 6 (overdue-item sweep) notification channel deferred separately - not resolved by this entry.
 
-**Status:** ADOPTED
+**Status:** ADOPTED  ·  ⚖ Legal flag
 
 ---
 

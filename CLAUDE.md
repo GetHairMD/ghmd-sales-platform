@@ -43,7 +43,7 @@ Never:
 ## Standing Rules for Every Session
 
 0. **Rule 0 — Confirm git remote before writing any files.**
-   Run `git remote -v` at the start of every session. Remote must be `GetHairMD/ghmd-sales-platform`. If remote shows `GetHairMD/gethairmd-network` (the NIP) or any other unexpected repo: STOP immediately. Do not write any files. Do not open any sprint. Flag to Trace and wait for instruction.
+   Run `git remote -v` at the start of every session. Remote must be `GetHairMD/ghmd-sales-platform`. If remote shows `GetHairMD/gethairmd-network` (the NIP) or any other unexpected repo: STOP immediately. Do not write any files. Do not open any sprint. Flag to Trace and wait for instruction. Run git fetch --prune immediately after remote verification. This removes stale remote-tracking refs for branches deleted on GitHub after squash-merge.
 0-B. **Rule 0-B — CLAUDE.md first-line check.**
    Before any other action, run: `cat CLAUDE.md | head -1`
    Must return: `# GHMD Sales Platform — CLAUDE.md`
@@ -71,6 +71,8 @@ CI and deploy-preview pass.
 12. **Rule changes are specified by quoting the rule's current text and its replacement** — never by rule number, since numbering differs across CLAUDE.md, the handoff, and docs/ files.
 13. Do not arm self-check-in wakeups (ScheduleWakeup / cron self-poll) on draft PRs that are awaiting Trace's manual merge. Trace reports the merge; re-polling a soon-closed PR only creates orphaned timers that must be manually disarmed.
 14. Every `ops.decision_log` entry must set `residual_risk` explicitly (`none` | `accepted` | `unresolved`) — never leave it at the column default without deliberately confirming `none` is correct. This field is read literally by the Second-Opinion Gate comparison logic and must never be inferred from the `reasoning` text field.
+15. All PRs are merged via squash-merge only. Regular merge and rebase-merge are disabled at the repo level. Rationale: every ops.decision_log entry and handoff doc references a single commit SHA per PR — squash-merge preserves that 1:1 mapping; regular merge buries the referenced SHA under intermediate commits.
+16. At the end of every session, before closing: run git checkout main && git merge --ff-only origin/main to fast-forward local main to match remote. If --ff-only refuses, stop and report — do not force. This ensures local never falls behind cloud sessions.
 
 ## Session Safety Rules (added June 25, 2026)
 
