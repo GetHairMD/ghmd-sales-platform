@@ -6,6 +6,16 @@
 
 ---
 
+## [2026-07-01] Adopt two-path write convention for ops.decision_log
+
+**Decision:** Inserts to ops.decision_log are sanctioned from exactly two paths: (1) Coder agent via service key; (2) Trace-directed Claude chat sessions via the Supabase MCP connector. RLS posture unchanged (service_role only). Append-only and supersede-never-delete conventions remain in force. Table comment updated to reflect both paths.
+
+**Reasoning:** Mirrors the NIP ops.decision_log convention adopted 2026-07-01 (NIP decision 847d2cbe). Keeps write-path governance identical across both platforms so the decision-log compliance spine has a single convention. No prior Sales Platform table comment existed; this entry and the new comment establish it.
+
+**Status:** ADOPTED  ·  Source session: Claude chat session 2026-07-01 (Trace-directed, Supabase MCP connector)
+
+---
+
 ## [2026-07-01] Merge Strategy — Squash-Merge Only (matches NIP Rule 5)
 
 **Decision:** All PRs are merged via squash-merge only; regular merge and rebase-merge are disabled at the repo level.

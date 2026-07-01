@@ -84,8 +84,11 @@ CI and deploy-preview pass.
 ## Decision Logging (system of record)
 
 - System of record for all consequential decisions is the Supabase table `ops.decision_log`
-  (project cprltmwwldbxcsunsafl), NOT Google Docs. Logged via a single INSERT through the
-  Supabase MCP connector — no Pilot, no manual Doc editing for routine logging.
+  (project cprltmwwldbxcsunsafl), NOT Google Docs. Two sanctioned write paths, per the table
+  comment and decision id 27 (2026-07-01, mirroring NIP decision 847d2cbe):
+  (1) Coder via service key; (2) Trace-directed Claude chat sessions via the Supabase MCP
+  connector. No Pilot, no manual Doc editing for routine logging. RLS unchanged
+  (service_role only). Append-only, supersede-never-delete in force.
 - The git mirror `/decisions/DECISION_LOG.md` is the durable backup, regenerated via
   `npm run log:export`. Never hand-edit it. Git history = supersede history.
 - Google Drive is EXPORT-ONLY. The legacy Decision Log Doc
