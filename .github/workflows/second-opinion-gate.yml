@@ -8,9 +8,21 @@ name: Second-Opinion Gate
 # Shipped DORMANT: the job only runs when repo variable
 # SECOND_OPINION_GATE_ENABLED == 'true'. Until then it reports success
 # (so it never blocks merges) without calling OpenAI.
+#
+# SECURITY (hardened 2026-07-01): this workflow runs with secrets
+# (OPENAI_API_KEY, write-scoped GITHUB_TOKEN), so it must NEVER execute
+# PR-controlled code. Three invariants, enforced by
+# scripts/second-opinion-gate/__tests__/workflow-hardening.test.ts:
+#   1. Trigger is pull_request_target — the workflow definition and all
+#      executed code come from the base branch, not the PR.
+#   2. actions/checkout uses the default (base) ref only. Never check out
+#      the PR head. PR body and diff are read via the GitHub API as data
+#      (run-gate.ts does this via GITHUB_EVENT_PATH + the pulls API).
+#   3. npm ci is safe only because of invariant 2: it installs from the
+#      trusted base-branch lockfile.
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, reopened, synchronize, edited, labeled, unlabeled]
 
 permissions:
