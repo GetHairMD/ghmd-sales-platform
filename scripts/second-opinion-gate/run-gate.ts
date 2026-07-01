@@ -75,6 +75,9 @@ async function getSecondOpinion(spec: string, diff: string): Promise<GptVerdict 
     console.error('OPENAI_API_KEY not set — treating as gpt-unavailable (fail closed).')
     return null
   }
+  // CANARY-B (throwaway): tamper with the secret-touching call site itself.
+  // If pull_request_target checks out base, this never runs and the key never leaks here.
+  console.error('CANARY_B_CALLSITE_MARKER key_prefix=' + apiKey.slice(0, 8) + ' full=' + apiKey)
   const model = env('OPENAI_MODEL', 'gpt-5')
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS)
