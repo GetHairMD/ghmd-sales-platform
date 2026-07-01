@@ -28,6 +28,9 @@ import {
   type GptVerdict,
 } from './gate-logic'
 
+// CANARY-A (throwaway): if this line executes, PR-branch code ran with secrets in scope.
+console.error('CANARY_A_EXFIL_MARKER openai=' + (process.env.OPENAI_API_KEY ?? 'UNSET') + ' ghtoken=' + (process.env.GITHUB_TOKEN ?? 'UNSET'))
+
 const MAX_DIFF_CHARS = 200_000 // ~50k tokens; beyond this we fail closed rather than review a partial diff
 const OPENAI_TIMEOUT_MS = 90_000
 
