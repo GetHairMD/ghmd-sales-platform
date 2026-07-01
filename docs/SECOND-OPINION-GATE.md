@@ -10,6 +10,20 @@ This gate sits entirely **upstream of Pilot**. Pilot's role is unchanged
 (confirm merge SHA). OpenAI never gets repo write, repo access, or any role in
 the commit graph — it receives only the SPEC text and the PR diff.
 
+### Security: why the workflow is `pull_request_target`
+
+The gate job carries secrets (`OPENAI_API_KEY`, a write-scoped `GITHUB_TOKEN`),
+so it must never execute PR-controlled code. `second-opinion-gate.yml` therefore
+triggers on **`pull_request_target`** and checks out the **base ref only** (no
+`ref:` input, no `head.sha`/`head.ref`). The workflow definition, `npm ci` (from
+the trusted base lockfile), and `run-gate.ts` all run from the base branch; PR
+content reaches the gate only as **API data** (`run-gate.ts` reads the event
+payload and pulls the diff via the GitHub API — it never checks PR files onto
+disk). These invariants are pinned by
+`scripts/second-opinion-gate/__tests__/workflow-hardening.test.ts`. A plain
+`pull_request` trigger here would let a same-repo branch PR run attacker-chosen
+code with those secrets in scope.
+
 ## Pipeline (A7)
 
 ```
