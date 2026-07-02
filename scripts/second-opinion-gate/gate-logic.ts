@@ -279,6 +279,116 @@ export function parseGptOutput(text: string | null | undefined): GptVerdict {
   }
 }
 
+/**
+ * The minimal projection returned by public.gate_decision_for_pr(pr_number):
+ * the single ops.decision_log row bound to a PR via related_pr. Never carries
+ * reasoning/decision/title/legal_flag — the lookup deliberately omits them.
+ */
+export interface DecisionRow {
+  id: number
+  residual_risk: ResidualRisk
+  status: string
+}
+
+export interface VerifyInput {
+  /** True if the decision_log lookup failed/timed out or its credentials are absent. */
+  rpcUnavailable: boolean
+  /** The row bound to this PR, or null when none is bound. */
+  row: DecisionRow | null
+  /** coder_residual_risk declared in the PR body. */
+  coderResidualRisk: ResidualRisk
+  /** decision_log_id declared in the PR body, or null when absent. */
+  bodyDecisionLogId: number | null
+}
+
+export interface VerifyResult {
+  escalate: boolean
+  reason:
+    | 'verify-ok'
+    | 'verify-rpc-unavailable'
+    | 'verify-id-mismatch'
+    | 'verify-risk-mismatch'
+    | 'verify-no-row-nonzero'
+  human: string
+}
+
+/**
+ * Declaration-integrity check (closes decision_log row #24). Verifies the
+ * PR-body `coder_residual_risk` declaration against the ops.decision_log row
+ * bound to this PR. Runs BEFORE the OpenAI second opinion so a dishonest or
+ * unverifiable declaration is caught (and the API call is skipped).
+ *
+ * Matrix (agreed with Trace, corrected no-row semantics):
+ *   - lookup unavailable                 -> escalate (fail closed)
+ *   - row exists, body id mismatches      -> escalate (author pointed elsewhere)
+ *   - row exists, residual_risk mismatch  -> escalate (declaration != table)
+ *   - row exists, matches                 -> ok (an honest `accepted`/`unresolved`
+ *                                            still escalates later in decideDisposition)
+ *   - no row, body says `none`            -> ok (normal case; most PRs log nothing)
+ *   - no row, body says accepted/unresolved -> escalate: a nonzero declaration with
+ *                                            nothing to verify against is itself the failure
+ */
+export function verifyDeclaration(input: VerifyInput): VerifyResult {
+  const { rpcUnavailable, row, coderResidualRisk, bodyDecisionLogId } = input
+
+  if (rpcUnavailable) {
+    return {
+      escalate: true,
+      reason: 'verify-rpc-unavailable',
+      human:
+        'Could not verify the PR-body residual_risk declaration against ops.decision_log ' +
+        '(lookup unavailable) — failing closed.',
+    }
+  }
+
+  if (row) {
+    // Coerce row.id defensively: PostgREST serializes this bigint as a JSON
+    // number in the current config, but Number() keeps the comparison correct
+    // even if a driver/config change returns it as a string (ids are far below
+    // 2^53, so no precision loss). Without this a string id would strict-!==
+    // the numeric body value and falsely trigger verify-id-mismatch.
+    if (bodyDecisionLogId !== null && Number(row.id) !== bodyDecisionLogId) {
+      return {
+        escalate: true,
+        reason: 'verify-id-mismatch',
+        human:
+          `PR-body decision_log_id (${bodyDecisionLogId}) does not match the ops.decision_log ` +
+          `row bound to this PR (#${row.id}).`,
+      }
+    }
+    if (coderResidualRisk !== row.residual_risk) {
+      return {
+        escalate: true,
+        reason: 'verify-risk-mismatch',
+        human:
+          `PR-body coder_residual_risk (${coderResidualRisk}) does not match ops.decision_log ` +
+          `row #${row.id} (residual_risk: ${row.residual_risk}).`,
+      }
+    }
+    return {
+      escalate: false,
+      reason: 'verify-ok',
+      human: `PR-body declaration matches ops.decision_log row #${row.id}.`,
+    }
+  }
+
+  // No row bound to this PR.
+  if (coderResidualRisk !== 'none') {
+    return {
+      escalate: true,
+      reason: 'verify-no-row-nonzero',
+      human:
+        `PR-body declares coder_residual_risk: ${coderResidualRisk} but no ops.decision_log row ` +
+        'is bound to this PR — a nonzero declaration with nothing to verify against fails closed.',
+    }
+  }
+  return {
+    escalate: false,
+    reason: 'verify-ok',
+    human: 'No decision_log row bound to this PR and coder_residual_risk: none — nothing to verify.',
+  }
+}
+
 export interface DecideInput {
   /** True if the OpenAI call failed, timed out, or returned malformed output. */
   gptUnavailable: boolean
@@ -368,5 +478,41 @@ export function buildEscalationComment(args: {
     `Trigger: \`${disposition.reason}\` — ${disposition.human}`,
     '',
     `@${trace} — this change is blocked pending your review. Accept (log to ops.decision_log) or send back to Coder.`,
+  ].join('\n')
+}
+
+/**
+ * Escalation comment for a declaration-integrity failure (verifyDeclaration).
+ * Distinct from the A4 comment: there is no GPT verdict here — the gate stopped
+ * before the second opinion because the PR-body declaration could not be
+ * reconciled with ops.decision_log.
+ */
+export function buildVerificationComment(args: {
+  block: GateBlock
+  verify: VerifyResult
+  row: DecisionRow | null
+  trace: string
+}): string {
+  const { block, verify, row, trace } = args
+  const whatItDoes = (block.spec.split('\n')[0] || '(see PR spec)').trim()
+  const bodyDeclaration =
+    `coder_residual_risk: ${block.coderResidualRisk}` +
+    (block.decisionLogId !== null ? `, decision_log_id: ${block.decisionLogId}` : '')
+  const boundRow = row
+    ? `#${row.id} (residual_risk: ${row.residual_risk}, status: ${row.status})`
+    : 'none bound to this PR'
+
+  return [
+    '## 🔶 Second-Opinion Gate — declaration integrity escalation',
+    '',
+    `WHAT THIS IS TRYING TO DO: ${whatItDoes}`,
+    `PR-BODY DECLARATION: ${bodyDeclaration}`,
+    `ops.decision_log ROW BOUND TO THIS PR: ${boundRow}`,
+    '',
+    `Trigger: \`${verify.reason}\` — ${verify.human}`,
+    '',
+    `@${trace} — the PR-body residual_risk declaration could not be verified against ` +
+      'ops.decision_log. Correct the PR-body declaration or the decision_log row (via a ' +
+      'sanctioned write path), or review manually.',
   ].join('\n')
 }

@@ -4,8 +4,11 @@ import {
   blockIsMalformed,
   parseGptOutput,
   decideDisposition,
+  verifyDeclaration,
   buildEscalationComment,
+  buildVerificationComment,
   type ResidualRisk,
+  type DecisionRow,
 } from '../gate-logic'
 
 const wellFormedBody = `Some PR description.
@@ -174,6 +177,124 @@ describe('decideDisposition (A3 asymmetric agreement)', () => {
   it('hard-exception precedence: hard exception escalates before GPT-block reason is read', () => {
     const d = decideDisposition({ ...base, hardException: true, gptResidualRisk: 'unresolved' })
     expect(d.reason).toBe('hard-exception')
+  })
+})
+
+describe('verifyDeclaration (declaration-integrity, closes row #24)', () => {
+  const base = {
+    rpcUnavailable: false,
+    row: null as DecisionRow | null,
+    coderResidualRisk: 'none' as ResidualRisk,
+    bodyDecisionLogId: null as number | null,
+  }
+
+  it('OK when no row is bound and coder declares none (normal case)', () => {
+    const v = verifyDeclaration(base)
+    expect(v.escalate).toBe(false)
+    expect(v.reason).toBe('verify-ok')
+  })
+
+  // The fourth test (amendment 1): a nonzero declaration with nothing to verify
+  // against is itself the failure — it must NOT silently pass.
+  it('escalates when no row is bound but coder declares accepted', () => {
+    const v = verifyDeclaration({ ...base, coderResidualRisk: 'accepted' })
+    expect(v.escalate).toBe(true)
+    expect(v.reason).toBe('verify-no-row-nonzero')
+  })
+
+  it('escalates when no row is bound but coder declares unresolved', () => {
+    const v = verifyDeclaration({ ...base, coderResidualRisk: 'unresolved' })
+    expect(v.escalate).toBe(true)
+    expect(v.reason).toBe('verify-no-row-nonzero')
+  })
+
+  it('escalates (fail closed) when the lookup is unavailable', () => {
+    const v = verifyDeclaration({ ...base, rpcUnavailable: true })
+    expect(v.escalate).toBe(true)
+    expect(v.reason).toBe('verify-rpc-unavailable')
+  })
+
+  it('OK when a bound row matches the body declaration (none)', () => {
+    const row: DecisionRow = { id: 30, residual_risk: 'none', status: 'ADOPTED' }
+    const v = verifyDeclaration({ ...base, row, coderResidualRisk: 'none' })
+    expect(v.escalate).toBe(false)
+    expect(v.reason).toBe('verify-ok')
+  })
+
+  it('OK when a bound row matches an accepted declaration (still escalates later in decideDisposition)', () => {
+    const row: DecisionRow = { id: 31, residual_risk: 'accepted', status: 'ADOPTED' }
+    const v = verifyDeclaration({ ...base, row, coderResidualRisk: 'accepted' })
+    expect(v.escalate).toBe(false)
+    expect(v.reason).toBe('verify-ok')
+  })
+
+  it('escalates when the bound row residual_risk differs from the body (dishonest declaration)', () => {
+    const row: DecisionRow = { id: 32, residual_risk: 'accepted', status: 'ADOPTED' }
+    const v = verifyDeclaration({ ...base, row, coderResidualRisk: 'none' })
+    expect(v.escalate).toBe(true)
+    expect(v.reason).toBe('verify-risk-mismatch')
+  })
+
+  it('escalates when body decision_log_id points at a different row than the one bound to the PR', () => {
+    const row: DecisionRow = { id: 32, residual_risk: 'none', status: 'ADOPTED' }
+    const v = verifyDeclaration({ ...base, row, coderResidualRisk: 'none', bodyDecisionLogId: 99 })
+    expect(v.escalate).toBe(true)
+    expect(v.reason).toBe('verify-id-mismatch')
+  })
+
+  it('OK when body decision_log_id matches the bound row id', () => {
+    const row: DecisionRow = { id: 32, residual_risk: 'none', status: 'ADOPTED' }
+    const v = verifyDeclaration({ ...base, row, coderResidualRisk: 'none', bodyDecisionLogId: 32 })
+    expect(v.escalate).toBe(false)
+    expect(v.reason).toBe('verify-ok')
+  })
+
+  // Regression (found by the gate's own GPT-5 review of PR #44): a bigint id
+  // serialized as a string must not falsely trigger verify-id-mismatch.
+  it('does not false-mismatch when the row id arrives as a string', () => {
+    const row = { id: '32' as unknown as number, residual_risk: 'none' as ResidualRisk, status: 'ADOPTED' }
+    const v = verifyDeclaration({ ...base, row, coderResidualRisk: 'none', bodyDecisionLogId: 32 })
+    expect(v.escalate).toBe(false)
+    expect(v.reason).toBe('verify-ok')
+  })
+})
+
+describe('buildVerificationComment', () => {
+  it('renders the body declaration, the bound row, and tags Trace on a risk mismatch', () => {
+    // wellFormedBody declares decision_log_id: 22, coder_residual_risk: none.
+    // Bind a row with the SAME id (so the id check passes) but residual_risk:
+    // accepted — isolating the risk-mismatch branch.
+    const block = parseGateBlock(wellFormedBody)!
+    const row: DecisionRow = { id: 22, residual_risk: 'accepted', status: 'ADOPTED' }
+    const verify = verifyDeclaration({
+      rpcUnavailable: false,
+      row,
+      coderResidualRisk: block.coderResidualRisk,
+      bodyDecisionLogId: block.decisionLogId,
+    })
+    const comment = buildVerificationComment({ block, verify, row, trace: 'traceh-ghmd' })
+    expect(comment).toContain('declaration integrity escalation')
+    expect(comment).toContain('PR-BODY DECLARATION:')
+    expect(comment).toContain('#22')
+    expect(comment).toContain('verify-risk-mismatch')
+    expect(comment).toContain('@traceh-ghmd')
+  })
+
+  it('states "none bound" when the failure is a nonzero declaration with no row', () => {
+    const block = parseGateBlock(`<!-- second-opinion-gate
+category: 1
+coder_residual_risk: accepted
+spec: something
+-->`)!
+    const verify = verifyDeclaration({
+      rpcUnavailable: false,
+      row: null,
+      coderResidualRisk: block.coderResidualRisk,
+      bodyDecisionLogId: block.decisionLogId,
+    })
+    const comment = buildVerificationComment({ block, verify, row: null, trace: 'traceh-ghmd' })
+    expect(comment).toContain('none bound to this PR')
+    expect(comment).toContain('verify-no-row-nonzero')
   })
 })
 
