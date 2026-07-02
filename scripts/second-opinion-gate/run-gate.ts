@@ -83,6 +83,7 @@ async function postComment(repo: string, prNumber: number, token: string, body: 
  * be performed at all (missing creds / RPC error) so the caller can fail closed.
  */
 async function lookupDecisionRow(
+  repo: string,
   prNumber: number,
 ): Promise<{ row: DecisionRow | null; unavailable: boolean }> {
   const url = process.env.SUPABASE_URL
@@ -93,7 +94,12 @@ async function lookupDecisionRow(
   }
   try {
     const supabase = createClient(url, key, { auth: { persistSession: false } })
-    const { data, error } = await supabase.rpc('gate_decision_for_pr', { p_pr_number: prNumber })
+    // Scoped to (repo, pr): PR numbers are per-repo, so the binding key includes
+    // the repo to avoid cross-repo collisions (see decision_log #30).
+    const { data, error } = await supabase.rpc('gate_decision_for_pr', {
+      p_repo: repo,
+      p_pr_number: prNumber,
+    })
     if (error) {
       console.error(`gate_decision_for_pr RPC failed: ${error.message}`)
       return { row: null, unavailable: true }
@@ -203,7 +209,7 @@ async function main(): Promise<void> {
   // PR-body residual_risk declaration against the ops.decision_log row bound to
   // this PR BEFORE spending an OpenAI call. A dishonest/unverifiable declaration
   // escalates here regardless of what the second opinion would have said.
-  const { row, unavailable } = await lookupDecisionRow(prNumber)
+  const { row, unavailable } = await lookupDecisionRow(repo, prNumber)
   const verify = verifyDeclaration({
     rpcUnavailable: unavailable,
     row,
