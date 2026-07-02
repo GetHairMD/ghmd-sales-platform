@@ -98,9 +98,13 @@ async function lookupDecisionRow(
       console.error(`gate_decision_for_pr RPC failed: ${error.message}`)
       return { row: null, unavailable: true }
     }
-    const rows = (data ?? []) as DecisionRow[]
-    // The partial unique index guarantees at most one row per PR.
-    return { row: rows.length ? rows[0] : null, unavailable: false }
+    const rows = (data ?? []) as Array<{ id: number | string; residual_risk: DecisionRow['residual_risk']; status: string }>
+    // The partial unique index guarantees at most one row per PR. Normalize id
+    // to a number at the boundary (PostgREST returns this bigint as a JSON
+    // number, but be robust to string serialization) so DecisionRow.id holds.
+    if (!rows.length) return { row: null, unavailable: false }
+    const raw = rows[0]
+    return { row: { id: Number(raw.id), residual_risk: raw.residual_risk, status: raw.status }, unavailable: false }
   } catch (err) {
     console.error('gate_decision_for_pr RPC errored:', err instanceof Error ? err.message : err)
     return { row: null, unavailable: true }

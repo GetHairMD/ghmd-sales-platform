@@ -342,7 +342,12 @@ export function verifyDeclaration(input: VerifyInput): VerifyResult {
   }
 
   if (row) {
-    if (bodyDecisionLogId !== null && bodyDecisionLogId !== row.id) {
+    // Coerce row.id defensively: PostgREST serializes this bigint as a JSON
+    // number in the current config, but Number() keeps the comparison correct
+    // even if a driver/config change returns it as a string (ids are far below
+    // 2^53, so no precision loss). Without this a string id would strict-!==
+    // the numeric body value and falsely trigger verify-id-mismatch.
+    if (bodyDecisionLogId !== null && Number(row.id) !== bodyDecisionLogId) {
       return {
         escalate: true,
         reason: 'verify-id-mismatch',

@@ -248,6 +248,15 @@ describe('verifyDeclaration (declaration-integrity, closes row #24)', () => {
     expect(v.escalate).toBe(false)
     expect(v.reason).toBe('verify-ok')
   })
+
+  // Regression (found by the gate's own GPT-5 review of PR #44): a bigint id
+  // serialized as a string must not falsely trigger verify-id-mismatch.
+  it('does not false-mismatch when the row id arrives as a string', () => {
+    const row = { id: '32' as unknown as number, residual_risk: 'none' as ResidualRisk, status: 'ADOPTED' }
+    const v = verifyDeclaration({ ...base, row, coderResidualRisk: 'none', bodyDecisionLogId: 32 })
+    expect(v.escalate).toBe(false)
+    expect(v.reason).toBe('verify-ok')
+  })
 })
 
 describe('buildVerificationComment', () => {
