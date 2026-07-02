@@ -29,7 +29,7 @@ import {
 } from './gate-logic'
 
 const MAX_DIFF_CHARS = 200_000 // ~50k tokens; beyond this we fail closed rather than review a partial diff
-const OPENAI_TIMEOUT_MS = 90_000
+const OPENAI_TIMEOUT_MS = 240_000 // GPT-5 reasoning latency exceeds 90s on non-trivial diffs
 
 function env(name: string, fallback?: string): string {
   const v = process.env[name]
