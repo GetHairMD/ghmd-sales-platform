@@ -16,16 +16,23 @@
  *   OPENAI_API_KEY      - GitHub Actions repo secret
  *   OPENAI_MODEL        - optional; defaults to "gpt-5"
  *   GATE_TRACE_HANDLE   - GitHub handle to tag; defaults to "traceh-ghmd"
+ *   SUPABASE_URL        - Sales project URL (declaration-integrity lookup)
+ *   SUPABASE_ANON_KEY   - anon/publishable key; the only role that can EXECUTE
+ *                         public.gate_decision_for_pr() and cannot read the table
  */
 import { readFileSync } from 'node:fs'
+import { createClient } from '@supabase/supabase-js'
 import {
   SYSTEM_PROMPT,
   parseGateBlock,
   blockIsMalformed,
   parseGptOutput,
   decideDisposition,
+  verifyDeclaration,
   buildEscalationComment,
+  buildVerificationComment,
   type GptVerdict,
+  type DecisionRow,
 } from './gate-logic'
 
 const MAX_DIFF_CHARS = 200_000 // ~50k tokens; beyond this we fail closed rather than review a partial diff
@@ -66,6 +73,38 @@ async function postComment(repo: string, prNumber: number, token: string, body: 
     body: JSON.stringify({ body }),
   })
   if (!res.ok) throw new Error(`Comment post failed: ${res.status} ${await res.text()}`)
+}
+
+/**
+ * Declaration-integrity lookup (closes decision_log row #24). Calls the narrow
+ * SECURITY DEFINER function public.gate_decision_for_pr(pr_number) as the anon
+ * role — which can EXECUTE the function but cannot read ops.decision_log. Returns
+ * the single bound row (or null), and `unavailable: true` if the lookup could not
+ * be performed at all (missing creds / RPC error) so the caller can fail closed.
+ */
+async function lookupDecisionRow(
+  prNumber: number,
+): Promise<{ row: DecisionRow | null; unavailable: boolean }> {
+  const url = process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_ANON_KEY
+  if (!url || !key) {
+    console.error('SUPABASE_URL/SUPABASE_ANON_KEY not set — cannot verify declaration (fail closed).')
+    return { row: null, unavailable: true }
+  }
+  try {
+    const supabase = createClient(url, key, { auth: { persistSession: false } })
+    const { data, error } = await supabase.rpc('gate_decision_for_pr', { p_pr_number: prNumber })
+    if (error) {
+      console.error(`gate_decision_for_pr RPC failed: ${error.message}`)
+      return { row: null, unavailable: true }
+    }
+    const rows = (data ?? []) as DecisionRow[]
+    // The partial unique index guarantees at most one row per PR.
+    return { row: rows.length ? rows[0] : null, unavailable: false }
+  } catch (err) {
+    console.error('gate_decision_for_pr RPC errored:', err instanceof Error ? err.message : err)
+    return { row: null, unavailable: true }
+  }
 }
 
 /** Returns the parsed verdict, or null if the call failed / timed out / was malformed. */
@@ -152,6 +191,26 @@ async function main(): Promise<void> {
     ].join('\n')
     await postComment(repo, prNumber, token, body)
     console.error('Gate block malformed — escalated, failing check.')
+    process.exitCode = 1
+    return
+  }
+
+  // Declaration-integrity check (closes decision_log row #24). Verify the
+  // PR-body residual_risk declaration against the ops.decision_log row bound to
+  // this PR BEFORE spending an OpenAI call. A dishonest/unverifiable declaration
+  // escalates here regardless of what the second opinion would have said.
+  const { row, unavailable } = await lookupDecisionRow(prNumber)
+  const verify = verifyDeclaration({
+    rpcUnavailable: unavailable,
+    row,
+    coderResidualRisk: block.coderResidualRisk,
+    bodyDecisionLogId: block.decisionLogId,
+  })
+  console.log(`Declaration verify: ${verify.escalate ? 'ESCALATE' : 'OK'} (${verify.reason}) — ${verify.human}`)
+  if (verify.escalate) {
+    const body = buildVerificationComment({ block, verify, row, trace })
+    await postComment(repo, prNumber, token, body)
+    console.error('Declaration verification failed — escalated, failing required check.')
     process.exitCode = 1
     return
   }
