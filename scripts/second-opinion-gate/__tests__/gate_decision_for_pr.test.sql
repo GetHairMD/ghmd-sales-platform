@@ -50,6 +50,14 @@ begin
     raise exception 'TEST 1b FAILED: expected 0 rows for a different repo, got %', n;
   end if;
 
+  -- 1c. repo match is case-insensitive (GitHub repo names are). A casing mismatch
+  -- must still resolve the row, else a bound non-none row could evade the check.
+  select count(*) into n
+    from public.gate_decision_for_pr('gethairmd/GHMD-Sales-Platform', 999999);
+  if n <> 1 then
+    raise exception 'TEST 1c FAILED: expected case-insensitive match, got % rows', n;
+  end if;
+
   -- 2. no-match returns zero rows.
   select count(*) into n
     from public.gate_decision_for_pr('GetHairMD/ghmd-sales-platform', 888888);
