@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { notFound } from 'next/navigation'
+import ScenarioCards from '@/components/ScenarioCards'
+import { penetrationScenarios } from '@/lib/territory-sizing'
 
 interface PageProps {
   params: { prospectId: string }
@@ -99,15 +101,31 @@ export default async function ProposalPage({ params }: PageProps) {
                   <p className="text-sm text-gray-500 uppercase tracking-wide mb-1">Addressable Market</p>
                   <p className="text-3xl font-bold text-gray-900">
                     {territory.addressable_patients_primary.toLocaleString()}
-                    <span className="text-base font-normal text-gray-500 ml-2">estimated patients</span>
+                    <span className="text-base font-normal text-gray-500 ml-2">addressable households</span>
                   </p>
                   <p className="text-sm text-gray-500 mt-1">
-                    Within your 30-minute primary drive-time zone — income-qualified adults with clinically meaningful hair loss who are likely to seek treatment.
+                    Within your 30-minute primary drive-time zone — qualified households likely to seek treatment.
                   </p>
                 </div>
               )}
             </div>
           </section>
+        ) : null}
+
+        {/* Demand Projections */}
+        {territory && territory.addressable_patients_primary != null ? (
+          (() => {
+            const sizing = penetrationScenarios(territory.addressable_patients_primary)
+            return (
+              <section>
+                <h2 className="text-xl font-semibold text-gray-900 mb-1">Projected Demand</h2>
+                <p className="text-sm text-gray-500 mb-4">
+                  Estimated customers your territory could support across conservative, base, and upside adoption.
+                </p>
+                <ScenarioCards sizing={sizing} />
+              </section>
+            )
+          })()
         ) : (
           <section>
             <div className="rounded-xl border border-gray-200 p-6 bg-gray-50 text-gray-500">
