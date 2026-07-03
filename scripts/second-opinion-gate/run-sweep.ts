@@ -17,8 +17,6 @@
  *   GITHUB_REPOSITORY           - "owner/repo"
  *   GATE_TRACE_HANDLE           - GitHub handle to tag; defaults to "traceh-ghmd"
  */
-import { createClient } from '@supabase/supabase-js'
-
 const ISSUE_LABEL = 'residual-risk-overdue'
 const GH_API = 'https://api.github.com'
 
@@ -55,12 +53,24 @@ async function gh(path: string, token: string, init?: RequestInit): Promise<Resp
 }
 
 async function fetchOverdue(): Promise<OverdueRow[]> {
-  const supabase = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), {
-    auth: { persistSession: false },
+  // Direct POST to the PostgREST RPC endpoint rather than @supabase/supabase-js:
+  // createClient() initializes a realtime client that throws on Node 20 without
+  // a native WebSocket. residual_risk_overdue() is service-role only, so this
+  // uses the service key.
+  const url = env('SUPABASE_URL').replace(/\/+$/, '')
+  const key = env('SUPABASE_SERVICE_ROLE_KEY')
+  const res = await fetch(`${url}/rest/v1/rpc/residual_risk_overdue`, {
+    method: 'POST',
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+    },
+    body: '{}',
   })
-  const { data, error } = await supabase.rpc('residual_risk_overdue')
-  if (error) throw new Error(`residual_risk_overdue() failed: ${error.message}`)
-  return (data ?? []) as OverdueRow[]
+  if (!res.ok) throw new Error(`residual_risk_overdue() failed: ${res.status} ${await res.text()}`)
+  const data = (await res.json()) as unknown
+  return (Array.isArray(data) ? data : []) as OverdueRow[]
 }
 
 function renderIssueBody(rows: OverdueRow[], trace: string, today: string): string {
