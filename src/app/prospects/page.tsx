@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
+import { stageLabel } from '@/lib/pipeline-stages'
 
 export default async function ProspectsPage() {
   const supabase = createClient()
@@ -39,7 +40,7 @@ export default async function ProspectsPage() {
               <tr key={p.id} className="border-b hover:bg-gray-50">
                 <td className="py-2">{p.full_name}</td>
                 <td className="py-2">{p.email}</td>
-                <td className="py-2">{p.stage}</td>
+                <td className="py-2">{p.stage}. {stageLabel(p.stage)}</td>
                 <td className="py-2">{new Date(p.created_at).toLocaleDateString()}</td>
               </tr>
             ))}

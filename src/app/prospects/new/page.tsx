@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { buildProspectInsert } from '@/lib/prospect-insert'
 
 export default function NewProspectPage() {
   const router = useRouter()
@@ -14,14 +15,14 @@ export default function NewProspectPage() {
     setError(null)
     const formData = new FormData(e.currentTarget)
     const supabase = createClient()
-    const { error } = await supabase.from('prospects').insert({
-      full_name: formData.get('full_name') as string,
-      email: formData.get('email') as string,
-      phone: formData.get('phone') as string,
-      source_channel: formData.get('source_channel') as string,
-      stage: 'new_lead',
-      assigned_rep: 'trace',
-    })
+    const { error } = await supabase.from('prospects').insert(
+      buildProspectInsert({
+        full_name: formData.get('full_name') as string,
+        email: formData.get('email') as string,
+        phone: formData.get('phone') as string,
+        lead_source: formData.get('source_channel') as string,
+      }),
+    )
     if (error) {
       setError(error.message)
       setLoading(false)

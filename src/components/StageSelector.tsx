@@ -1,35 +1,48 @@
 'use client'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-
-const STAGES = [
-  { id: 1, label: 'New Lead' },
-  { id: 2, label: 'Contacted' },
-  { id: 3, label: 'Discovery Call' },
-  { id: 4, label: 'Proposal Sent' },
-  { id: 5, label: 'LOI Signed' },
-  { id: 6, label: 'FDD Delivered' },
-  { id: 7, label: 'Agreement Signed' },
-]
+import { PIPELINE_STAGES, requiresFundingPrequalConfirm } from '@/lib/pipeline-stages'
 
 export default function StageSelector({
   prospectId,
   currentStage,
+  fundingPrequalCleared,
+  skippedFundingPrequal,
 }: {
   prospectId: string
   currentStage: number
+  fundingPrequalCleared: boolean
+  skippedFundingPrequal: boolean
 }) {
   const [stage, setStage] = useState(currentStage)
+  const [skipped, setSkipped] = useState(skippedFundingPrequal)
   const [saving, setSaving] = useState(false)
 
   async function handleChange(newStage: number) {
+    // Soft funding gate: advancing to Contract Sent (8) or beyond without cleared
+    // pre-qual is allowed, but confirm first and flag the record. Never a hard block.
+    let markSkipped = skipped
+    if (requiresFundingPrequalConfirm(newStage, fundingPrequalCleared)) {
+      const proceed = window.confirm('Funding pre-qual not cleared. Advance anyway?')
+      if (!proceed) return // leave the select on its current value
+      markSkipped = true
+    }
+
     setSaving(true)
     const supabase = createClient()
-    await supabase
+    const { error } = await supabase
       .from('prospects')
-      .update({ stage: newStage, stage_updated_at: new Date().toISOString() })
+      .update({
+        stage: newStage,
+        stage_updated_at: new Date().toISOString(),
+        ...(markSkipped !== skipped ? { skipped_funding_prequal: markSkipped } : {}),
+      })
       .eq('id', prospectId)
-    setStage(newStage)
+
+    if (!error) {
+      setStage(newStage)
+      setSkipped(markSkipped)
+    }
     setSaving(false)
   }
 
@@ -42,7 +55,7 @@ export default function StageSelector({
         disabled={saving}
         className="border rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#4681A3] disabled:opacity-50"
       >
-        {STAGES.map((s) => (
+        {PIPELINE_STAGES.map((s) => (
           <option key={s.id} value={s.id}>
             {s.id}. {s.label}
           </option>
