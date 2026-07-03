@@ -5,7 +5,7 @@ export default async function PipelinePage() {
   const supabase = createClient()
   const { data: prospects, error } = await supabase
     .from('prospects')
-    .select('id, full_name, email, stage')
+    .select('id, full_name, email, stage, deal_status, funding_prequal_cleared, skipped_funding_prequal')
     .eq('archived', false)
     .order('stage_updated_at', { ascending: false })
 

@@ -2,17 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import StageSelector from '@/components/StageSelector'
+import DealStatusSelector from '@/components/DealStatusSelector'
+import FundingPrequalToggle from '@/components/FundingPrequalToggle'
 import ActivityLog from '@/components/ActivityLog'
-
-const STAGE_LABELS: Record<number, string> = {
-  1: 'New Lead',
-  2: 'Contacted',
-  3: 'Discovery Call',
-  4: 'Proposal Sent',
-  5: 'LOI Signed',
-  6: 'FDD Delivered',
-  7: 'Agreement Signed',
-}
+import { stageLabel, showPrequalSkippedBadge, isDealStatus } from '@/lib/pipeline-stages'
 
 export default async function ProspectDetailPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
@@ -28,7 +21,12 @@ export default async function ProspectDetailPage({ params }: { params: { id: str
 
   if (error || !prospect) notFound()
 
-  const stageLabel = STAGE_LABELS[prospect.stage] ?? `Stage ${prospect.stage}`
+  const label = stageLabel(prospect.stage)
+  const dealStatus = isDealStatus(prospect.deal_status) ? prospect.deal_status : 'active'
+  const prequalSkipped = showPrequalSkippedBadge(
+    prospect.stage,
+    Boolean(prospect.skipped_funding_prequal),
+  )
 
   return (
     <main className="max-w-3xl mx-auto p-8">
@@ -44,9 +42,26 @@ export default async function ProspectDetailPage({ params }: { params: { id: str
       <div className="bg-white border rounded-lg p-6 mb-6">
         <div className="flex justify-between items-start mb-5">
           <h1 className="text-2xl font-bold text-gray-900">{prospect.full_name}</h1>
-          <span className="bg-[#4681A3]/10 text-[#4681A3] text-sm px-3 py-1 rounded-full font-medium">
-            {stageLabel}
-          </span>
+          <div className="flex flex-col items-end gap-1.5">
+            <span className="bg-[#4681A3]/10 text-[#4681A3] text-sm px-3 py-1 rounded-full font-medium">
+              {prospect.stage}. {label}
+            </span>
+            {dealStatus === 'stalled' && (
+              <span className="bg-amber-100 text-amber-700 text-xs px-2.5 py-0.5 rounded-full font-medium">
+                Stalled
+              </span>
+            )}
+            {dealStatus === 'lost' && (
+              <span className="bg-gray-200 text-gray-500 text-xs px-2.5 py-0.5 rounded-full font-medium line-through">
+                Lost
+              </span>
+            )}
+            {prequalSkipped && (
+              <span className="bg-amber-100 text-amber-800 text-xs px-2.5 py-0.5 rounded-full font-semibold tracking-wide">
+                PRE-QUAL SKIPPED
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm mb-5">
@@ -107,8 +122,19 @@ export default async function ProspectDetailPage({ params }: { params: { id: str
           </div>
         )}
 
-        <div className="pt-4 border-t">
-          <StageSelector prospectId={prospect.id} currentStage={prospect.stage} />
+        <div className="pt-4 border-t space-y-3">
+          <StageSelector
+            prospectId={prospect.id}
+            currentStage={prospect.stage}
+            fundingPrequalCleared={Boolean(prospect.funding_prequal_cleared)}
+            skippedFundingPrequal={Boolean(prospect.skipped_funding_prequal)}
+          />
+          <DealStatusSelector prospectId={prospect.id} currentStatus={dealStatus} />
+          <FundingPrequalToggle
+            prospectId={prospect.id}
+            cleared={Boolean(prospect.funding_prequal_cleared)}
+            clearedAt={prospect.funding_prequal_cleared_at ?? null}
+          />
         </div>
       </div>
 
