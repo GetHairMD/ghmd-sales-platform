@@ -217,6 +217,19 @@ export const B19001_INCOME_BRACKETS: IncomeBracket[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Credit Screen — Experian FICO≥670 credit-qualified share (Task C)
+// Source: Experian, September 2025. Per-state overrides live in
+// /data/experian-credit-share-by-state.json; the national figure is the fallback
+// for any state without an override.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** FICO score at/above which a household is treated as credit-qualified (prime+). */
+export const EXPERIAN_FICO_PRIME_THRESHOLD = 670;
+
+/** National share of consumers with FICO ≥ 670 (Experian, Sept 2025). Fallback share. */
+export const EXPERIAN_NATIONAL_CREDIT_SHARE = 0.704;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Sprint 1 Validation Targets
 // ─────────────────────────────────────────────────────────────────────────────
 

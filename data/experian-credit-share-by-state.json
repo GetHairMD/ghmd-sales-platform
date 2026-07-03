@@ -1,0 +1,12 @@
+{
+  "provenance": {
+    "source": "Experian",
+    "as_of": "2025-09",
+    "metric": "Share of consumers with FICO score >= 670 (prime+)",
+    "national_share": 0.704,
+    "url": "TBD — cite the exact Experian source page/report on population",
+    "notes": "Per-state overrides in `states` (2-letter USPS code -> share 0-1). Any state absent from `states` falls back to national_share (0.704) via creditShareForState(). National 70.4% is the locked anchor (decision_log / handoff). The Sept-2025 per-state table is proprietary Experian data (no free API) and must be populated from a Trace-provided source; until then `state_data_pending` is true and all states use the national fallback."
+  },
+  "state_data_pending": true,
+  "states": {}
+}
