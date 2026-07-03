@@ -74,6 +74,18 @@ CI and deploy-preview pass.
 15. All PRs are merged via squash-merge only. Regular merge and rebase-merge are disabled at the repo level. Rationale: every ops.decision_log entry and handoff doc references a single commit SHA per PR — squash-merge preserves that 1:1 mapping; regular merge buries the referenced SHA under intermediate commits.
 16. At the end of every session, before closing: run git checkout main && git merge --ff-only origin/main to fast-forward local main to match remote. If --ff-only refuses, stop and report — do not force. This ensures local never falls behind cloud sessions.
 
+## Branch / Git Hygiene
+
+**Branch deletion procedure (added 2026-07-03 — supersedes case-by-case `-D` confirmation for the merged case).**
+
+Before deleting any local branch, check its PR state via `gh pr list --state all --head <branch>` (or equivalent). Then act on the PR state:
+
+- **PR is MERGED** → content is confirmed in main *regardless* of what `git branch -d` / `git branch --merged` reports. Squash-merge (Rule 15) breaks git's ancestry detection, so `-d` will refuse a genuinely-merged branch and `--merged` will not list it — this is **expected, not a red flag**. Auto-proceed with `git branch -D` — **no case-by-case confirmation needed**. Still report what was deleted and why (PR # + MERGED state) in the session summary.
+- **PR is CLOSED without merging, OR there is no PR / the branch is unpushed** → this is genuinely unmerged work. **Stop and get explicit confirmation before any `-D`** — exactly as with `feature/claude-code-review-hardening` (PR #47, retired per decision #33). That manual-confirmation pattern stays fully manual.
+- **PR is OPEN** → **do not delete under any circumstance.** Flag to Trace.
+
+Rationale: MERGED-but-squash-orphaned branches are routine auto-cleanup; unmerged / closed-unmerged / open-PR branches keep the full manual-confirmation gate. This is a scoped exception to the general `-d`-before-`-D` caution — it applies **only** to the confirmed-MERGED case, never to unmerged work.
+
 ## Session Safety Rules (added June 25, 2026)
 
 - CLAUDE.md first-line stop condition: if `cat CLAUDE.md | head -1` does not return `# GHMD Sales Platform — CLAUDE.md` exactly — STOP.
