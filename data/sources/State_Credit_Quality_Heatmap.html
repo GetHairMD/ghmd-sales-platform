@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>U.S. Credit Quality &amp; Financed-Purchase Affordability by State</title>
+<style>
+  :root{--bg:#fafaf8;--card:#ffffff;--ink:#1a1a1a;--muted:#6b6b6b;--line:#e5e2dc;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--ink);padding:28px 20px 40px;}
+  .wrap{max-width:980px;margin:0 auto;}
+  h1{font-size:22px;font-weight:700;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px;max-width:760px;line-height:1.5}
+  .panel{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 6px}
+  .btn{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;font-weight:600;color:#444}
+  .btn.active{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
+  .assump{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:12px 0 18px;font-size:12.5px;color:#444;line-height:1.6}
+  .assump b{color:#111}
+  #map{position:relative;width:100%;}
+  svg{width:100%;height:auto;display:block}
+  .tile{stroke:#fff;stroke-width:2;cursor:pointer;transition:opacity .12s}
+  .tile:hover{opacity:.75}
+  .abbr{font-size:13px;font-weight:700;fill:#fff;pointer-events:none;text-anchor:middle}
+  .val{font-size:9.5px;fill:rgba(255,255,255,.92);pointer-events:none;text-anchor:middle}
+  #tip{position:absolute;pointer-events:none;background:#111;color:#fff;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.55;opacity:0;transition:opacity .1s;max-width:260px;z-index:5}
+  #tip b{font-size:13px}
+  .legend{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:11.5px;color:var(--muted)}
+  .grad{flex:0 0 220px;height:10px;border-radius:5px;background:linear-gradient(90deg,#c0392b,#e67e22,#f1c40f,#27ae60,#1e8449)}
+  .src{margin-top:22px;font-size:11px;color:var(--muted);line-height:1.7;border-top:1px solid var(--line);padding-top:12px}
+  .src a{color:#2563eb;text-decoration:none}
+  .note{font-size:11px;color:var(--muted);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>U.S. Credit Quality &amp; Financed-Purchase Affordability by State</h1>
+  <div class="sub">Screening view for market-based territory sizing. Built entirely from public data: Experian average FICO&reg; Score by state (September 2025) and U.S. Census Bureau median household income by state (2024). Hover any state for the full profile.</div>
+  <div class="panel" id="btns">
+    <button class="btn active" data-m="score">Composite Territory Score</button>
+    <button class="btn" data-m="fico">Avg FICO (2025)</button>
+    <button class="btn" data-m="inc">Median HH Income (2024)</button>
+    <button class="btn" data-m="cshare">Est. Share FICO &ge;670 (derived)</button>
+  </div>
+  <div class="assump">
+    Reference affordability case: <b>$8,500</b> package financed at <b>24.99% APR</b> (top of U.S. Bank Avvance&rsquo;s published 0%&ndash;24.99% range) over <b>60 months</b> &rarr; <b>$249.44/month</b>. At a conservative <b>8% payment-to-income</b> screen, required household income &asymp; <b>$37,415</b>. The affordability multiple in the tooltips = state median income &divide; $37,415. Assumptions are editable in the companion Excel model.
+  </div>
+  <div id="map"><div id="tip"></div></div>
+  <div class="legend"><span id="lo">Low</span><div class="grad"></div><span id="hi">High</span><span style="margin-left:12px" id="ldesc"></span></div>
+  <div class="note">Composite Territory Score = average of each state&rsquo;s percentile rank on median income and average FICO (0&ndash;100). Higher = denser concentration of finance-qualified households &rarr; smaller protected territories &rarr; more supportable locations. The &ldquo;Est. Share FICO &ge;670&rdquo; layer is a <b>derived estimate</b> (national band distribution shifted by each state&rsquo;s published average-score differential; a state at the 713 national average returns exactly the national 70.4%) &mdash; screening use only.</div>
+  <div class="src">
+    <b>Sources (public):</b>
+    Avg FICO&reg; Score by state, Sept 2025 &mdash; <a href="https://www.experian.com/blogs/ask-experian/what-is-the-average-credit-score-in-the-u-s/">Experian, &ldquo;What Is the Average Credit Score in the US?&rdquo; (pub. Mar 30, 2026)</a> &nbsp;|&nbsp;
+    Median household income by state, 2024 &mdash; <a href="https://fred.stlouisfed.org/release/tables?eid=259515&amp;rid=249">U.S. Census Bureau via FRED</a> &nbsp;|&nbsp;
+    APR range &mdash; <a href="https://avvance.usbank.com/index.html">U.S. Bank Avvance public FAQ</a> &nbsp;|&nbsp;
+    County-level income for specific territories &mdash; <a href="https://data.census.gov/table?q=B19001">Census ACS table B19001</a> &nbsp;|&nbsp;
+    County credit health &mdash; <a href="https://apps.urban.org/features/debt-interactive-map/">Urban Institute, Debt in America</a>
+  </div>
+</div>
+<script>
+const D={AL:{n:"Alabama",f:689,i:65560},AK:{n:"Alaska",f:720,i:91260},AZ:{n:"Arizona",f:709,i:84700},AR:{n:"Arkansas",f:693,i:64840},CA:{n:"California",f:721,i:100600},CO:{n:"Colorado",f:729,i:106500},CT:{n:"Connecticut",f:724,i:99240},DE:{n:"Delaware",f:713,i:85860},DC:{n:"District of Columbia",f:711,i:104800},FL:{n:"Florida",f:704,i:75630},GA:{n:"Georgia",f:692,i:81210},HI:{n:"Hawaii",f:730,i:98240},ID:{n:"Idaho",f:729,i:81650},IL:{n:"Illinois",f:720,i:84210},IN:{n:"Indiana",f:710,i:76710},IA:{n:"Iowa",f:728,i:85480},KS:{n:"Kansas",f:720,i:87690},KY:{n:"Kentucky",f:704,i:64790},LA:{n:"Louisiana",f:686,i:60740},ME:{n:"Maine",f:731,i:90730},MD:{n:"Maryland",f:714,i:109700},MA:{n:"Massachusetts",f:731,i:113900},MI:{n:"Michigan",f:717,i:79460},MN:{n:"Minnesota",f:741,i:92350},MS:{n:"Mississippi",f:677,i:55980},MO:{n:"Missouri",f:712,i:78390},MT:{n:"Montana",f:730,i:81920},NE:{n:"Nebraska",f:728,i:86140},NV:{n:"Nevada",f:699,i:80590},NH:{n:"New Hampshire",f:735,i:111800},NJ:{n:"New Jersey",f:722,i:103500},NM:{n:"New Mexico",f:701,i:64140},NY:{n:"New York",f:719,i:86830},NC:{n:"North Carolina",f:707,i:67220},ND:{n:"North Dakota",f:730,i:88080},OH:{n:"Ohio",f:713,i:80520},OK:{n:"Oklahoma",f:693,i:65310},OR:{n:"Oregon",f:730,i:89700},PA:{n:"Pennsylvania",f:720,i:80060},RI:{n:"Rhode Island",f:719,i:92290},SC:{n:"South Carolina",f:699,i:76780},SD:{n:"South Dakota",f:731,i:79850},TN:{n:"Tennessee",f:703,i:75860},TX:{n:"Texas",f:692,i:81490},UT:{n:"Utah",f:728,i:104000},VT:{n:"Vermont",f:737,i:85260},VA:{n:"Virginia",f:721,i:97720},WA:{n:"Washington",f:734,i:97500},WV:{n:"West Virginia",f:699,i:63150},WI:{n:"Wisconsin",f:737,i:82560},WY:{n:"Wyoming",f:722,i:78680}};
+const GRID={AK:[0,0],ME:[10,0],VT:[9,1],NH:[10,1],WA:[0,2],ID:[1,2],MT:[2,2],ND:[3,2],MN:[4,2],WI:[5,2],MI:[6,2],NY:[8,2],MA:[9,2],RI:[10,2],OR:[0,3],NV:[1,3],WY:[2,3],SD:[3,3],IA:[4,3],IL:[5,3],IN:[6,3],OH:[7,3],PA:[8,3],NJ:[9,3],CT:[10,3],CA:[0,4],UT:[1,4],CO:[2,4],NE:[3,4],MO:[4,4],KY:[5,4],WV:[6,4],VA:[7,4],MD:[8,4],DE:[9,4],AZ:[1,5],NM:[2,5],KS:[3,5],AR:[4,5],TN:[5,5],NC:[6,5],SC:[7,5],DC:[8,5],OK:[3,6],LA:[4,6],MS:[5,6],AL:[6,6],GA:[7,6],HI:[0,7],TX:[3,7],FL:[7,7]};
+const REQ=37415.46;
+const keys=Object.keys(D);
+function pctRank(arr,v){const s=[...arr].sort((a,b)=>a-b);const below=s.filter(x=>x<v).length;const eq=s.filter(x=>x===v).length;return (below+(eq-1)*0.5)/(s.length-1);}
+const incArr=keys.map(k=>D[k].i), ficoArr=keys.map(k=>D[k].f);
+function shareGe(t){if(t<=300)return 1;if(t<580)return .853+.147*(580-t)/280;if(t<670)return .704+.149*(670-t)/90;if(t<740)return .503+.201*(740-t)/70;if(t<800)return .228+.275*(800-t)/60;return t<=850?.228*(850-t)/50:0;}
+keys.forEach(k=>{const d=D[k];d.pi=pctRank(incArr,d.i);d.pf=pctRank(ficoArr,d.f);d.score=Math.round(50*(d.pi+d.pf));d.mult=d.i/REQ;d.cs=shareGe(670-(d.f-713));});
+const METRICS={score:{get:d=>d.score,fmt:v=>v,lo:"Larger territories",hi:"More locations",desc:"Composite Territory Score (0–100)"},fico:{get:d=>d.f,fmt:v=>v,lo:"677 (MS)",hi:"741 (MN)",desc:"Average FICO® Score, Sept 2025"},inc:{get:d=>d.i,fmt:v=>"$"+(v/1000).toFixed(0)+"k",lo:"$56k (MS)",hi:"$114k (MA)",desc:"Median household income, 2024"},cshare:{get:d=>d.cs,fmt:v=>(v*100).toFixed(1)+"%",lo:"60.1% (MS)",hi:"75.0% (MN)",desc:"Est. share of consumers with FICO ≥670 — DERIVED: national band distribution (Experian) shifted by state avg differential"}};
+const CELL=84,GAP=6,COLS=11,ROWS=8;
+const W=COLS*(CELL+GAP)-GAP,H=ROWS*(CELL+GAP)-GAP;
+const svgNS="http://www.w3.org/2000/svg";
+const svg=document.createElementNS(svgNS,"svg");svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+document.getElementById("map").appendChild(svg);
+function color(t){const stops=[[192,57,43],[230,126,34],[241,196,15],[39,174,96],[30,132,73]];const x=Math.max(0,Math.min(1,t))*(stops.length-1);const i=Math.min(Math.floor(x),stops.length-2);const f=x-i;const c=stops[i].map((v,j)=>Math.round(v+(stops[i+1][j]-v)*f));return `rgb(${c[0]},${c[1]},${c[2]})`;}
+let mode="score";
+const tiles={};
+keys.forEach(k=>{
+  const [c,r]=GRID[k];const x=c*(CELL+GAP),y=r*(CELL+GAP);
+  const g=document.createElementNS(svgNS,"g");
+  const rect=document.createElementNS(svgNS,"rect");
+  rect.setAttribute("x",x);rect.setAttribute("y",y);rect.setAttribute("width",CELL);rect.setAttribute("height",CELL);rect.setAttribute("rx",10);rect.setAttribute("class","tile");
+  const t1=document.createElementNS(svgNS,"text");t1.setAttribute("x",x+CELL/2);t1.setAttribute("y",y+CELL/2-3);t1.setAttribute("class","abbr");t1.textContent=k;
+  const t2=document.createElementNS(svgNS,"text");t2.setAttribute("x",x+CELL/2);t2.setAttribute("y",y+CELL/2+15);t2.setAttribute("class","val");
+  g.appendChild(rect);g.appendChild(t1);g.appendChild(t2);svg.appendChild(g);
+  tiles[k]={rect,t2};
+  const tip=document.getElementById("tip");
+  g.addEventListener("mousemove",e=>{
+    const d=D[k];const box=document.getElementById("map").getBoundingClientRect();
+    tip.innerHTML=`<b>${d.n}</b><br>Avg FICO (2025): <b>${d.f}</b><br>Median HH income (2024): <b>$${d.i.toLocaleString()}</b><br>Affordability multiple: <b>${d.mult.toFixed(2)}×</b> required income<br>Est. share FICO ≥670: <b>${(d.cs*100).toFixed(1)}%</b> <span style="opacity:.7">(derived)</span><br>Composite Territory Score: <b>${d.score}/100</b>`;
+    tip.style.opacity=1;
+    let tx=e.clientX-box.left+14,ty=e.clientY-box.top+14;
+    if(tx>box.width-270)tx=e.clientX-box.left-270;if(ty>box.height-110)ty=e.clientY-box.top-110;
+    tip.style.left=tx+"px";tip.style.top=ty+"px";
+  });
+  g.addEventListener("mouseleave",()=>{document.getElementById("tip").style.opacity=0;});
+});
+function render(){
+  const m=METRICS[mode];const vals=keys.map(k=>m.get(D[k]));
+  const mn=Math.min(...vals),mx=Math.max(...vals);
+  keys.forEach(k=>{
+    const v=m.get(D[k]);const t=(v-mn)/(mx-mn);
+    tiles[k].rect.setAttribute("fill",color(t));
+    tiles[k].t2.textContent=m.fmt(v);
+  });
+  document.getElementById("lo").textContent=m.lo;document.getElementById("hi").textContent=m.hi;document.getElementById("ldesc").textContent=m.desc;
+}
+document.getElementById("btns").addEventListener("click",e=>{
+  const b=e.target.closest(".btn");if(!b)return;
+  document.querySelectorAll(".btn").forEach(x=>x.classList.remove("active"));b.classList.add("active");
+  mode=b.dataset.m;render();
+});
+render();
+</script>
+</body>
+</html>
