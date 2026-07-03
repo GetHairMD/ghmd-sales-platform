@@ -5,11 +5,8 @@
 
 import {
   HAIR_LOSS_PREVALENCE,
-  PROPENSITY_TO_ACT,
   INCOME_BANDS,
   FINANCING_TAKEUP_RATE,
-  CENSUS_HOUSING_COST_VAR,
-  housingCostMultiplier,
 } from '../../lib/addressable-market-constants'
 
 // B01001 variable → age cohort mapping (Census ACS 5-year)
@@ -34,7 +31,6 @@ const ALL_ACS_VARS: string[] = [
   'B01001_001E', // total population
   ...Object.values(AGE_COHORT_VARS).flatMap(v => [...v.male, ...v.female]),
   ...INCOME_BANDS.flatMap(b => b.acsVariables),
-  CENSUS_HOUSING_COST_VAR,
 ]
 
 const UNIQUE_ACS_VARS = Array.from(new Set(ALL_ACS_VARS))
@@ -94,45 +90,41 @@ export async function fetchAcsForCounty(
 /**
  * Apply the GHMD addressable market formula to a Census ACS variable map.
  *
- * Formula:
- *   hairLossFraction = Σ(cohort) [(malePop/totalPop)×prevalence.male×propensity.male
- *                               + (femalePop/totalPop)×prevalence.female×propensity.female]
+ * ⚠️ TRANSITIONAL (formula-v2-public-source, Task A). The legacy propensity-to-act
+ * factor and the housing-cost / cost-of-living multiplier (Census median-housing
+ * table) have been removed per the locked v2 methodology (decision_log rows 37, 39,
+ * 40). This interim body computes a prevalence-weighted pool against the legacy
+ * income bands only, so the module keeps compiling; it is NOT the shipping formula.
  *
- *   addressable = Σ(incomeBand) [
- *     (householdsInBand × AVG_HH_SIZE) × hairLossFraction
- *     × housingCostMultiplier(band.baseRate, medianHousingCost, band.midpointIncome)
- *     × (band.financingApplies ? FINANCING_TAKEUP_RATE : 1.0)
- *   ]
+ * Rebuilt across:
+ *   Task B — income-qualified share (ACS B19001 ZCTA, ≥ $37,415, straddle interp)
+ *   Task C — credit-qualified share (Experian FICO≥670 by state)
+ *   Task D — peer-reviewed prevalence(age,sex) cells; Σ cells = addressable
+ *   Task F — penetration scenarios (0.005 / 0.01 / 0.02)
+ *   Task G — end-to-end reconciliation (national / Marin QA targets)
  */
 export function computeAddressableMarket(vars: Record<string, number>): number {
   const totalPop = vars['B01001_001E'] || 1
-  const medianMonthlyHousingCost = vars[CENSUS_HOUSING_COST_VAR] || 0
 
-  // Step 1: Hair loss × propensity fraction across age cohorts
-  let hairLossPoolFraction = 0
+  // Interim: prevalence-only pool fraction across age/sex cohorts (no propensity).
+  let prevalencePoolFraction = 0
   for (const [cohort, cohortVars] of Object.entries(AGE_COHORT_VARS)) {
     const malePop = cohortVars.male.reduce((s, v) => s + (vars[v] || 0), 0)
     const femalePop = cohortVars.female.reduce((s, v) => s + (vars[v] || 0), 0)
     const prev = HAIR_LOSS_PREVALENCE[cohort]
-    const prop = PROPENSITY_TO_ACT[cohort]
-    hairLossPoolFraction +=
-      (malePop / totalPop) * prev.male * prop.male +
-      (femalePop / totalPop) * prev.female * prop.female
+    prevalencePoolFraction +=
+      (malePop / totalPop) * prev.male +
+      (femalePop / totalPop) * prev.female
   }
 
-  // Step 2: Sum across income bands
+  // Interim: sum across legacy income bands (no housing-cost/COL adjustment).
   const AVG_HOUSEHOLD_SIZE = 2.5
   let addressable = 0
   for (const band of INCOME_BANDS) {
     const households = band.acsVariables.reduce((s, v) => s + (vars[v] || 0), 0)
     const persons = households * AVG_HOUSEHOLD_SIZE
-    const adjustedRate = housingCostMultiplier(
-      band.baseRate,
-      medianMonthlyHousingCost,
-      band.midpointIncome,
-    )
-    const effectiveRate = adjustedRate * (band.financingApplies ? FINANCING_TAKEUP_RATE : 1.0)
-    addressable += persons * hairLossPoolFraction * effectiveRate
+    const effectiveRate = band.baseRate * (band.financingApplies ? FINANCING_TAKEUP_RATE : 1.0)
+    addressable += persons * prevalencePoolFraction * effectiveRate
   }
 
   return Math.round(addressable)

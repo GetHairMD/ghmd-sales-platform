@@ -35,29 +35,6 @@ export const HAIR_LOSS_PREVALENCE: Record<string, AgeGenderRate> = {
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Propensity to Act by Age Cohort
-// Proportion of hair loss sufferers who would seek treatment
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Propensity to seek treatment, by age cohort. Values are proportions (0–1). */
-export const PROPENSITY_TO_ACT: Record<string, AgeGenderRate> = {
-  "20-24": { male: 0.50,  female: 0.90 },
-  "25-29": { male: 0.65,  female: 0.90 },
-  "30-34": { male: 0.65,  female: 0.90 },
-  "35-39": { male: 0.65,  female: 0.90 },
-  "40-44": { male: 0.65,  female: 0.90 },
-  "45-49": { male: 0.65,  female: 0.90 },
-  "50-54": { male: 0.65,  female: 0.90 },
-  "55-59": { male: 0.50,  female: 0.90 },
-  "60-64": { male: 0.50,  female: 0.90 },
-  "65-69": { male: 0.25,  female: 0.75 },
-  "70-74": { male: 0.25,  female: 0.75 },
-  "75-79": { male: 0.25,  female: 0.75 },
-  "80-84": { male: 0.005, female: 0.01 },
-  "85+":   { male: 0.005, female: 0.01 },
-} as const;
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Income Band Affordability Base Rates
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -158,43 +135,13 @@ export const DRIVE_TIME_PRIMARY_MINUTES = 30;
 export const DRIVE_TIME_OUTER_MINUTES = 45;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Housing Cost Adjustment Formula
-// Source: Census ACS Table B25105 (Median Monthly Housing Costs)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Compute the housing-cost-adjusted affordability multiplier for one income band.
- *
- *   multiplier = baseRate × MAX(0, 1 − (medianMonthlyHousingCost × 12) / bandMidpointAnnualIncome)
- *
- * High-COL markets (Boston, NYC, LA) auto-reduce lower bands.
- * Low-COL markets (Tulsa, Springfield) auto-increase them.
- * No manual cost-of-living index input required.
- */
-export function housingCostMultiplier(
-  baseRate: number,
-  medianMonthlyHousingCost: number,
-  bandMidpointAnnualIncome: number,
-): number {
-  const adjustment = Math.max(
-    0,
-    1 - (medianMonthlyHousingCost * 12) / bandMidpointAnnualIncome,
-  );
-  return baseRate * adjustment;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Census ACS Table References
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const CENSUS_ACS_TABLES = {
   AGE_SEX:           "B01001",
   HOUSEHOLD_INCOME:  "B19001",
-  MEDIAN_HOUSING:    "B25105",
 } as const;
-
-/** B25105 variable for median monthly housing cost per zip code. */
-export const CENSUS_HOUSING_COST_VAR = "B25105_001E";
 
 /** Cache Census API responses for this many days before refreshing. */
 export const CENSUS_CACHE_TTL_DAYS = 90;
