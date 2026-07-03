@@ -4,6 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { geoToFips, fetchB19001ForCounty, computeAddressableDetail } from '@/lib/census'
 import { CENSUS_CACHE_TTL_DAYS, CENSUS_ACS5_VINTAGE } from '../../../../lib/addressable-market-constants'
+import ScenarioCards from '@/components/ScenarioCards'
+import ViabilityBadge from '@/components/ViabilityBadge'
+import { penetrationScenarios } from '@/lib/territory-sizing'
 
 const TerritoryDetailMap = dynamic(() => import('@/components/TerritoryDetailMap'), { ssr: false })
 
@@ -133,6 +136,20 @@ export default async function TerritoryDetailPage({ params }: PageProps) {
           <p className="text-gray-500 text-sm mt-1">Standard Phase 1 pricing</p>
         </div>
       </div>
+
+      {/* Projected Demand — scenarios + explicit viability (internal shows red/yellow/green) */}
+      {currentAddressable != null && (() => {
+        const sizing = penetrationScenarios(currentAddressable)
+        return (
+          <section className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-gray-900">Projected Demand</h2>
+              <ViabilityBadge sizing={sizing} />
+            </div>
+            <ScenarioCards sizing={sizing} internal />
+          </section>
+        )
+      })()}
 
       {censusError && (
         <div className="mb-4 rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">

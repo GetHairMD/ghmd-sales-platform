@@ -33,6 +33,48 @@ export function expectedCustomers(addressable: number, rate: number): number {
   return Math.max(0, addressable) * rate
 }
 
+/** Traffic-light viability, keyed off the base scenario then the upside bound. */
+export type ViabilityLevel = 'green' | 'yellow' | 'red'
+
+/**
+ * green  — base (1%) scenario clears the CUSTOMERS_NEEDED floor.
+ * yellow — base falls short but the upside (2%) scenario clears it (marginal).
+ * red    — even the upside scenario falls short (below floor at every scenario).
+ */
+export function viabilityLevel(result: SizingResult): ViabilityLevel {
+  const base = result.scenarios.find(s => s.key === 'base')
+  const high = result.scenarios.find(s => s.key === 'high')
+  if (base?.meetsFloor) return 'green'
+  if (high?.meetsFloor) return 'yellow'
+  return 'red'
+}
+
+/** True when the base (1%) scenario clears the floor. Internal-only signal (not shown to prospects). */
+export function meetsBaseFloor(result: SizingResult): boolean {
+  return result.scenarios.find(s => s.key === 'base')?.meetsFloor ?? false
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Display helpers (shared by public + internal scenario cards)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Prospect-friendly names for the three scenarios. */
+export const SCENARIO_DISPLAY_LABEL: Record<'low' | 'base' | 'high', string> = {
+  low: 'Conservative',
+  base: 'Base',
+  high: 'Upside',
+}
+
+/** Format a penetration rate for display: 0.005 → "0.5%", 0.01 → "1%", 0.02 → "2%". */
+export function formatPenetrationRate(rate: number): string {
+  return `${+(rate * 100).toFixed(2)}%`
+}
+
+/** Whole-customer figure for display (the engine keeps customers unrounded for exact aggregation). */
+export function displayCustomers(customers: number): number {
+  return Math.round(customers)
+}
+
 /** Minimum addressable market required to reach CUSTOMERS_NEEDED at a given rate. */
 export function minAddressableForFloor(rate: number): number {
   if (rate <= 0) return Infinity
