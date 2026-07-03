@@ -1,14 +1,17 @@
 /**
- * HUD USPS ZIP Code Crosswalk — formula-v2-public-source, Task B.
+ * HUD USPS ZIP↔County Crosswalk — formula-v2-public-source, Task B.
  *
  * GEOGRAPHY JOIN ONLY. This layer associates ZIPs/ZCTAs with a territory's
  * geography (county / drive-time zone); it does NOT weight or allocate demand.
- * The income screen operates at ZCTA level (see income-screen.ts); this crosswalk
- * answers "which ZCTAs belong to this county/territory?".
  *
- * Architecture: a static in-repo file at /data/hud-usps-zip-crosswalk.json — NOT a
- * live API dependency. A manual one-time HUD download populates it (no API key,
- * no rotation). See /data/README.md for the download + provenance procedure.
+ * HUD provides ZIP↔County (no ZCTA geography exists in the HUD crosswalk). We apply
+ * the ZIP-as-ZCTA resolution: each ZIP is used directly as its ACS ZCTA5 for the
+ * income screen's B19001 pull (see income-screen.ts, decision_log "HUD Crosswalk
+ * Methodology"). So `zcta` equals `zip` in every row.
+ *
+ * Architecture: a static in-repo snapshot at /data/hud-usps-zip-county-crosswalk.json,
+ * pulled from the HUD USER API (type=2, per-state). `res_ratio` is retained for Task G
+ * cross-county allocation. See /data/README.md for the build procedure.
  */
 
 export interface HudCrosswalkRow {
@@ -56,8 +59,8 @@ export function loadHudCrosswalk(parsed: unknown): HudCrosswalkFile {
 export function assertCrosswalkPopulated(file: HudCrosswalkFile): void {
   if (file.manual_download_required || file.rows.length === 0) {
     throw new Error(
-      'HUD crosswalk not populated — drop the full HUD USPS ZIP→ZCTA extract into ' +
-        '/data/hud-usps-zip-crosswalk.json (see /data/README.md). Manual one-time download.',
+      'HUD crosswalk not populated — re-run the HUD USER API pull into ' +
+        '/data/hud-usps-zip-county-crosswalk.json (see /data/README.md).',
     )
   }
 }
