@@ -146,6 +146,74 @@ export const CENSUS_ACS_TABLES = {
 /** Cache Census API responses for this many days before refreshing. */
 export const CENSUS_CACHE_TTL_DAYS = 90;
 
+/**
+ * ACS 5-year vintage used for all public-source pulls (income screen etc.).
+ * "Latest available" per the formula-v2 spec. Bump when a newer 5-year release
+ * is confirmed live on the Census API (endpoint: /data/{vintage}/acs/acs5).
+ */
+export const CENSUS_ACS5_VINTAGE = 2023;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Income Screen — Affordability Anchor V2 (decision_log #37)
+// U.S. Bank Avvance: $8,500 @ 24.99% APR / 60 mo → $249.44/mo.
+// 8% PTI  → $37,415 required annual HH income (shipping qualification threshold).
+// 5% PTI  → $59,865 required annual HH income (robustness bound — flag, never filter).
+// Qualification is computed from ACS B19001 (household income) at ZCTA level, with
+// linear interpolation in the single straddling bracket only.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Annual HH income required at 8% PTI. Shipping income-qualification threshold. */
+export const INCOME_QUALIFY_THRESHOLD_ANNUAL = 37_415;
+
+/** Annual HH income required at 5% PTI. Robustness bound — used for the flag, never to filter. */
+export const INCOME_ROBUSTNESS_THRESHOLD_ANNUAL = 59_865;
+
+/**
+ * Robustness-flag rule. A ZCTA is flagged when the majority of its 8%-PTI-qualified
+ * households would fall out under the stricter 5%-PTI bound — i.e. its qualification
+ * leans on the $37,415–$59,865 gray zone and is sensitive to the PTI assumption.
+ *
+ *   robustness_flag = share_5pti > 0 ? (share_5pti / share_8pti) < FLOOR : (share_8pti > 0)
+ *
+ * The flag is advisory ONLY — it never removes a ZCTA from the addressable pool.
+ * Default 0.5 (majority). Tunable; confirm the exact cutoff with Trace.
+ */
+export const ROBUSTNESS_SHARE_RATIO_FLOOR = 0.5;
+
+export const B19001_TOTAL_HH_VAR = "B19001_001E";
+
+export interface IncomeBracket {
+  /** ACS B19001 variable code (estimate). */
+  variable: string;
+  /** Inclusive lower bound of the bracket (annual HH income, USD). */
+  lower: number;
+  /** Exclusive upper bound of the bracket; Infinity for the open top band. */
+  upper: number;
+}
+
+/**
+ * ACS Table B19001 household-income brackets, in order. Boundaries are the true
+ * Census bracket edges — used for linear interpolation of the straddling bracket.
+ */
+export const B19001_INCOME_BRACKETS: IncomeBracket[] = [
+  { variable: "B19001_002E", lower: 0,       upper: 10_000 },
+  { variable: "B19001_003E", lower: 10_000,  upper: 15_000 },
+  { variable: "B19001_004E", lower: 15_000,  upper: 20_000 },
+  { variable: "B19001_005E", lower: 20_000,  upper: 25_000 },
+  { variable: "B19001_006E", lower: 25_000,  upper: 30_000 },
+  { variable: "B19001_007E", lower: 30_000,  upper: 35_000 },
+  { variable: "B19001_008E", lower: 35_000,  upper: 40_000 },
+  { variable: "B19001_009E", lower: 40_000,  upper: 45_000 },
+  { variable: "B19001_010E", lower: 45_000,  upper: 50_000 },
+  { variable: "B19001_011E", lower: 50_000,  upper: 60_000 },
+  { variable: "B19001_012E", lower: 60_000,  upper: 75_000 },
+  { variable: "B19001_013E", lower: 75_000,  upper: 100_000 },
+  { variable: "B19001_014E", lower: 100_000, upper: 125_000 },
+  { variable: "B19001_015E", lower: 125_000, upper: 150_000 },
+  { variable: "B19001_016E", lower: 150_000, upper: 200_000 },
+  { variable: "B19001_017E", lower: 200_000, upper: Infinity },
+];
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Sprint 1 Validation Targets
 // ─────────────────────────────────────────────────────────────────────────────

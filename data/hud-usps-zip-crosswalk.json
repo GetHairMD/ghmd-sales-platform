@@ -1,0 +1,12 @@
+{
+  "provenance": {
+    "source": "HUD USER — U.S. Department of Housing and Urban Development",
+    "dataset": "USPS ZIP Code Crosswalk — ZIP to ZCTA",
+    "quarter": "TBD — fill in on download (e.g. 2025Q1)",
+    "downloaded_at": null,
+    "url": "https://www.huduser.gov/portal/datasets/usps_crosswalk.html",
+    "notes": "GEOGRAPHY JOIN ONLY. Not Fair Market Rent, Income Limits, CHAS, or NCWM. Manual one-time download; no API key. Populate `rows` and set manual_download_required=false before Task D (Marin) / Task G (national) reconciliation. Row schema: { zip, zcta, county_fips, res_ratio }."
+  },
+  "manual_download_required": true,
+  "rows": []
+}
