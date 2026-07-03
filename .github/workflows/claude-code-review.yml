@@ -1,23 +1,35 @@
 name: Claude Code Review
 
+# Agentic PR review via anthropics/claude-code-action, which runs Claude Code
+# (Bash + file tools + network) with CLAUDE_CODE_OAUTH_TOKEN in scope. Because a
+# token-bearing agent must NEVER load or execute PR-controlled code, this
+# workflow follows the same base-ref-only hardening as second-opinion-gate.yml
+# (decision_log #28 / its successor). Invariants pinned by
+# scripts/second-opinion-gate/__tests__/workflow-hardening.test.ts:
+#   1. Trigger is pull_request_target — the workflow definition and all project
+#      config the agent loads (CLAUDE.md, .claude/ hooks, skills) come from the
+#      trusted base branch, not the PR.
+#   2. actions/checkout uses the default (base) ref only. Never check out the PR
+#      head into the workspace root. The PR diff reaches the review as GitHub API
+#      data (the /code-review command fetches it by PR number via gh), never on disk.
+#   3. Runs only for write-access authors (OWNER/MEMBER/COLLABORATOR). Under
+#      pull_request_target secrets are available to fork PRs too, so this gate
+#      keeps the effective audience identical to the old pull_request behavior
+#      (fork PRs received no secret) — no expansion of who can reach the token.
+# claude_args disallows write/network tools as defense-in-depth against prompt
+# injection carried in the diff (vector B) — an accepted residual, see the
+# governing decision_log row. GITHUB_TOKEN stays pull-requests:read (findings are
+# logged, not posted) so no write-scoped token is exposed under pull_request_target.
+
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
+    # Only trusted (write-access) authors. Fork/untrusted-author PRs are skipped
+    # so an attacker cannot get their diff in front of the token-holding agent.
+    if: contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,6 +51,9 @@ jobs:
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
-
+          # Defense-in-depth against diff-borne prompt injection (vector B):
+          # a read-only reviewer needs no file-write or web tools. Bash remains
+          # for the gh diff fetch. See docs/SECOND-OPINION-GATE.md security notes.
+          claude_args: |
+            --disallowedTools Write,Edit,WebFetch,WebSearch
+          # See https://github.com/anthropics/claude-code-action/blob/main/docs/security.md

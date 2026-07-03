@@ -1,14 +1,19 @@
 /**
- * Regression tests for the Second-Opinion Gate workflow's security invariants.
+ * Regression tests for the security invariants of the two workflows that run
+ * with secrets in scope and must therefore NEVER execute PR-controlled code:
+ *   - second-opinion-gate.yml   (OPENAI_API_KEY, write-scoped GITHUB_TOKEN)
+ *   - claude-code-review.yml     (CLAUDE_CODE_OAUTH_TOKEN, agentic Claude Code)
  *
- * The gate job carries secrets (OPENAI_API_KEY, write-scoped GITHUB_TOKEN).
- * It must therefore never execute PR-controlled code. These tests pin the
- * three invariants documented in .github/workflows/second-opinion-gate.yml:
- *
- *   1. Trigger is pull_request_target (workflow + code run from base branch).
+ * Shared invariants (documented in each workflow header):
+ *   1. Trigger is pull_request_target (workflow + all loaded code/config run
+ *      from the base branch, not the PR).
  *   2. No checkout of the PR head (head.sha / head.ref) anywhere in the file.
- *   3. Install steps run only against the base-ref checkout — i.e. every
- *      actions/checkout step uses the default ref (no `ref:` input at all).
+ *   3. Every actions/checkout uses the default (base) ref — no `ref:` input.
+ *
+ * Per-file invariants:
+ *   - gate: npm ci install runs only after the base-ref checkout.
+ *   - review: runs only for write-access authors (OWNER/MEMBER/COLLABORATOR),
+ *     so fork/untrusted-author PRs never reach the token-holding agent.
  *
  * String/line-level assertions on the raw YAML are deliberate: no YAML parser
  * dependency, and a structural refactor that reintroduces any forbidden token
@@ -18,38 +23,43 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const WORKFLOW_PATH = join(__dirname, '..', '..', '..', '.github', 'workflows', 'second-opinion-gate.yml')
-const raw = readFileSync(WORKFLOW_PATH, 'utf8')
+const WORKFLOW_DIR = join(__dirname, '..', '..', '..', '.github', 'workflows')
 
-/** Strip full-line and trailing comments so assertions only see live YAML. */
-const live = raw
-  .split('\n')
-  .map((line) => {
-    const hash = line.indexOf('#')
-    return hash === -1 ? line : line.slice(0, hash)
-  })
-  .join('\n')
+/** Read a workflow and strip full-line and trailing comments so assertions only see live YAML. */
+function loadLive(filename: string): string {
+  const raw = readFileSync(join(WORKFLOW_DIR, filename), 'utf8')
+  return raw
+    .split('\n')
+    .map((line) => {
+      const hash = line.indexOf('#')
+      return hash === -1 ? line : line.slice(0, hash)
+    })
+    .join('\n')
+}
+
+/** The three base-ref invariants that every secret-bearing PR workflow must satisfy. */
+function assertBaseRefInvariants(live: string): void {
+  // 1. pull_request_target, never a bare pull_request trigger (which would run
+  //    the PR's version of the workflow with secrets in scope).
+  expect(live).toMatch(/^\s*pull_request_target:\s*$/m)
+  expect(live).not.toMatch(/^\s*pull_request:\s*$/m)
+
+  // 2. Never reference the PR head sha or ref.
+  expect(live).not.toMatch(/head\.sha/)
+  expect(live).not.toMatch(/head\.ref/)
+  expect(live).not.toMatch(/github\.event\.pull_request\.head/)
+
+  // 3. Every checkout uses the default (base) ref — any `ref:` input is how a
+  //    PR-head checkout would be introduced, so the file must not contain one.
+  expect(live).toMatch(/uses:\s*actions\/checkout/)
+  expect(live).not.toMatch(/^\s*ref:/m)
+}
 
 describe('second-opinion-gate.yml security invariants', () => {
-  it('triggers on pull_request_target, not pull_request', () => {
-    expect(live).toMatch(/^\s*pull_request_target:\s*$/m)
-    // A bare `pull_request:` trigger would run the PR's version of this
-    // workflow with secrets in scope.
-    expect(live).not.toMatch(/^\s*pull_request:\s*$/m)
-  })
+  const live = loadLive('second-opinion-gate.yml')
 
-  it('never references the PR head sha or ref', () => {
-    expect(live).not.toMatch(/head\.sha/)
-    expect(live).not.toMatch(/head\.ref/)
-    expect(live).not.toMatch(/github\.event\.pull_request\.head/)
-  })
-
-  it('every checkout uses the default (base) ref — no ref input anywhere', () => {
-    // Under pull_request_target the default checkout is the base branch.
-    // Any `ref:` input is how a PR-head checkout would be introduced, so the
-    // file must not contain one at all.
-    expect(live).toMatch(/uses:\s*actions\/checkout/)
-    expect(live).not.toMatch(/^\s*ref:/m)
+  it('satisfies the base-ref invariants (pull_request_target, no PR-head checkout)', () => {
+    assertBaseRefInvariants(live)
   })
 
   it('install steps exist only alongside the base-ref checkout (no PR-code execution)', () => {
@@ -61,5 +71,30 @@ describe('second-opinion-gate.yml security invariants', () => {
     const installIndex = jobs.indexOf('npm ci')
     expect(checkoutIndex).toBeGreaterThan(-1)
     expect(installIndex).toBeGreaterThan(checkoutIndex)
+  })
+})
+
+describe('claude-code-review.yml security invariants', () => {
+  const live = loadLive('claude-code-review.yml')
+
+  it('satisfies the base-ref invariants (pull_request_target, no PR-head checkout)', () => {
+    assertBaseRefInvariants(live)
+  })
+
+  it('runs only for write-access authors (fork/untrusted PRs never reach the token)', () => {
+    // The agentic reviewer holds CLAUDE_CODE_OAUTH_TOKEN; under pull_request_target
+    // secrets reach fork PRs too, so the author-association gate is what keeps the
+    // effective audience to trusted authors. Pin all three write-access roles.
+    expect(live).toMatch(/author_association/)
+    expect(live).toMatch(/OWNER/)
+    expect(live).toMatch(/MEMBER/)
+    expect(live).toMatch(/COLLABORATOR/)
+    // And pin that the gate is an `if:` condition on the job, not a stray string.
+    expect(live).toMatch(/if:\s*contains\(fromJSON\(/)
+  })
+
+  it('does not expose a write-scoped GITHUB_TOKEN (findings are logged, not posted)', () => {
+    expect(live).not.toMatch(/pull-requests:\s*write/)
+    expect(live).not.toMatch(/contents:\s*write/)
   })
 })
