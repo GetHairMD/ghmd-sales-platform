@@ -7,7 +7,7 @@ each is a snapshot with a provenance header, refreshed deliberately (via API pul
 |------|------|---------|--------|
 | `hud-usps-zip-county-crosswalk.json` | B | HUD USPS **ZIP↔County** crosswalk (+ ZIP-as-ZCTA resolution). **Geography join only** — which ZIPs/ZCTAs belong to a county/territory. | ✅ Populated — 54,234 rows, 51 states + DC |
 | `experian-credit-share-by-state.json` | C | Experian FICO≥670 credit-qualified share by state (natl 70.4%, Sept 2025). | ⬜ Task C |
-| `prevalence-by-age-sex.json` | D | Peer-reviewed hair-loss prevalence by age band × sex. | ⬜ Task D |
+| `prevalence-by-age-sex.json` | D | Peer-reviewed hair-loss prevalence by age band × sex. **Provenance artifact** — generated from `HAIR_LOSS_PREVALENCE` (Rule 6 canonical); not the compute source. | ✅ Generated (28 entries) |
 
 ## HUD USPS ZIP↔County Crosswalk — how it's built
 
