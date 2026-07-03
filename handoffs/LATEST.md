@@ -25,14 +25,14 @@ All formula constants live in `/lib/addressable-market-constants.ts` (Rule 6) �
 
 | Task | Description | Status | Commit / Notes |
 |------|-------------|--------|----------------|
-| A | Dead-code deletion (PROPENSITY_TO_ACT, COL/housing-cost multiplier, B25105 fetch/table, unused $2,974 anchor) | ✅ COMPLETE | `aabab95` — acceptance grep 0 hits in src/, tsc clean, vitest 84/84 |
-| B | Income screen — ACS B19001 ZCTA, qualified share ≥ $37,415, straddle-bracket linear interpolation, `robustness_flag` below 5%-PTI bound (flag never filter). HUD ZIP crosswalk = geography-join-only static file in `/data`. Latest ACS vintage. | ⬜ NEXT | — |
-| C | Credit share — Experian Sept 2025, FICO≥670, by state (natl 70.4%). `data/experian-credit-share-by-state.json` with provenance header. | ⬜ PENDING | — |
-| D | Prevalence layer — wire `data/prevalence-by-age-sex.json` (Norwood 1975, Rhodes 1998, Gan & Sinclair 2005, Birch 2002, Sinclair 2011, Vary 2010). Cell = adults × income_share × credit_share × prevalence(age,sex); Σ cells = addressable. Marin ≈ 64,194 @PTI8. | ⬜ PENDING | — |
-| E | `CUSTOMERS_NEEDED = 62` (locked 2026-07-03) replaces placeholder; territory sized so addressable × penetration ≥ 62. | ⬜ PENDING | — |
-| F | Penetration parameterized — base 0.01 / low 0.005 / high 0.02, with QB-empirical-bridge source string (ETA 2 wks post-launch). Proposal shows all three. | ⬜ PENDING | — |
-| G | Demand-table generator reconciliation — regenerate end-to-end. Also reconciles the `lib/census/` demand model (PR #19 scaffold, camelCase propensity) left intact by Task A. | ⬜ PENDING | — |
-| H | gethairmd.biz lead-capture fix — server-side Netlify fn → Supabase (service key, not anon); admin route behind auth (401/redirect); privacy notice (flag to Rick if no policy page). Zero lead data in client JS/localStorage. | ⬜ PENDING | — |
+| A | Dead-code deletion (PROPENSITY_TO_ACT, COL/housing-cost multiplier, B25105 fetch/table, unused $2,974 anchor) | ✅ COMPLETE | `aabab95` — acceptance grep 0 hits in src/ |
+| B | Income screen — ACS B19001 ZCTA, ≥ $37,415, straddle interpolation, `robustness_flag` (share_5pti/share_8pti < 0.5). ACS vintage → 2024. HUD ZIP↔County crosswalk (54,234 rows) + ZIP-as-ZCTA. | ✅ COMPLETE | `7318a31`, `8afcd42`, `d3ef623` (decision_log #44) |
+| C | Credit share — Experian FICO≥670 by state. Infra done (national 70.4% + fallback). **`states` HELD** pending Trace's Sept-2025 per-state table (Sat EOD); else ship 70.4% fallback + flag + decision_log row. | 🟡 INFRA DONE | `1b28db1` |
+| D | Cell formula — adults × income_share × credit_share × prevalence(age,sex); Σ cells. Prevalence canonical in constants (Rule 6); `data/prevalence-by-age-sex.json` generated as provenance (group-level citations). **Marin 64,194 run HELD** (Experian-gated, part of G). | 🟡 CORE DONE | `682e236` |
+| E | `CUSTOMERS_NEEDED = 62` (locked 2026-07-03) replaces placeholder. | ✅ COMPLETE | `7a556ad` |
+| F | Penetration parameterized — 0.005 / 0.01 / 0.02, QB-bridge source string, all three shown. | ✅ COMPLETE | `7a556ad` |
+| G | Demand-table reconciliation — full ZCTA pipeline (HUD → per-ZCTA B01001+B19001 → state credit → Σ cells), national 69.8M/56.4M + Marin 64,194, reconcile `lib/census/` scaffold + replace transitional census.ts. **HELD** (Experian-gated). | ⏸ HELD | — |
+| H | gethairmd.biz lead-capture — **OUT OF SCOPE** for this branch. Lives in the separate gethairmd.biz marketing-site repo (confirmed Trace 2026-07-03); handle in its own session. | ⛔ OUT OF SCOPE | — |
 
 ### Locked decisions (do NOT reopen) — decision_log rows 37–42
 

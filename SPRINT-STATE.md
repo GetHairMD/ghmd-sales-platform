@@ -14,13 +14,13 @@ constants in `/lib/addressable-market-constants.ts` (Rule 6) — never inline.
 | Task | Description | Status | Commit / PR |
 |---|---|---|---|
 | A | Dead-code deletion — PROPENSITY_TO_ACT, COL/housing-cost multiplier, B25105, unused $2,974 anchor | ✅ COMPLETE | `aabab95` |
-| B | Income screen — ACS B19001 ZCTA, ≥ $37,415, straddle-bracket interpolation, robustness_flag | ⬜ NEXT | — |
-| C | Credit share — Experian Sept 2025 FICO≥670 by state (`data/experian-credit-share-by-state.json`) | ⬜ PENDING | — |
-| D | Prevalence layer — wire `data/prevalence-by-age-sex.json`; Σ cells = addressable | ⬜ PENDING | — |
-| E | `CUSTOMERS_NEEDED = 62` replaces placeholder | ⬜ PENDING | — |
-| F | Penetration parameterized — 0.005 / 0.01 / 0.02, all three shown | ⬜ PENDING | — |
-| G | Demand-table generator reconciliation (natl 69.8M@PTI8 / 56.4M@PTI5, Marin 64,194) | ⬜ PENDING | — |
-| H | gethairmd.biz lead-capture fix — server-side, auth-gated admin, privacy notice | ⬜ PENDING | — |
+| B | Income screen — ACS B19001 ZCTA, ≥ $37,415, straddle interpolation, robustness_flag; ACS→2024; HUD ZIP↔County crosswalk (54,234 rows, decision_log #44) | ✅ COMPLETE | `7318a31` `8afcd42` `d3ef623` |
+| C | Credit share — Experian FICO≥670 by state. Infra done; **`states` HELD** on Trace's Sept-2025 table (Sat EOD), else 70.4% fallback + flag | 🟡 INFRA | `1b28db1` |
+| D | Cell formula (adults × income × credit × prevalence, Σ cells); prevalence canonical in constants (Rule 6) + provenance JSON. **Marin 64,194 run HELD** (part of G) | 🟡 CORE | `682e236` |
+| E | `CUSTOMERS_NEEDED = 62` replaces placeholder | ✅ COMPLETE | `7a556ad` |
+| F | Penetration parameterized — 0.005 / 0.01 / 0.02, all three shown | ✅ COMPLETE | `7a556ad` |
+| G | Demand-table reconciliation (full ZCTA pipeline; natl 69.8M@PTI8 / 56.4M@PTI5, Marin 64,194) | ⏸ HELD (Experian-gated) | — |
+| H | gethairmd.biz lead-capture — **OUT OF SCOPE** (separate gethairmd.biz repo, confirmed 2026-07-03) | ⛔ OUT OF SCOPE | — |
 
 ### Locked decisions (do not reopen)
 
