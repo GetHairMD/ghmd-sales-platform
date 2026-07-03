@@ -4,7 +4,7 @@ name: Claude Code Review
 # (Bash + file tools + network) with CLAUDE_CODE_OAUTH_TOKEN in scope. Because a
 # token-bearing agent must NEVER load or execute PR-controlled code, this
 # workflow follows the same base-ref-only hardening as second-opinion-gate.yml
-# (decision_log #28 / its successor). Invariants pinned by
+# (decision_log #28 / its successor #33). Invariants pinned by
 # scripts/second-opinion-gate/__tests__/workflow-hardening.test.ts:
 #   1. Trigger is pull_request_target — the workflow definition and all project
 #      config the agent loads (CLAUDE.md, .claude/ hooks, skills) come from the
@@ -12,10 +12,11 @@ name: Claude Code Review
 #   2. actions/checkout uses the default (base) ref only. Never check out the PR
 #      head into the workspace root. The PR diff reaches the review as GitHub API
 #      data (the /code-review command fetches it by PR number via gh), never on disk.
-#   3. Runs only for write-access authors (OWNER/MEMBER/COLLABORATOR). Under
-#      pull_request_target secrets are available to fork PRs too, so this gate
-#      keeps the effective audience identical to the old pull_request behavior
-#      (fork PRs received no secret) — no expansion of who can reach the token.
+#   3. Label-gated: runs only when a 'claude-review' label is applied. GitHub
+#      restricts label application to users with triage+/write permission, so an
+#      untrusted/fork author cannot trigger the token-bearing agent — only a
+#      maintainer opting in can. (author_association was rejected: MEMBER means
+#      org membership, not repo write, so it would admit org-members-without-write.)
 # claude_args disallows write/network tools as defense-in-depth against prompt
 # injection carried in the diff (vector B) — an accepted residual, see the
 # governing decision_log row. GITHUB_TOKEN stays pull-requests:read (findings are
@@ -23,13 +24,13 @@ name: Claude Code Review
 
 on:
   pull_request_target:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [labeled]
 
 jobs:
   claude-review:
-    # Only trusted (write-access) authors. Fork/untrusted-author PRs are skipped
-    # so an attacker cannot get their diff in front of the token-holding agent.
-    if: contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+    # Trust gate: only a 'claude-review' label (appliable solely by triage+/write
+    # users) triggers the token-holding agent. Any other label is a no-op.
+    if: github.event.label.name == 'claude-review'
     runs-on: ubuntu-latest
     permissions:
       contents: read

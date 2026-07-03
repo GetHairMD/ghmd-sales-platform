@@ -81,16 +81,16 @@ describe('claude-code-review.yml security invariants', () => {
     assertBaseRefInvariants(live)
   })
 
-  it('runs only for write-access authors (fork/untrusted PRs never reach the token)', () => {
+  it('is label-gated on the claude-review label (only triage+/write users can trigger)', () => {
     // The agentic reviewer holds CLAUDE_CODE_OAUTH_TOKEN; under pull_request_target
-    // secrets reach fork PRs too, so the author-association gate is what keeps the
-    // effective audience to trusted authors. Pin all three write-access roles.
-    expect(live).toMatch(/author_association/)
-    expect(live).toMatch(/OWNER/)
-    expect(live).toMatch(/MEMBER/)
-    expect(live).toMatch(/COLLABORATOR/)
-    // And pin that the gate is an `if:` condition on the job, not a stray string.
-    expect(live).toMatch(/if:\s*contains\(fromJSON\(/)
+    // secrets reach fork PRs too. author_association was rejected because MEMBER =
+    // org membership, not repo write. GitHub restricts label application to
+    // triage+/write, so the 'claude-review' label is the trust gate.
+    expect(live).toMatch(/pull_request_target:/)
+    expect(live).toMatch(/types:\s*\[\s*labeled\s*\]/)
+    expect(live).toMatch(/if:\s*github\.event\.label\.name\s*==\s*'claude-review'/)
+    // Guard against a regression back to the leaky author_association gate.
+    expect(live).not.toMatch(/author_association/)
   })
 
   it('does not expose a write-scoped GITHUB_TOKEN (findings are logged, not posted)', () => {
