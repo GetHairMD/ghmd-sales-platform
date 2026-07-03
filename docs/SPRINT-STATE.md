@@ -26,7 +26,7 @@ Source of truth: `/handoffs/LATEST.md` (v2.24).
 
 ### Locked decisions (do not reopen) — decision_log 37–42
 
-- **37** Affordability Anchor V2 ($37,415 @ 8% PTI; 5% PTI = robustness bound, flag never filter) · **38** ACS vintage bump superseded (B25105 deleted, moot) · **39** Pre-Execution Gate LIFTED (franchise question CLOSED) · **40** Grandfathering through 2026-07-31 + Penetration bridge.
+- **37** Affordability Anchor V2 ($37,415 @ 8% PTI; 5% PTI = robustness bound, flag never filter) · **38** ACS vintage bump superseded (B25105 deleted, moot) · **39** Pre-Execution Gate LIFTED (franchise question CLOSED) · ~~**40** Grandfathering through 2026-07-31 + Penetration bridge~~ — superseded by #49 (grandfathering retired, locked).
 - **41/42** (Hub-Spoke V1, NDP+EIP V1) are `platform='cross'` context — **not formula-sprint code**, awareness only.
 
 ### Acceptance / QA targets
