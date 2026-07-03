@@ -1,20 +1,41 @@
 # Sprint State — GHMD Sales Platform
 
-Last updated: 2026-06-29
+Last updated: 2026-07-03 (session #2)
 
 ## Current Sprint
 
-**Sprint 1 — Database Foundation + Census API + Addressable Market Engine**
-Weeks 1–2 · Status: **OPEN** · Opened: 2026-06-29
+**formula-v2-public-source — Replace legacy territory-sizing formula with public-source methodology**
+Status: **OPEN** · Branch: `feat/formula-v2-public-source` (off clean main `be2dc4e`)
+Go-live: **Monday, July 6, 5:00 PM CT** · Merge: squash Sunday after Second-Opinion Gate review.
+Source of truth: `/handoffs/LATEST.md` (v2.24).
 
-### Sprint 1 — Open Notes (2026-06-29)
+> All formula constants live in `/lib/addressable-market-constants.ts` (Rule 6) — never inline.
 
-- Migration `20260629000000_operator_scoring_schema.sql` applied to `cprltmwwldbxcsunsafl` and verified (tables `operators`, `operator_enrichment`, `operator_scores`, `operator_score_records` created with RLS; `capture_source` enum and `operator_score_override_rates` view present).
-- PR [#15](https://github.com/GetHairMD/ghmd-sales-platform/pull/15) open — security view fix (`operator_score_override_rates` recreated `WITH (security_invoker = true)` to clear `security_definer_view` advisor ERROR). DB already updated; PR syncs the migration file to the repo. Pending merge.
+### Task Status
 
-### Sprint 1 — Backlog
+| Task | Description | Status | Commit |
+|---|---|---|---|
+| A | Dead-code deletion — PROPENSITY_TO_ACT, COL/housing-cost multiplier, B25105, unused $2,974 anchor | ✅ COMPLETE | `aabab95` |
+| B | Income screen — ACS B19001 ZCTA, qualified share ≥ $37,415, straddle-bracket linear interpolation, `robustness_flag` below 5%-PTI bound (flag never filter); HUD ZIP crosswalk geography-join-only static file in `/data` | ⬜ NEXT | — |
+| C | Credit share — Experian Sept 2025 FICO≥670 by state (natl 70.4%), `data/experian-credit-share-by-state.json` w/ provenance header | ⬜ PENDING | — |
+| D | Prevalence layer — wire `data/prevalence-by-age-sex.json` (6 peer-reviewed sources); cell = adults × income_share × credit_share × prevalence(age,sex); Σ cells = addressable | ⬜ PENDING | — |
+| E | `CUSTOMERS_NEEDED = 62` (locked 2026-07-03) replaces placeholder | ⬜ PENDING | — |
+| F | Penetration parameterized — base 0.01 / low 0.005 / high 0.02; proposal shows all three | ⬜ PENDING | — |
+| G | Demand-table generator reconciliation — regenerate end-to-end; also reconciles `lib/census/` model left intact by Task A | ⬜ PENDING | — |
+| H | gethairmd.biz lead-capture fix — server-side Netlify fn → Supabase (service key), auth-gated admin, privacy notice, zero client-side lead data | ⬜ PENDING | — |
 
-- [ ] `log:export` script missing from `package.json` — add it (referenced in ops tooling but not defined; only `dev`/`build`/`start`/`lint` exist).
+### Locked decisions (do not reopen) — decision_log 37–42
+
+- **37** Affordability Anchor V2 ($37,415 @ 8% PTI; 5% PTI = robustness bound, flag never filter) · **38** ACS vintage bump superseded (B25105 deleted, moot) · **39** Pre-Execution Gate LIFTED (franchise question CLOSED) · **40** Grandfathering through 2026-07-31 + Penetration bridge.
+- **41/42** (Hub-Spoke V1, NDP+EIP V1) are `platform='cross'` context — **not formula-sprint code**, awareness only.
+
+### Acceptance / QA targets
+
+National 69.8M @PTI8 · 56.4M @PTI5 · Marin 64,194 @PTI8 · Westlake correct = 9,108 (the 5,483 in a delivered proposal is a Bruce/Sean-Paul-facing correction, **not a code task**).
+
+### Transitional caveat
+
+`src/lib/census.ts::computeAddressableMarket` is a transitional body post-Task-A (prevalence-only, no propensity/COL) — interim numbers, guarded by the territories page try/catch — rebuilt across Tasks B/D/G and reconciled in G before merge.
 
 ## Sprint Sequence
 
