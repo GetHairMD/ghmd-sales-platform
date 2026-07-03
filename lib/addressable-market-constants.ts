@@ -230,6 +230,47 @@ export const EXPERIAN_FICO_PRIME_THRESHOLD = 670;
 export const EXPERIAN_NATIONAL_CREDIT_SHARE = 0.704;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Customers Needed (Task E)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Customers a territory must be able to yield to be viable. Locked 2026-07-03
+ * (worst-case Early-tier recovery). A territory is sized so that
+ * addressable × penetration ≥ CUSTOMERS_NEEDED.
+ */
+export const CUSTOMERS_NEEDED = 62;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Penetration Scenarios (Task F)
+// Base 1% is a DOCUMENTED PLACEHOLDER shipping Monday; low/high bound the
+// sensitivity. Empirical replacement comes from QuickBooks reorder data
+// (~2 weeks post-launch) — see decision_log #40 (Penetration Bridge).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const PENETRATION_RATE_LOW = 0.005;
+export const PENETRATION_RATE_BASE = 0.01;
+export const PENETRATION_RATE_HIGH = 0.02;
+
+/** Provenance for the base penetration rate — surfaced in proposal output. */
+export const PENETRATION_SOURCE =
+  "1% base rate is a documented placeholder (locked 2026-07-03), shown with 0.5% / 2% " +
+  "sensitivity bounds. Empirical replacement from QuickBooks reorder data ETA ~2 weeks " +
+  "post-launch (decision_log #40, Penetration Bridge).";
+
+export interface PenetrationScenario {
+  key: "low" | "base" | "high";
+  label: string;
+  rate: number;
+}
+
+/** The three penetration scenarios shown on every proposal, low → high. */
+export const PENETRATION_SCENARIOS: PenetrationScenario[] = [
+  { key: "low",  label: "Conservative (0.5%)", rate: PENETRATION_RATE_LOW },
+  { key: "base", label: "Base (1%)",           rate: PENETRATION_RATE_BASE },
+  { key: "high", label: "Optimistic (2%)",     rate: PENETRATION_RATE_HIGH },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Sprint 1 Validation Targets
 // ─────────────────────────────────────────────────────────────────────────────
 
