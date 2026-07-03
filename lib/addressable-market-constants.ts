@@ -148,10 +148,12 @@ export const CENSUS_CACHE_TTL_DAYS = 90;
 
 /**
  * ACS 5-year vintage used for all public-source pulls (income screen etc.).
- * "Latest available" per the formula-v2 spec. Bump when a newer 5-year release
- * is confirmed live on the Census API (endpoint: /data/{vintage}/acs/acs5).
+ * "Latest available" per the formula-v2 spec: the 2020–2024 ACS 5-year estimates
+ * (vintage 2024) were publicly released 2026-01-29 and are the current latest
+ * 5-year dataset. Endpoint: /data/{vintage}/acs/acs5. Bump when a newer 5-year
+ * release is confirmed live on the Census API.
  */
-export const CENSUS_ACS5_VINTAGE = 2023;
+export const CENSUS_ACS5_VINTAGE = 2024;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Income Screen — Affordability Anchor V2 (decision_log #37)
