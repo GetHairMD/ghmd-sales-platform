@@ -1,20 +1,41 @@
 # Sprint State — GHMD Sales Platform
 
-Last updated: 2026-06-29
+Last updated: 2026-07-03 (session #2)
 
 ## Current Sprint
 
-**Sprint 1 — Database Foundation + Census API + Addressable Market Engine**
-Weeks 1–2 · Status: **OPEN** · Opened: 2026-06-29
+**formula-v2-public-source — Replace legacy territory-sizing formula with public-source methodology**
+Status: **OPEN** · Branch: `feat/formula-v2-public-source` (off clean main `be2dc4e`)
+Go-live: **Monday, July 6, 5:00 PM CT** · Merge: squash Sunday after Second-Opinion Gate review.
+Source of truth: `/handoffs/LATEST.md` (v2.24).
 
-### Sprint 1 — Open Notes (2026-06-29)
+> All formula constants live in `/lib/addressable-market-constants.ts` (Rule 6) — never inline.
 
-- Migration `20260629000000_operator_scoring_schema.sql` applied to `cprltmwwldbxcsunsafl` and verified (tables `operators`, `operator_enrichment`, `operator_scores`, `operator_score_records` created with RLS; `capture_source` enum and `operator_score_override_rates` view present).
-- PR [#15](https://github.com/GetHairMD/ghmd-sales-platform/pull/15) open — security view fix (`operator_score_override_rates` recreated `WITH (security_invoker = true)` to clear `security_definer_view` advisor ERROR). DB already updated; PR syncs the migration file to the repo. Pending merge.
+### Task Status
 
-### Sprint 1 — Backlog
+| Task | Description | Status | Commit |
+|---|---|---|---|
+| A | Dead-code deletion — PROPENSITY_TO_ACT, COL/housing-cost multiplier, B25105, unused $2,974 anchor | ✅ COMPLETE | `aabab95` |
+| B | Income screen — ACS B19001 ZCTA, ≥ $37,415, straddle interpolation, `robustness_flag` (share_5pti/share_8pti < 0.5); ACS vintage → 2024; HUD ZIP↔County crosswalk (54,234 rows) + ZIP-as-ZCTA (decision_log #44) | ✅ COMPLETE | `7318a31` `8afcd42` `d3ef623` |
+| C | Credit share — Experian FICO≥670 by state, RESOLVED with real state-CSV table (51 states). State CSV confirmed authoritative (matches disclosed formula for all 51; county fixture stale for 16). decision_log #45/#47 | ✅ COMPLETE | `1b28db1` `81fca9e` |
+| D | Addressable = **households × income-qualified × credit-eligible** — NO prevalence (methodology §2). Handoff's prevalence cell formula corrected; prevalence archived to `/reference`. Marin 64,194 confirmed. decision_log #46 | ✅ COMPLETE | `41497d0` |
+| E | `CUSTOMERS_NEEDED = 62` (locked 2026-07-03) replaces placeholder | ✅ COMPLETE | `7a556ad` |
+| F | Penetration parameterized — base 0.01 / low 0.005 / high 0.02; proposal shows all three | ✅ COMPLETE | `7a556ad` |
+| G | Reconciliation vs ground-truth county fixtures (3,144 counties); shipping formula hits CORRECTED 69.6M @PTI8 / 56.3M @PTI5 + Marin 64,194 (CI test); census.ts replaced with corrected formula. Targets corrected from 69.8M/56.4M. decision_log #47 | ✅ COMPLETE | `f29069c` |
+| H | gethairmd.biz lead-capture — **OUT OF SCOPE** for this branch; lives in the separate gethairmd.biz marketing-site repo (confirmed Trace 2026-07-03) | ⛔ OUT OF SCOPE | — |
 
-- [ ] `log:export` script missing from `package.json` — add it (referenced in ops tooling but not defined; only `dev`/`build`/`start`/`lint` exist).
+### Locked decisions (do not reopen) — decision_log 37–42
+
+- **37** Affordability Anchor V2 ($37,415 @ 8% PTI; 5% PTI = robustness bound, flag never filter) · **38** ACS vintage bump superseded (B25105 deleted, moot) · **39** Pre-Execution Gate LIFTED (franchise question CLOSED) · **40** Grandfathering through 2026-07-31 + Penetration bridge.
+- **41/42** (Hub-Spoke V1, NDP+EIP V1) are `platform='cross'` context — **not formula-sprint code**, awareness only.
+
+### Acceptance / QA targets
+
+National **69.6M** @PTI8 (69,581,844) · **56.3M** @PTI5 (56,283,042) — corrected from 69.8M/56.4M (decision_log #47) · Marin 64,194 @PTI8 · Westlake correct = 9,108 (the 5,483 in a delivered proposal is a Bruce/Sean-Paul-facing correction, **not a code task**).
+
+### Transitional caveat
+
+`src/lib/census.ts::computeAddressableMarket` is a transitional body post-Task-A (prevalence-only, no propensity/COL) — interim numbers, guarded by the territories page try/catch — rebuilt across Tasks B/D/G and reconciled in G before merge.
 
 ## Sprint Sequence
 

@@ -1,0 +1,54 @@
+state,abbr,avg_fico_sept2025_SOURCE_Experian,median_hh_income_2024_SOURCE_Census_FRED,"income_affordability_multiple_DERIVED (median income / $37,415 required income at 24.99% APR, 60mo, 8% PTI)",est_share_fico_ge_670_DERIVED (national band distribution shifted by state avg differential - APPROXIMATION)
+Alabama,AL,689,65560,1.752,0.6351
+Alaska,AK,720,91260,2.439,0.7156
+Arizona,AZ,709,84700,2.264,0.6925
+Arkansas,AR,693,64840,1.733,0.6466
+California,CA,721,100600,2.689,0.7172
+Colorado,CO,729,106500,2.846,0.7305
+Connecticut,CT,724,99240,2.652,0.7222
+Delaware,DE,713,85860,2.295,0.704
+District of Columbia,DC,711,104800,2.801,0.6983
+Florida,FL,704,75630,2.021,0.6782
+Georgia,GA,692,81210,2.17,0.6437
+Hawaii,HI,730,98240,2.626,0.7321
+Idaho,ID,729,81650,2.182,0.7305
+Illinois,IL,720,84210,2.251,0.7156
+Indiana,IN,710,76710,2.05,0.6954
+Iowa,IA,728,85480,2.285,0.7288
+Kansas,KS,720,87690,2.344,0.7156
+Kentucky,KY,704,64790,1.732,0.6782
+Louisiana,LA,686,60740,1.623,0.6265
+Maine,ME,731,90730,2.425,0.7338
+Maryland,MD,714,109700,2.932,0.7057
+Massachusetts,MA,731,113900,3.044,0.7338
+Michigan,MI,717,79460,2.124,0.7106
+Minnesota,MN,741,92350,2.468,0.7504
+Mississippi,MS,677,55980,1.496,0.6006
+Missouri,MO,712,78390,2.095,0.7011
+Montana,MT,730,81920,2.189,0.7321
+Nebraska,NE,728,86140,2.302,0.7288
+Nevada,NV,699,80590,2.154,0.6638
+New Hampshire,NH,735,111800,2.988,0.7404
+New Jersey,NJ,722,103500,2.766,0.7189
+New Mexico,NM,701,64140,1.714,0.6695
+New York,NY,719,86830,2.321,0.7139
+North Carolina,NC,707,67220,1.797,0.6868
+North Dakota,ND,730,88080,2.354,0.7321
+Ohio,OH,713,80520,2.152,0.704
+Oklahoma,OK,693,65310,1.746,0.6466
+Oregon,OR,730,89700,2.397,0.7321
+Pennsylvania,PA,720,80060,2.14,0.7156
+Rhode Island,RI,719,92290,2.467,0.7139
+South Carolina,SC,699,76780,2.052,0.6638
+South Dakota,SD,731,79850,2.134,0.7338
+Tennessee,TN,703,75860,2.028,0.6753
+Texas,TX,692,81490,2.178,0.6437
+Utah,UT,728,104000,2.78,0.7288
+Vermont,VT,737,85260,2.279,0.7437
+Virginia,VA,721,97720,2.612,0.7172
+Washington,WA,734,97500,2.606,0.7388
+West Virginia,WV,699,63150,1.688,0.6638
+Wisconsin,WI,737,82560,2.207,0.7437
+Wyoming,WY,722,78680,2.103,0.7189
+
+# Sources: Experian avg FICO by state Sept 2025 (experian.com/blogs/ask-experian/what-is-the-average-credit-score-in-the-u-s/) | Census median HH income 2024 via FRED (fred.stlouisfed.org/release/tables?eid=259515&rid=249) | DERIVED columns are estimates - methodology in GHMD_Territory_Methodology memo & Excel model notes. Local income distributions: Census ACS B19001 at data.census.gov

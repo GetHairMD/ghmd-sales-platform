@@ -1,43 +1,23 @@
 /**
- * Census ACS API client + addressable market formula runner.
- * Formula constants are imported from /lib/addressable-market-constants.ts — never hardcoded here.
+ * Census ACS API client + addressable-market formula runner (formula-v2, CORRECTED).
+ *
+ *   addressable households = households × income-qualified share × credit-eligible share
+ *
+ * Affordability model per the methodology memo §2 — no prevalence term (see decision_log
+ * "Addressable Market Formula Corrected"). Formula constants/thresholds are imported from
+ * /lib/addressable-market-constants.ts — never hardcoded here.
  */
 
 import {
-  HAIR_LOSS_PREVALENCE,
-  PROPENSITY_TO_ACT,
-  INCOME_BANDS,
-  FINANCING_TAKEUP_RATE,
-  CENSUS_HOUSING_COST_VAR,
-  housingCostMultiplier,
+  CENSUS_ACS5_VINTAGE,
+  INCOME_QUALIFY_THRESHOLD_ANNUAL,
+  B19001_TOTAL_HH_VAR,
 } from '../../lib/addressable-market-constants'
-
-// B01001 variable → age cohort mapping (Census ACS 5-year)
-const AGE_COHORT_VARS: Record<string, { male: string[]; female: string[] }> = {
-  '20-24': { male: ['B01001_008E', 'B01001_009E', 'B01001_010E'], female: ['B01001_032E', 'B01001_033E', 'B01001_034E'] },
-  '25-29': { male: ['B01001_011E'], female: ['B01001_035E'] },
-  '30-34': { male: ['B01001_012E'], female: ['B01001_036E'] },
-  '35-39': { male: ['B01001_013E'], female: ['B01001_037E'] },
-  '40-44': { male: ['B01001_014E'], female: ['B01001_038E'] },
-  '45-49': { male: ['B01001_015E'], female: ['B01001_039E'] },
-  '50-54': { male: ['B01001_016E'], female: ['B01001_040E'] },
-  '55-59': { male: ['B01001_017E'], female: ['B01001_041E'] },
-  '60-64': { male: ['B01001_018E', 'B01001_019E'], female: ['B01001_042E', 'B01001_043E'] },
-  '65-69': { male: ['B01001_020E', 'B01001_021E'], female: ['B01001_044E', 'B01001_045E'] },
-  '70-74': { male: ['B01001_022E'], female: ['B01001_046E'] },
-  '75-79': { male: ['B01001_023E'], female: ['B01001_047E'] },
-  '80-84': { male: ['B01001_024E'], female: ['B01001_048E'] },
-  '85+':   { male: ['B01001_025E'], female: ['B01001_049E'] },
-}
-
-const ALL_ACS_VARS: string[] = [
-  'B01001_001E', // total population
-  ...Object.values(AGE_COHORT_VARS).flatMap(v => [...v.male, ...v.female]),
-  ...INCOME_BANDS.flatMap(b => b.acsVariables),
-  CENSUS_HOUSING_COST_VAR,
-]
-
-const UNIQUE_ACS_VARS = Array.from(new Set(ALL_ACS_VARS))
+import { incomeQualifiedShare, B19001_FETCH_VARS } from './income-screen'
+import { creditShareForState } from './credit-share'
+import { addressableHouseholds } from './addressable'
+import { abbrForStateFips } from './state-fips'
+import creditTable from '../../data/experian-credit-share-by-state.json'
 
 export interface FipsResult {
   stateFips: string
@@ -63,14 +43,14 @@ export async function geoToFips(lat: number, lng: number): Promise<FipsResult> {
   return { stateFips: county.STATE, countyFips: county.COUNTY }
 }
 
-/** Fetch Census ACS 5-year variables for one county. Returns variable→value map. */
-export async function fetchAcsForCounty(
+/** Fetch ACS B19001 household-income counts for one county. Returns variable→value map. */
+export async function fetchB19001ForCounty(
   stateFips: string,
   countyFips: string,
   censusApiKey: string,
 ): Promise<Record<string, number>> {
-  const url = new URL('https://api.census.gov/data/2022/acs/acs5')
-  url.searchParams.set('get', UNIQUE_ACS_VARS.join(','))
+  const url = new URL(`https://api.census.gov/data/${CENSUS_ACS5_VINTAGE}/acs/acs5`)
+  url.searchParams.set('get', B19001_FETCH_VARS.join(','))
   url.searchParams.set('for', `county:${countyFips}`)
   url.searchParams.set('in', `state:${stateFips}`)
   url.searchParams.set('key', censusApiKey)
@@ -91,49 +71,33 @@ export async function fetchAcsForCounty(
   return result
 }
 
+export interface AddressableDetail {
+  households: number
+  incomeShare: number
+  creditShare: number
+  addressable: number
+}
+
 /**
- * Apply the GHMD addressable market formula to a Census ACS variable map.
- *
- * Formula:
- *   hairLossFraction = Σ(cohort) [(malePop/totalPop)×prevalence.male×propensity.male
- *                               + (femalePop/totalPop)×prevalence.female×propensity.female]
- *
- *   addressable = Σ(incomeBand) [
- *     (householdsInBand × AVG_HH_SIZE) × hairLossFraction
- *     × housingCostMultiplier(band.baseRate, medianHousingCost, band.midpointIncome)
- *     × (band.financingApplies ? FINANCING_TAKEUP_RATE : 1.0)
- *   ]
+ * Corrected v2 formula for one geography.
+ * addressable = households × income-qualified share × credit-eligible share.
+ * @param vars     ACS B19001 variable→count map (county or ZCTA level)
+ * @param stateFips 2-digit state FIPS (for the state credit share; national fallback if unknown)
+ * @param incomeThreshold annual HH income floor (default 8% PTI, $37,415)
  */
-export function computeAddressableMarket(vars: Record<string, number>): number {
-  const totalPop = vars['B01001_001E'] || 1
-  const medianMonthlyHousingCost = vars[CENSUS_HOUSING_COST_VAR] || 0
+export function computeAddressableDetail(
+  vars: Record<string, number>,
+  stateFips: string,
+  incomeThreshold: number = INCOME_QUALIFY_THRESHOLD_ANNUAL,
+): AddressableDetail {
+  const households = vars[B19001_TOTAL_HH_VAR] || 0
+  const incomeShare = incomeQualifiedShare(vars, incomeThreshold)
+  const creditShare = creditShareForState(abbrForStateFips(stateFips) ?? '', creditTable)
+  const addressable = addressableHouseholds(households, incomeShare, creditShare)
+  return { households, incomeShare, creditShare, addressable }
+}
 
-  // Step 1: Hair loss × propensity fraction across age cohorts
-  let hairLossPoolFraction = 0
-  for (const [cohort, cohortVars] of Object.entries(AGE_COHORT_VARS)) {
-    const malePop = cohortVars.male.reduce((s, v) => s + (vars[v] || 0), 0)
-    const femalePop = cohortVars.female.reduce((s, v) => s + (vars[v] || 0), 0)
-    const prev = HAIR_LOSS_PREVALENCE[cohort]
-    const prop = PROPENSITY_TO_ACT[cohort]
-    hairLossPoolFraction +=
-      (malePop / totalPop) * prev.male * prop.male +
-      (femalePop / totalPop) * prev.female * prop.female
-  }
-
-  // Step 2: Sum across income bands
-  const AVG_HOUSEHOLD_SIZE = 2.5
-  let addressable = 0
-  for (const band of INCOME_BANDS) {
-    const households = band.acsVariables.reduce((s, v) => s + (vars[v] || 0), 0)
-    const persons = households * AVG_HOUSEHOLD_SIZE
-    const adjustedRate = housingCostMultiplier(
-      band.baseRate,
-      medianMonthlyHousingCost,
-      band.midpointIncome,
-    )
-    const effectiveRate = adjustedRate * (band.financingApplies ? FINANCING_TAKEUP_RATE : 1.0)
-    addressable += persons * hairLossPoolFraction * effectiveRate
-  }
-
-  return Math.round(addressable)
+/** Corrected v2 addressable households (rounded) for one geography. */
+export function computeAddressableMarket(vars: Record<string, number>, stateFips: string): number {
+  return Math.round(computeAddressableDetail(vars, stateFips).addressable)
 }

@@ -6,6 +6,116 @@
 
 ---
 
+## [2026-07-03] National QA Targets Corrected — 16-State Credit Discrepancy Resolved (Task G)
+
+**Decision:** The national addressable-market QA targets are corrected from 69.8M @PTI8 / 56.4M @PTI5 to 69,581,844 @PTI8 (69.6M) / 56,283,042 @PTI5 (56.3M). The shipping credit table (data/experian-credit-share-by-state.json, from the state CSV est_share_fico_ge_670_DERIVED) is confirmed AUTHORITATIVE. The county-analysis fixtures (data/sources/ghmd_county_analysis_PTI8/PTI5.csv) carry a stale/erroneous credit column for 16 states (AR, FL, GA, IN, KY, LA, MO, NC, NM, NV, OK, SC, TN, TX, WV, DC), which is what produced the old 69.8M/56.4M. The Task G reconciliation test now asserts the shipping formula (households x income x OUR credit) hits 69.6M/56.3M, documents the fixture column summing to the old 69.8M/56.4M, and bounds the 16-state divergence. Marin is unchanged at 64,194 @PTI8 / 57,826 @PTI5 (CA credit 0.7172 agrees in both files).
+
+**Reasoning:** Independent verification (Trace, 2026-07-03): the disclosed methodology formula (national FICO band distribution shifted by each state avg-score differential vs the 713 national average, interpolated within bands) was reconstructed and run against all 51 states. The state CSV matches the formula EXACTLY for all 51 states; the county-analysis credit column matches for 0 of the 16 divergent states — i.e. those 16 values are from a stale/erroneous earlier derivation run, not a legitimate alternate source. The apparent red flag (identical credit shares across unrelated states) is mathematically expected: the derivation is a deterministic function of one input (avg FICO), and those states tie on FICO (NV=SC=WV=699, GA=TX=692, AR=OK=693, FL=KY=704), so they must tie on derived share. Corrected national computed over the fixtures own complete-data county scope (~3,144 counties), changing only the 16-state credit, delta -0.26%. residual_risk none — resolved by a verifiable, reproducible check, not an assumption.
+
+**Status:** LOCKED  ·  Source session: 2026-07-03-session-2-formula-v2-taskG
+
+---
+
+## [2026-07-03] Addressable Market Formula Corrected — Prevalence Term Removed (Task D correction)
+
+**Decision:** The addressable-market formula is corrected to: addressable = households × income-qualified share × credit-eligible share — an affordability model with NO prevalence / age-sex term. src/lib/addressable-cell.ts (the adults × income × credit × prevalence Σ-cell formula built per the handoff) is removed and replaced by src/lib/addressable.ts (addressableHouseholds). src/lib/census.ts computeAddressableMarket is rewritten to households × incomeQualifiedShare(B19001) × creditShareForState(state); the territories page and ACS fetch updated accordingly (full B19001, state threaded via FIPS→abbr). Prevalence is ARCHIVED, not deleted: HAIR_LOSS_PREVALENCE + AgeGenderRate moved to reference/hair-loss-prevalence.ts and reference/prevalence-by-age-sex.json, out of the active import chain, retained for a possible future demand-side view. This supersedes the handoff v2.24 Task D formula description.
+
+**Reasoning:** The locked QA targets only reconcile WITHOUT a prevalence multiplier: households × income × credit gives national 69,766,489 @PTI8 / 56,424,384 @PTI5 (targets 69.8M / 56.4M) and Marin 64,194 @PTI8 / 57,826 @PTI5, verified against data/sources/ghmd_county_analysis_PTI8/PTI5.csv (3,224 counties). Adding prevalence (~30-40%) would put every figure ~3x below target. The authoritative methodology memo (data/sources/GHMD_Territory_Methodology_Public_Sources.docx §2, §6) explicitly scopes v2 as an affordability model — households that can finance the $8,500 package — and assigns demand-side effects to penetration and outlet history, not prevalence. Reconciliation is exact within component rounding (Marin Δ ≈ 3), so residual_risk = none.
+
+**Status:** LOCKED  ·  Source session: 2026-07-03-session-2-formula-v2-taskD-correction
+
+---
+
+## [2026-07-03] Credit Share Sourcing — RESOLVED with real Sept-2025 Experian-derived state table (supersedes 70.4% fallback contingency)
+
+**Decision:** Task C states populated from data/sources/GHMD_State_Analysis_Data_Dump.csv column est_share_fico_ge_670_DERIVED (51 rows: 50 states + DC) into data/experian-credit-share-by-state.json, state_data_pending=false. This is the same table that produced the locked QA targets. Provenance header states two verified primary sources (Experian avg FICO by state, Sept 2025, published 2026-03-30; Census median HH income by state 2024 via FRED) plus one disclosed, reproducible derivation: the national FICO band distribution shifted by each state avg-score differential vs the 713 national average, interpolated within bands. Explicitly labelled a STATE-ADJUSTED DERIVED ESTIMATE, not a directly-published Experian per-state >=670 figure. Range 60.1% (MS) to 75.0% (MN); national 70.4%.
+
+**Reasoning:** Resolves and supersedes the earlier contingency plan (ship flat national 70.4% fallback if unresolved by Saturday) — real data was located. Reconciliation against the ground-truth county fixtures confirms the sourcing: national Sum addressable = 69,766,489 @PTI8 and 56,424,384 @PTI5 (targets 69.8M / 56.4M), Marin = 64,194 @PTI8, all via households x income_share x credit_share. The per-state >=670 shares are a disclosed approximation (methodology memo Section 6 limitations), accepted as documented rather than a published figure.
+
+**Status:** LOCKED  ·  Source session: 2026-07-03-session-2-formula-v2-taskC
+
+---
+
+## [2026-07-03] HUD Crosswalk Methodology — ZIP-County + ZIP-as-ZCTA Resolution (Task B correction)
+
+**Decision:** The formula-v2 income screen operates at ZCTA level (ACS B19001), but the HUD USPS crosswalk provides no ZCTA geography. Built: pull the national HUD USPS ZIP<->County crosswalk from the HUD USER API (type=2, per-state; 51 calls = 50 states + DC) into /data/hud-usps-zip-county-crosswalk.json (54,234 rows), storing { zip, zcta, county_fips, res_ratio } where zcta = zip via the ZIP-as-ZCTA resolution. res_ratio is retained for Task G cross-county allocation (a ZIP spanning counties has one row per county). The file was renamed from the misleading hud-usps-zip-crosswalk.json to ...-zip-county-crosswalk.json, and its provenance header, /data/README.md, and src/lib/hud-crosswalk.ts docstrings were corrected to state ZIP-County (not ZIP-ZCTA). Geography join ONLY; correct HUD dataset (not FMR / Income Limits / CHAS / NCWM).
+
+**Reasoning:** HUD provides no ZCTA geography — only county / tract / CBSA / CD / countysub. ZIP-as-ZCTA is standard practice because Census ZCTA5 labels match the predominant ZIP digits, so a USPS ZIP can be used directly as its ACS ZCTA5 for the B19001 pull. Verified against Marin ZIP 94901/94903/94904, which resolve cleanly to ACS 2024 5-year ZCTA household counts (15,631 / 12,013 / 5,558). This is consistent with prior GHMD architecture (earlier NPI-density work also used HUD ZIP<->county, not ZIP<->ZCTA), so it confirms what HUD actually provides rather than introducing a new pattern.
+
+**Status:** LOCKED  ·  Source session: 2026-07-03-session-2-formula-v2-taskB
+
+---
+
+## [2026-07-03] Branch feature/claude-code-review-hardening — deleted (addendum to #33)
+
+**Decision:** Branch feature/claude-code-review-hardening force-deleted locally (git branch -D) and removed from origin. Work is permanently abandoned per decision #33 (Claude Code Review workflow retired, kept disabled — vector B unresolvable for an agentic token-bearing reviewer). Commits preserved in closed, unmerged PR #47 for historical reference if ever needed.
+
+**Reasoning:** Addendum to #33: closing the loop on the branch itself. #33 documented the retirement rationale but not the branch disposition. No new decision made here — this is a housekeeping record only.
+
+**Status:** CONFIRMED  ·  Source session: 2026-07-03-session-2-branch-hygiene
+
+---
+
+## [2026-07-03] NDP + EIP Program Structure V1 — LOCKED (publication-gated)
+
+**Decision:** NDP (Network Development Program): spoke prospecting for hubs. Remote tier ~$12.5–15K + success fee $2.5–5K/executed spoke (90-day). Embedded tier: 2-wk $29,500 / 4-wk $49,500 + success fee. EIP (Embedded Implementation Program): separate, available to any new location. 2-wk $27,500 / 4-wk $47,500. Contractor-backstopped 1.3–1.6× internal cost until team scales. Bundle: NDP-Embedded + EIP-4wk ≈ $82K list, ~$70K bundled → license + programs ≈ $250K transaction. DFY = internal shorthand only.
+
+**Reasoning:** NDP addresses hub demand for spoke-sourcing support. EIP addresses implementation drag. Keeping separate preserves standalone sales motion. Contractor backstop limits GHMD fixed-cost exposure. $250K transaction target aligns with capital raise narrative. Publication gates not cleared: (1) counsel clearance on NDP success-fee comp structure, (2) staffing cap confirmation, (3) Bruce pricing sign-off. Do not publish externally until all three gates cleared.
+
+**Status:** LOCKED  ·  ⚖ Legal flag  ·  Source session: 2026-07-03-session-2
+
+---
+
+## [2026-07-03] Hub-and-Spoke Structure V1 — Papering, 5% Mechanic, MTL Concept, Channel Fork
+
+**Decision:** GHMD papers every spoke directly at $179K (salon and medical). Hub receives 5% of spoke monthly gross paid spoke→hub directly; GHMD takes no cut. Consent-to-carve-out required but exists in no current paper. "Master Territory License" (MTL) coined 2026-07-03, not yet papered. Hub 5% entitlement not yet papered. Preferred architecture: GHMD grants spoke license; 5% = consent-and-override fee (NOT sub-license fee). Franchise spokes pay 7% FDD royalty — fix = Option 1 royalty split (Trace lean: hub 3 / GHMD 4), ratio pending Bruce. Ratio gates full drafting queue.
+
+**Reasoning:** Hub-and-spoke enables network expansion without GHMD staffing every spoke relationship. $179K uniform pricing preserves margin integrity. 5% direct spoke→hub aligns hub incentive with spoke performance. MTL separates hub rights from standard licensee agreement. Royalty fork requires split mechanism to make hub consent economically rational for franchise-tier spokes. Sub-license framing rejected — regulatory and FDD exposure. Three counsel sets have reviewed structure including 5% mechanic. Six-instrument drafting queue owed to Rick/ByrdAdatto. Item 19 rule must be confirmed with Bruce before July 9 flagship.
+
+**Status:** LOCKED  ·  ⚖ Legal flag  ·  Source session: 2026-07-03-session-2
+
+---
+
+## [2026-07-03] Grandfathering Policy + Penetration Bridge — LOCKED
+
+**Decision:** In-flight proposals (incl. Hausauer/San Rafael) retain quoted territory boundary through July 31, 2026. Open prospects receive grandfathered boundary through end of July. Penetration ships at 1% documented placeholder with 0.5%/2% sensitivity shown. Empirical replacement from QB reorders (top quartile ≥12-mo sites, winsorized) within 2 weeks of launch. Customers-needed = 62.
+
+**Reasoning:** Territory shrink (~6×) creates prospect-relationship risk. Grandfathering limits disruption to active pipeline. 1% is conservative and explicitly documented as placeholder. QB CSV (Bruce pulling July 4) enables rapid empirical replacement. Westlake error (5,483 in proposal; correct = 9,108) — Bruce corrects proactively.
+
+**Status:** LOCKED  ·  Source session: 2026-07-03-session-1
+
+---
+
+## [2026-07-03] Pre-Execution Review Gate — LIFTED (Bruce/Rick sign-off no longer required for formula changes)
+
+**Decision:** Bruce/Rick pre-execution review gate for formula methodology changes is lifted. Formula changes proceed via standard squash-merge + Second-Opinion Gate flow.
+
+**Reasoning:** Gate established pending counsel confirmation on franchise/licensee regulatory exposure. Three counsel sets confirmed licensee ≠ FDD trigger. Gate lift is scoped to formula methodology only. Counsel drafting queue (6 instruments) remains open for hub-and-spoke — separate workstream.
+
+**Status:** LOCKED  ·  ⚖ Legal flag  ·  Source session: 2026-07-03-session-1
+
+---
+
+## [2026-07-03] Decision B — ACS Vintage Bump SUPERSEDED (B25105 Deleted, question moot)
+
+**Decision:** Decision B (bump ACS vintage for B25105 median housing cost) is superseded as moot. B25105 deleted from formula entirely. No replacement decision needed.
+
+**Reasoning:** The formula no longer uses B25105. Vintage question only mattered for that input.
+
+**Status:** SUPERSEDED  ·  Source session: 2026-07-03-session-1
+
+---
+
+## [2026-07-03] Affordability Anchor V2 — U.S. Bank Avvance / 8% PTI / $37,415 HH Income Floor
+
+**Decision:** Anchor = U.S. Bank Avvance published terms: $8,500 @ 24.99% APR / 60 mo → $249.44/mo. Required HH income at 8% PTI = $37,415. Robustness bound at 5% PTI = $59,865 (flag, never filter). B25105 deleted entirely. ACS B19001 ZCTA-level bracket interpolation is the income-qualification method.
+
+**Reasoning:** Public-source anchor replaces internal assumption. Avvance terms are published and auditable. 8% PTI is conservative vs. standard 10-15% consumer finance guidance. 5% PTI flag preserves optionality without filtering addressable population. Counsel confirmed licensee channel does not trigger FTC franchise disclosure; pre-execution review gate lifted. QA targets: national 69.8M @PTI8 / 56.4M @PTI5; Marin 64,194 @PTI8. Penetration ships at 1% placeholder (QB empirical ETA 2 weeks post-launch). 62 customers-needed locked (worst-case Early-tier). Westlake correct value = 9,108 (Sean Paul proposal error 5,483 — Bruce corrects proactively).
+
+**Status:** LOCKED  ·  Source session: 2026-07-03-session-1
+
+---
+
 ## [2026-07-02] Claude Code Review — retired (kept disabled): vector B unresolvable for an agentic token-bearing reviewer; resolves the #28 containment residual
 
 **Decision:** claude-code-review.yml is RETIRED — permanently kept disabled rather than re-enabled. It was hardened on a branch (PR #47: pull_request -> pull_request_target, base-ref-only checkout, a 'claude-review' label gate appliable only by triage+/write users, and claude_args disallowing Write/Edit/WebFetch/WebSearch), but the Second-Opinion Gate's adversarial review surfaced that vector B — a prompt-injected diff instructing the agentic reviewer to exfiltrate CLAUDE_CODE_OAUTH_TOKEN via Bash — is not addressable by tool restriction alone: the /code-review agent needs Bash to fetch the diff, disallowing it breaks the review, and even a maintainer-triggered (label-gated) run still processes attacker-controlled diff content. Because the reviewer is an agentic Claude Code (Bash + token + network), not a non-agentic data consumer like the Second-Opinion Gate's GPT-5, this exfil path cannot be closed while the feature runs. Disposition (Trace, 2026-07-02): keep the workflow disabled — the interim containment (gh workflow disable) becomes the permanent state. PR #47 was closed without merging; the hardening is intentionally NOT landed since the workflow is not re-enabled. This resolves the #28 standing containment residual by retirement rather than re-enablement; #28's residual_risk remains 'none'.

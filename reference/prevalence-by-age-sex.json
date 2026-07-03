@@ -1,0 +1,190 @@
+{
+  "provenance": {
+    "metric": "Clinically meaningful hair-loss prevalence by age band and sex (proportion of population).",
+    "canonical_source": "ARCHIVED — reference/hair-loss-prevalence.ts :: HAIR_LOSS_PREVALENCE. NOT wired into the addressable-market formula (v2 is affordability-only: households × income × credit, no prevalence). Retained for potential future demand-side use. See reference/README.md and decision_log 'Addressable Market Formula Corrected'.",
+    "sources": {
+      "male": [
+        "Norwood 1975",
+        "Rhodes 1998",
+        "Gan & Sinclair 2005"
+      ],
+      "female": [
+        "Birch 2002",
+        "Sinclair 2011",
+        "Vary 2010"
+      ]
+    },
+    "attribution": "Group-level: male cells cite the male-pattern study set, female cells the female set. Per-band single-study attribution not claimed.",
+    "note": "prevalence_pct is PERCENT (proportion × 100). The cell formula imports proportions (0–1) from the constant per Rule 6."
+  },
+  "entries": [
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "20-24",
+      "sex": "male",
+      "prevalence_pct": 5
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "20-24",
+      "sex": "female",
+      "prevalence_pct": 0.5
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "25-29",
+      "sex": "male",
+      "prevalence_pct": 20
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "25-29",
+      "sex": "female",
+      "prevalence_pct": 2
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "30-34",
+      "sex": "male",
+      "prevalence_pct": 20
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "30-34",
+      "sex": "female",
+      "prevalence_pct": 2
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "35-39",
+      "sex": "male",
+      "prevalence_pct": 30
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "35-39",
+      "sex": "female",
+      "prevalence_pct": 15
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "40-44",
+      "sex": "male",
+      "prevalence_pct": 30
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "40-44",
+      "sex": "female",
+      "prevalence_pct": 20
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "45-49",
+      "sex": "male",
+      "prevalence_pct": 45
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "45-49",
+      "sex": "female",
+      "prevalence_pct": 22
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "50-54",
+      "sex": "male",
+      "prevalence_pct": 45
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "50-54",
+      "sex": "female",
+      "prevalence_pct": 25
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "55-59",
+      "sex": "male",
+      "prevalence_pct": 50
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "55-59",
+      "sex": "female",
+      "prevalence_pct": 30
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "60-64",
+      "sex": "male",
+      "prevalence_pct": 50
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "60-64",
+      "sex": "female",
+      "prevalence_pct": 40
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "65-69",
+      "sex": "male",
+      "prevalence_pct": 55
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "65-69",
+      "sex": "female",
+      "prevalence_pct": 45
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "70-74",
+      "sex": "male",
+      "prevalence_pct": 60
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "70-74",
+      "sex": "female",
+      "prevalence_pct": 50
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "75-79",
+      "sex": "male",
+      "prevalence_pct": 70
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "75-79",
+      "sex": "female",
+      "prevalence_pct": 55
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "80-84",
+      "sex": "male",
+      "prevalence_pct": 75
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "80-84",
+      "sex": "female",
+      "prevalence_pct": 60
+    },
+    {
+      "source": "Norwood 1975; Rhodes 1998; Gan & Sinclair 2005",
+      "age_band": "85+",
+      "sex": "male",
+      "prevalence_pct": 100
+    },
+    {
+      "source": "Birch 2002; Sinclair 2011; Vary 2010",
+      "age_band": "85+",
+      "sex": "female",
+      "prevalence_pct": 60
+    }
+  ]
+}

@@ -4,58 +4,12 @@
  * Single source of truth for all territory analysis calculations.
  * Never hardcode these values inline in Edge Functions or components.
  * All values locked as of Build Spec v1.0 — changes require Trace approval.
+ *
+ * NOTE: hair-loss prevalence (HAIR_LOSS_PREVALENCE / AgeGenderRate) was REMOVED from
+ * this file and archived to /reference — the v2 methodology is affordability-only
+ * (addressable = households × income × credit, no prevalence). See decision_log
+ * "Addressable Market Formula Corrected — Prevalence Term Removed".
  */
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Hair Loss Prevalence by Age Cohort
-// Proportion of population with clinically meaningful hair loss
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface AgeGenderRate {
-  male: number;
-  female: number;
-}
-
-/** Hair loss prevalence by 5-year age cohort. Values are proportions (0–1). */
-export const HAIR_LOSS_PREVALENCE: Record<string, AgeGenderRate> = {
-  "20-24": { male: 0.05,  female: 0.005 },
-  "25-29": { male: 0.20,  female: 0.02  },
-  "30-34": { male: 0.20,  female: 0.02  },
-  "35-39": { male: 0.30,  female: 0.15  },
-  "40-44": { male: 0.30,  female: 0.20  },
-  "45-49": { male: 0.45,  female: 0.22  },
-  "50-54": { male: 0.45,  female: 0.25  },
-  "55-59": { male: 0.50,  female: 0.30  },
-  "60-64": { male: 0.50,  female: 0.40  },
-  "65-69": { male: 0.55,  female: 0.45  },
-  "70-74": { male: 0.60,  female: 0.50  },
-  "75-79": { male: 0.70,  female: 0.55  },
-  "80-84": { male: 0.75,  female: 0.60  },
-  "85+":   { male: 1.00,  female: 0.60  },
-} as const;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Propensity to Act by Age Cohort
-// Proportion of hair loss sufferers who would seek treatment
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Propensity to seek treatment, by age cohort. Values are proportions (0–1). */
-export const PROPENSITY_TO_ACT: Record<string, AgeGenderRate> = {
-  "20-24": { male: 0.50,  female: 0.90 },
-  "25-29": { male: 0.65,  female: 0.90 },
-  "30-34": { male: 0.65,  female: 0.90 },
-  "35-39": { male: 0.65,  female: 0.90 },
-  "40-44": { male: 0.65,  female: 0.90 },
-  "45-49": { male: 0.65,  female: 0.90 },
-  "50-54": { male: 0.65,  female: 0.90 },
-  "55-59": { male: 0.50,  female: 0.90 },
-  "60-64": { male: 0.50,  female: 0.90 },
-  "65-69": { male: 0.25,  female: 0.75 },
-  "70-74": { male: 0.25,  female: 0.75 },
-  "75-79": { male: 0.25,  female: 0.75 },
-  "80-84": { male: 0.005, female: 0.01 },
-  "85+":   { male: 0.005, female: 0.01 },
-} as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Income Band Affordability Base Rates
@@ -158,46 +112,140 @@ export const DRIVE_TIME_PRIMARY_MINUTES = 30;
 export const DRIVE_TIME_OUTER_MINUTES = 45;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Housing Cost Adjustment Formula
-// Source: Census ACS Table B25105 (Median Monthly Housing Costs)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Compute the housing-cost-adjusted affordability multiplier for one income band.
- *
- *   multiplier = baseRate × MAX(0, 1 − (medianMonthlyHousingCost × 12) / bandMidpointAnnualIncome)
- *
- * High-COL markets (Boston, NYC, LA) auto-reduce lower bands.
- * Low-COL markets (Tulsa, Springfield) auto-increase them.
- * No manual cost-of-living index input required.
- */
-export function housingCostMultiplier(
-  baseRate: number,
-  medianMonthlyHousingCost: number,
-  bandMidpointAnnualIncome: number,
-): number {
-  const adjustment = Math.max(
-    0,
-    1 - (medianMonthlyHousingCost * 12) / bandMidpointAnnualIncome,
-  );
-  return baseRate * adjustment;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Census ACS Table References
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const CENSUS_ACS_TABLES = {
   AGE_SEX:           "B01001",
   HOUSEHOLD_INCOME:  "B19001",
-  MEDIAN_HOUSING:    "B25105",
 } as const;
-
-/** B25105 variable for median monthly housing cost per zip code. */
-export const CENSUS_HOUSING_COST_VAR = "B25105_001E";
 
 /** Cache Census API responses for this many days before refreshing. */
 export const CENSUS_CACHE_TTL_DAYS = 90;
+
+/**
+ * ACS 5-year vintage used for all public-source pulls (income screen etc.).
+ * "Latest available" per the formula-v2 spec: the 2020–2024 ACS 5-year estimates
+ * (vintage 2024) were publicly released 2026-01-29 and are the current latest
+ * 5-year dataset. Endpoint: /data/{vintage}/acs/acs5. Bump when a newer 5-year
+ * release is confirmed live on the Census API.
+ */
+export const CENSUS_ACS5_VINTAGE = 2024;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Income Screen — Affordability Anchor V2 (decision_log #37)
+// U.S. Bank Avvance: $8,500 @ 24.99% APR / 60 mo → $249.44/mo.
+// 8% PTI  → $37,415 required annual HH income (shipping qualification threshold).
+// 5% PTI  → $59,865 required annual HH income (robustness bound — flag, never filter).
+// Qualification is computed from ACS B19001 (household income) at ZCTA level, with
+// linear interpolation in the single straddling bracket only.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Annual HH income required at 8% PTI. Shipping income-qualification threshold. */
+export const INCOME_QUALIFY_THRESHOLD_ANNUAL = 37_415;
+
+/** Annual HH income required at 5% PTI. Robustness bound — used for the flag, never to filter. */
+export const INCOME_ROBUSTNESS_THRESHOLD_ANNUAL = 59_865;
+
+/**
+ * Robustness-flag rule. A ZCTA is flagged when the majority of its 8%-PTI-qualified
+ * households would fall out under the stricter 5%-PTI bound — i.e. its qualification
+ * leans on the $37,415–$59,865 gray zone and is sensitive to the PTI assumption.
+ *
+ *   robustness_flag = share_5pti > 0 ? (share_5pti / share_8pti) < FLOOR : (share_8pti > 0)
+ *
+ * The flag is advisory ONLY — it never removes a ZCTA from the addressable pool.
+ * Default 0.5 (majority). Tunable; confirm the exact cutoff with Trace.
+ */
+export const ROBUSTNESS_SHARE_RATIO_FLOOR = 0.5;
+
+export const B19001_TOTAL_HH_VAR = "B19001_001E";
+
+export interface IncomeBracket {
+  /** ACS B19001 variable code (estimate). */
+  variable: string;
+  /** Inclusive lower bound of the bracket (annual HH income, USD). */
+  lower: number;
+  /** Exclusive upper bound of the bracket; Infinity for the open top band. */
+  upper: number;
+}
+
+/**
+ * ACS Table B19001 household-income brackets, in order. Boundaries are the true
+ * Census bracket edges — used for linear interpolation of the straddling bracket.
+ */
+export const B19001_INCOME_BRACKETS: IncomeBracket[] = [
+  { variable: "B19001_002E", lower: 0,       upper: 10_000 },
+  { variable: "B19001_003E", lower: 10_000,  upper: 15_000 },
+  { variable: "B19001_004E", lower: 15_000,  upper: 20_000 },
+  { variable: "B19001_005E", lower: 20_000,  upper: 25_000 },
+  { variable: "B19001_006E", lower: 25_000,  upper: 30_000 },
+  { variable: "B19001_007E", lower: 30_000,  upper: 35_000 },
+  { variable: "B19001_008E", lower: 35_000,  upper: 40_000 },
+  { variable: "B19001_009E", lower: 40_000,  upper: 45_000 },
+  { variable: "B19001_010E", lower: 45_000,  upper: 50_000 },
+  { variable: "B19001_011E", lower: 50_000,  upper: 60_000 },
+  { variable: "B19001_012E", lower: 60_000,  upper: 75_000 },
+  { variable: "B19001_013E", lower: 75_000,  upper: 100_000 },
+  { variable: "B19001_014E", lower: 100_000, upper: 125_000 },
+  { variable: "B19001_015E", lower: 125_000, upper: 150_000 },
+  { variable: "B19001_016E", lower: 150_000, upper: 200_000 },
+  { variable: "B19001_017E", lower: 200_000, upper: Infinity },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Credit Screen — Experian FICO≥670 credit-qualified share (Task C)
+// Source: Experian, September 2025. Per-state overrides live in
+// /data/experian-credit-share-by-state.json; the national figure is the fallback
+// for any state without an override.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** FICO score at/above which a household is treated as credit-qualified (prime+). */
+export const EXPERIAN_FICO_PRIME_THRESHOLD = 670;
+
+/** National share of consumers with FICO ≥ 670 (Experian, Sept 2025). Fallback share. */
+export const EXPERIAN_NATIONAL_CREDIT_SHARE = 0.704;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Customers Needed (Task E)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Customers a territory must be able to yield to be viable. Locked 2026-07-03
+ * (worst-case Early-tier recovery). A territory is sized so that
+ * addressable × penetration ≥ CUSTOMERS_NEEDED.
+ */
+export const CUSTOMERS_NEEDED = 62;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Penetration Scenarios (Task F)
+// Base 1% is a DOCUMENTED PLACEHOLDER shipping Monday; low/high bound the
+// sensitivity. Empirical replacement comes from QuickBooks reorder data
+// (~2 weeks post-launch) — see decision_log #40 (Penetration Bridge).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const PENETRATION_RATE_LOW = 0.005;
+export const PENETRATION_RATE_BASE = 0.01;
+export const PENETRATION_RATE_HIGH = 0.02;
+
+/** Provenance for the base penetration rate — surfaced in proposal output. */
+export const PENETRATION_SOURCE =
+  "1% base rate is a documented placeholder (locked 2026-07-03), shown with 0.5% / 2% " +
+  "sensitivity bounds. Empirical replacement from QuickBooks reorder data ETA ~2 weeks " +
+  "post-launch (decision_log #40, Penetration Bridge).";
+
+export interface PenetrationScenario {
+  key: "low" | "base" | "high";
+  label: string;
+  rate: number;
+}
+
+/** The three penetration scenarios shown on every proposal, low → high. */
+export const PENETRATION_SCENARIOS: PenetrationScenario[] = [
+  { key: "low",  label: "Conservative (0.5%)", rate: PENETRATION_RATE_LOW },
+  { key: "base", label: "Base (1%)",           rate: PENETRATION_RATE_BASE },
+  { key: "high", label: "Optimistic (2%)",     rate: PENETRATION_RATE_HIGH },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sprint 1 Validation Targets
