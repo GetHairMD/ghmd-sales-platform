@@ -21,7 +21,6 @@
  *                         public.gate_decision_for_pr() and cannot read the table
  */
 import { readFileSync } from 'node:fs'
-import { createClient } from '@supabase/supabase-js'
 import {
   SYSTEM_PROMPT,
   parseGateBlock,
@@ -37,6 +36,7 @@ import {
 
 const MAX_DIFF_CHARS = 200_000 // ~50k tokens; beyond this we fail closed rather than review a partial diff
 const OPENAI_TIMEOUT_MS = 240_000 // GPT-5 reasoning latency exceeds 90s on non-trivial diffs
+const RPC_TIMEOUT_MS = 30_000 // declaration-integrity lookup; fail closed if the DB is unreachable
 
 function env(name: string, fallback?: string): string {
   const v = process.env[name]
@@ -77,10 +77,17 @@ async function postComment(repo: string, prNumber: number, token: string, body: 
 
 /**
  * Declaration-integrity lookup (closes decision_log row #24). Calls the narrow
- * SECURITY DEFINER function public.gate_decision_for_pr(pr_number) as the anon
- * role — which can EXECUTE the function but cannot read ops.decision_log. Returns
- * the single bound row (or null), and `unavailable: true` if the lookup could not
- * be performed at all (missing creds / RPC error) so the caller can fail closed.
+ * SECURITY DEFINER function public.gate_decision_for_pr(repo, pr_number) as the
+ * anon role — which can EXECUTE the function but cannot read ops.decision_log.
+ * Returns the single bound row (or null), and `unavailable: true` if the lookup
+ * could not be performed at all (missing creds / RPC error) so the caller can
+ * fail closed.
+ *
+ * Uses a direct POST to the PostgREST RPC endpoint rather than
+ * @supabase/supabase-js: createClient() initializes a realtime client that
+ * throws on Node 20 without a native WebSocket ("Node.js 20 detected without
+ * native WebSocket support"), which would fail every lookup closed. A one-shot
+ * authenticated RPC needs none of that.
  */
 async function lookupDecisionRow(
   repo: string,
@@ -92,28 +99,42 @@ async function lookupDecisionRow(
     console.error('SUPABASE_URL/SUPABASE_ANON_KEY not set — cannot verify declaration (fail closed).')
     return { row: null, unavailable: true }
   }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS)
   try {
-    const supabase = createClient(url, key, { auth: { persistSession: false } })
     // Scoped to (repo, pr): PR numbers are per-repo, so the binding key includes
     // the repo to avoid cross-repo collisions (see decision_log #30).
-    const { data, error } = await supabase.rpc('gate_decision_for_pr', {
-      p_repo: repo,
-      p_pr_number: prNumber,
+    const res = await fetch(`${url.replace(/\/+$/, '')}/rest/v1/rpc/gate_decision_for_pr`, {
+      method: 'POST',
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+      body: JSON.stringify({ p_repo: repo, p_pr_number: prNumber }),
     })
-    if (error) {
-      console.error(`gate_decision_for_pr RPC failed: ${error.message}`)
+    if (!res.ok) {
+      console.error(`gate_decision_for_pr RPC failed: ${res.status} ${await res.text()}`)
       return { row: null, unavailable: true }
     }
-    const rows = (data ?? []) as Array<{ id: number | string; residual_risk: DecisionRow['residual_risk']; status: string }>
+    const data = (await res.json()) as unknown
+    const rows = (Array.isArray(data) ? data : []) as Array<{
+      id: number | string
+      residual_risk: DecisionRow['residual_risk']
+      status: string
+    }>
     // The partial unique index guarantees at most one row per PR. Normalize id
     // to a number at the boundary (PostgREST returns this bigint as a JSON
     // number, but be robust to string serialization) so DecisionRow.id holds.
-    if (!rows.length) return { row: null, unavailable: false }
+    if (rows.length === 0) return { row: null, unavailable: false }
     const raw = rows[0]
     return { row: { id: Number(raw.id), residual_risk: raw.residual_risk, status: raw.status }, unavailable: false }
   } catch (err) {
     console.error('gate_decision_for_pr RPC errored:', err instanceof Error ? err.message : err)
     return { row: null, unavailable: true }
+  } finally {
+    clearTimeout(timer)
   }
 }
 
