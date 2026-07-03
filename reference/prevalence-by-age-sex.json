@@ -1,7 +1,7 @@
 {
   "provenance": {
     "metric": "Clinically meaningful hair-loss prevalence by age band and sex (proportion of population).",
-    "canonical_source": "lib/addressable-market-constants.ts :: HAIR_LOSS_PREVALENCE (Rule 6 — the compute source of truth). This JSON is a GENERATED provenance artifact; do not hand-edit. Regenerate from the constant.",
+    "canonical_source": "ARCHIVED — reference/hair-loss-prevalence.ts :: HAIR_LOSS_PREVALENCE. NOT wired into the addressable-market formula (v2 is affordability-only: households × income × credit, no prevalence). Retained for potential future demand-side use. See reference/README.md and decision_log 'Addressable Market Formula Corrected'.",
     "sources": {
       "male": [
         "Norwood 1975",

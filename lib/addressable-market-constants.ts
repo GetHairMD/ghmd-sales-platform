@@ -4,35 +4,12 @@
  * Single source of truth for all territory analysis calculations.
  * Never hardcode these values inline in Edge Functions or components.
  * All values locked as of Build Spec v1.0 — changes require Trace approval.
+ *
+ * NOTE: hair-loss prevalence (HAIR_LOSS_PREVALENCE / AgeGenderRate) was REMOVED from
+ * this file and archived to /reference — the v2 methodology is affordability-only
+ * (addressable = households × income × credit, no prevalence). See decision_log
+ * "Addressable Market Formula Corrected — Prevalence Term Removed".
  */
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Hair Loss Prevalence by Age Cohort
-// Proportion of population with clinically meaningful hair loss
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface AgeGenderRate {
-  male: number;
-  female: number;
-}
-
-/** Hair loss prevalence by 5-year age cohort. Values are proportions (0–1). */
-export const HAIR_LOSS_PREVALENCE: Record<string, AgeGenderRate> = {
-  "20-24": { male: 0.05,  female: 0.005 },
-  "25-29": { male: 0.20,  female: 0.02  },
-  "30-34": { male: 0.20,  female: 0.02  },
-  "35-39": { male: 0.30,  female: 0.15  },
-  "40-44": { male: 0.30,  female: 0.20  },
-  "45-49": { male: 0.45,  female: 0.22  },
-  "50-54": { male: 0.45,  female: 0.25  },
-  "55-59": { male: 0.50,  female: 0.30  },
-  "60-64": { male: 0.50,  female: 0.40  },
-  "65-69": { male: 0.55,  female: 0.45  },
-  "70-74": { male: 0.60,  female: 0.50  },
-  "75-79": { male: 0.70,  female: 0.55  },
-  "80-84": { male: 0.75,  female: 0.60  },
-  "85+":   { male: 1.00,  female: 0.60  },
-} as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Income Band Affordability Base Rates

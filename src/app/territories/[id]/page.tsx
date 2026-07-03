@@ -2,8 +2,8 @@ import { notFound } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { geoToFips, fetchAcsForCounty, computeAddressableMarket } from '@/lib/census'
-import { CENSUS_CACHE_TTL_DAYS } from '../../../../lib/addressable-market-constants'
+import { geoToFips, fetchB19001ForCounty, computeAddressableDetail } from '@/lib/census'
+import { CENSUS_CACHE_TTL_DAYS, CENSUS_ACS5_VINTAGE } from '../../../../lib/addressable-market-constants'
 
 const TerritoryDetailMap = dynamic(() => import('@/components/TerritoryDetailMap'), { ssr: false })
 
@@ -42,8 +42,10 @@ export default async function TerritoryDetailPage({ params }: PageProps) {
           Number(territory.center_lat),
           Number(territory.center_lng),
         )
-        const acsVars = await fetchAcsForCounty(stateFips, countyFips, censusApiKey)
-        const addressableCount = computeAddressableMarket(acsVars)
+        const acsVars = await fetchB19001ForCounty(stateFips, countyFips, censusApiKey)
+        // v2 corrected formula: addressable households = households × income × credit (no prevalence)
+        const detail = computeAddressableDetail(acsVars, stateFips)
+        const addressableCount = Math.round(detail.addressable)
 
         // Persist census data using admin client (bypasses RLS for server-side write)
         const admin = createAdminClient(
@@ -57,7 +59,15 @@ export default async function TerritoryDetailPage({ params }: PageProps) {
             census_fetched_at: new Date().toISOString(),
             addressable_patients_primary: addressableCount,
             formula_run_at: new Date().toISOString(),
-            formula_inputs: { stateFips, countyFips, source: 'census_acs5_2022' },
+            formula_inputs: {
+              stateFips,
+              countyFips,
+              households: detail.households,
+              income_qualified_share: detail.incomeShare,
+              credit_eligible_share: detail.creditShare,
+              source: `census_acs5_${CENSUS_ACS5_VINTAGE}`,
+              formula: 'households × income_qualified × credit_eligible (v2, no prevalence)',
+            },
           })
           .eq('id', territory.id)
 
