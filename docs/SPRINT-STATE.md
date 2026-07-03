@@ -17,11 +17,11 @@ Source of truth: `/handoffs/LATEST.md` (v2.24).
 |---|---|---|---|
 | A | Dead-code deletion — PROPENSITY_TO_ACT, COL/housing-cost multiplier, B25105, unused $2,974 anchor | ✅ COMPLETE | `aabab95` |
 | B | Income screen — ACS B19001 ZCTA, ≥ $37,415, straddle interpolation, `robustness_flag` (share_5pti/share_8pti < 0.5); ACS vintage → 2024; HUD ZIP↔County crosswalk (54,234 rows) + ZIP-as-ZCTA (decision_log #44) | ✅ COMPLETE | `7318a31` `8afcd42` `d3ef623` |
-| C | Credit share — Experian FICO≥670 by state. Infra done (national 70.4% + fallback). **`states` HELD** pending Trace's Sept-2025 per-state table (Sat EOD); else 70.4% fallback + PR flag + decision_log row | 🟡 INFRA DONE | `1b28db1` |
-| D | Cell formula — adults × income_share × credit_share × prevalence(age,sex), Σ cells. Prevalence canonical in constants (Rule 6); `data/prevalence-by-age-sex.json` generated as provenance (group-level citations). **Marin 64,194 run HELD** (Experian-gated, part of G) | 🟡 CORE DONE | `682e236` |
+| C | Credit share — Experian FICO≥670 by state, RESOLVED with real state-CSV table (51 states). State CSV confirmed authoritative (matches disclosed formula for all 51; county fixture stale for 16). decision_log #45/#47 | ✅ COMPLETE | `1b28db1` `81fca9e` |
+| D | Addressable = **households × income-qualified × credit-eligible** — NO prevalence (methodology §2). Handoff's prevalence cell formula corrected; prevalence archived to `/reference`. Marin 64,194 confirmed. decision_log #46 | ✅ COMPLETE | `41497d0` |
 | E | `CUSTOMERS_NEEDED = 62` (locked 2026-07-03) replaces placeholder | ✅ COMPLETE | `7a556ad` |
 | F | Penetration parameterized — base 0.01 / low 0.005 / high 0.02; proposal shows all three | ✅ COMPLETE | `7a556ad` |
-| G | Demand-table reconciliation — full ZCTA pipeline (HUD → per-ZCTA B01001+B19001 → state credit → Σ cells); natl 69.8M/56.4M + Marin 64,194; reconcile `lib/census/` scaffold + replace transitional census.ts | ⏸ HELD (Experian-gated) | — |
+| G | Reconciliation vs ground-truth county fixtures (3,144 counties); shipping formula hits CORRECTED 69.6M @PTI8 / 56.3M @PTI5 + Marin 64,194 (CI test); census.ts replaced with corrected formula. Targets corrected from 69.8M/56.4M. decision_log #47 | ✅ COMPLETE | `f29069c` |
 | H | gethairmd.biz lead-capture — **OUT OF SCOPE** for this branch; lives in the separate gethairmd.biz marketing-site repo (confirmed Trace 2026-07-03) | ⛔ OUT OF SCOPE | — |
 
 ### Locked decisions (do not reopen) — decision_log 37–42
@@ -31,7 +31,7 @@ Source of truth: `/handoffs/LATEST.md` (v2.24).
 
 ### Acceptance / QA targets
 
-National 69.8M @PTI8 · 56.4M @PTI5 · Marin 64,194 @PTI8 · Westlake correct = 9,108 (the 5,483 in a delivered proposal is a Bruce/Sean-Paul-facing correction, **not a code task**).
+National **69.6M** @PTI8 (69,581,844) · **56.3M** @PTI5 (56,283,042) — corrected from 69.8M/56.4M (decision_log #47) · Marin 64,194 @PTI8 · Westlake correct = 9,108 (the 5,483 in a delivered proposal is a Bruce/Sean-Paul-facing correction, **not a code task**).
 
 ### Transitional caveat
 

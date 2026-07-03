@@ -15,11 +15,11 @@ constants in `/lib/addressable-market-constants.ts` (Rule 6) — never inline.
 |---|---|---|---|
 | A | Dead-code deletion — PROPENSITY_TO_ACT, COL/housing-cost multiplier, B25105, unused $2,974 anchor | ✅ COMPLETE | `aabab95` |
 | B | Income screen — ACS B19001 ZCTA, ≥ $37,415, straddle interpolation, robustness_flag; ACS→2024; HUD ZIP↔County crosswalk (54,234 rows, decision_log #44) | ✅ COMPLETE | `7318a31` `8afcd42` `d3ef623` |
-| C | Credit share — Experian FICO≥670 by state. Infra done; **`states` HELD** on Trace's Sept-2025 table (Sat EOD), else 70.4% fallback + flag | 🟡 INFRA | `1b28db1` |
-| D | Cell formula (adults × income × credit × prevalence, Σ cells); prevalence canonical in constants (Rule 6) + provenance JSON. **Marin 64,194 run HELD** (part of G) | 🟡 CORE | `682e236` |
+| C | Credit share — Experian FICO≥670 by state, RESOLVED (state CSV, 51 states, authoritative). decision_log #45/#47 | ✅ COMPLETE | `1b28db1` `81fca9e` |
+| D | Addressable = households × income × credit (**no prevalence** — handoff corrected, methodology §2). Prevalence archived to /reference. decision_log #46 | ✅ COMPLETE | `41497d0` |
 | E | `CUSTOMERS_NEEDED = 62` replaces placeholder | ✅ COMPLETE | `7a556ad` |
 | F | Penetration parameterized — 0.005 / 0.01 / 0.02, all three shown | ✅ COMPLETE | `7a556ad` |
-| G | Demand-table reconciliation (full ZCTA pipeline; natl 69.8M@PTI8 / 56.4M@PTI5, Marin 64,194) | ⏸ HELD (Experian-gated) | — |
+| G | Reconciliation vs 3,144-county fixtures; shipping formula hits CORRECTED 69.6M/56.3M + Marin 64,194 (CI). decision_log #47 | ✅ COMPLETE | `f29069c` |
 | H | gethairmd.biz lead-capture — **OUT OF SCOPE** (separate gethairmd.biz repo, confirmed 2026-07-03) | ⛔ OUT OF SCOPE | — |
 
 ### Locked decisions (do not reopen)
@@ -31,7 +31,7 @@ NDP+EIP V1) are `platform='cross'` hub-spoke context — **not formula-sprint co
 
 ### Acceptance / QA targets
 
-National 69.8M @PTI8 · 56.4M @PTI5 · Marin 64,194 @PTI8 · Westlake correct = 9,108
+National **69.6M** @PTI8 (69,581,844) · **56.3M** @PTI5 (56,283,042) — corrected from 69.8M/56.4M (decision_log #47) · Marin 64,194 @PTI8 · Westlake correct = 9,108
 (the 5,483 in a delivered proposal is a Bruce/Sean-Paul-facing correction, not a code task).
 
 ### PR requirements (Sunday gate)
