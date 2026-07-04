@@ -74,7 +74,7 @@ CI and deploy-preview pass.
 15. All PRs are merged via squash-merge only. Regular merge and rebase-merge are disabled at the repo level. Rationale: every ops.decision_log entry and handoff doc references a single commit SHA per PR — squash-merge preserves that 1:1 mapping; regular merge buries the referenced SHA under intermediate commits.
 16. At the end of every session, before closing: run git checkout main && git merge --ff-only origin/main to fast-forward local main to match remote. If --ff-only refuses, stop and report — do not force. This ensures local never falls behind cloud sessions.
 17. No task marked complete without citing a tool result from this session.
-18. Subagents never write to ops.decision_log — lead only, at phase close.
+18. Subagents and Coder never write to ops.decision_log — Chat only, at phase close. Coder reports entry content and squash SHA to Chat for the write.
 
 ## Branch / Git Hygiene
 
@@ -98,10 +98,11 @@ Rationale: MERGED-but-squash-orphaned branches are routine auto-cleanup; unmerge
 ## Decision Logging (system of record)
 
 - System of record for all consequential decisions is the Supabase table `ops.decision_log`
-  (project cprltmwwldbxcsunsafl), NOT Google Docs. Two sanctioned write paths, per the table
-  comment and decision id 27 (2026-07-01, mirroring NIP decision 847d2cbe):
-  (1) Coder via service key; (2) Trace-directed Claude chat sessions via the Supabase MCP
-  connector. No Pilot, no manual Doc editing for routine logging. RLS unchanged
+  (project cprltmwwldbxcsunsafl), NOT Google Docs. One sanctioned write path: Trace-directed
+  Claude Chat sessions via the Supabase MCP connector, at phase close. Neither Coder nor any
+  subagent writes to ops.decision_log under any circumstance. Coder reports entry content
+  (status, residual_risk, related_pr, related_repo) and the relevant squash SHA to Chat, which
+  appends the row. No Pilot, no manual Doc editing for routine logging. RLS unchanged
   (service_role only). Append-only, supersede-never-delete in force.
 - The git mirror `/decisions/DECISION_LOG.md` is the durable backup, regenerated via
   `npm run log:export`. Never hand-edit it. Git history = supersede history.
