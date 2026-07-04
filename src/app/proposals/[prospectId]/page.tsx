@@ -52,6 +52,7 @@ export default async function ProposalPage({ params }: PageProps) {
   const territory = Array.isArray(t) ? (t[0] ?? null) : (t ?? null);
   const price = usd(deal?.territory_price ? Number(deal.territory_price) : 179000);
   const addressable = territory?.addressable_patients_primary ?? null;
+  const sizing = addressable != null ? penetrationScenarios(addressable) : null;
 
   return (
     <div className="min-h-screen bg-bg font-body text-text">
@@ -107,14 +108,14 @@ export default async function ProposalPage({ params }: PageProps) {
         )}
 
         {/* Revenue opportunity — penetration scenarios */}
-        {addressable != null && (
+        {sizing && (
           <section>
             <h2 className="font-heading text-2xl font-bold text-text">Projected demand</h2>
             <p className="mt-1 font-serif text-text-muted">
               Customers your territory could support across conservative, base, and upside adoption.
             </p>
             <div className="mt-6">
-              <ScenarioCards sizing={penetrationScenarios(addressable)} />
+              <ScenarioCards sizing={sizing} />
             </div>
           </section>
         )}
