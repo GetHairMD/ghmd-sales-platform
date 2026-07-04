@@ -2,26 +2,54 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/*
+ * Base typography and surface defaults, sourced from src/design/tokens.ts via
+ * the Tailwind theme (PRD §4.2). Component-level styling lives in components,
+ * not here. Desktop-first, premium/clinical light surface by default.
+ */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
   }
-}
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    font-family: theme("fontFamily.body");
+    color: theme("colors.text.DEFAULT");
+    background: theme("colors.bg.DEFAULT");
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: theme("fontFamily.heading");
+    font-weight: theme("fontWeight.bold");
+    color: theme("colors.text.DEFAULT");
+  }
+
+  ::selection {
+    background: theme("colors.primary");
+    color: theme("colors.text.inverse");
+  }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* All-caps DM Sans labels/buttons and the brand line (KEEP • IMPROVE • GROW). */
+  .font-caps {
+    font-family: theme("fontFamily.heading");
+    text-transform: uppercase;
+    letter-spacing: theme("letterSpacing.caps");
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
