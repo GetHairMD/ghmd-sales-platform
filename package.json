@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "log:export": "tsx scripts/export-decision-log.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts",
     "test": "vitest run",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"

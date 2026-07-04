@@ -55,6 +55,30 @@ export const STAGE = {
 export const FIRST_STAGE = STAGE.NEW_LEAD
 export const LAST_STAGE = STAGE.IMPLEMENTATION_HANDOFF_SCHEDULED
 
+/**
+ * Board mapping (PRD §2.5): the 11 stages render as 6 grouped columns. Derived
+ * from STAGE constants — never hardcode the integers. Group order is pipeline order.
+ */
+export interface BoardColumn {
+  key: string
+  label: string
+  stageIds: number[]
+}
+
+export const BOARD_COLUMNS: BoardColumn[] = [
+  { key: 'leads', label: 'Leads', stageIds: [STAGE.NEW_LEAD, STAGE.CONTACTED] },
+  { key: 'discovery', label: 'Discovery', stageIds: [STAGE.DISCOVERY_CALL_SCHEDULED, STAGE.DISCOVERY_CALL_MET] },
+  { key: 'proposal', label: 'Proposal', stageIds: [STAGE.PROPOSAL_SENT, STAGE.VALIDATION] },
+  { key: 'funding', label: 'Funding', stageIds: [STAGE.FUNDING_PRE_QUALIFIED] },
+  { key: 'contract', label: 'Contract', stageIds: [STAGE.CONTRACT_SENT, STAGE.CONTRACT_SIGNED] },
+  { key: 'won', label: 'Won', stageIds: [STAGE.FUNDED_WON, STAGE.IMPLEMENTATION_HANDOFF_SCHEDULED] },
+]
+
+/** The board column a stage belongs to (or undefined if out of range). */
+export function boardColumnForStage(stage: number): BoardColumn | undefined {
+  return BOARD_COLUMNS.find((c) => c.stageIds.includes(stage))
+}
+
 /** Label for a stage id, with a safe fallback for out-of-range values. */
 export function stageLabel(id: number): string {
   return PIPELINE_STAGES.find(s => s.id === id)?.label ?? `Stage ${id}`
@@ -94,4 +118,26 @@ export function requiresFundingPrequalConfirm(
 /** True when the amber "PRE-QUAL SKIPPED" badge should render for a record. */
 export function showPrequalSkippedBadge(stage: number, skippedFundingPrequal: boolean): boolean {
   return skippedFundingPrequal && stage >= FUNDING_PREQUAL_GATE_STAGE
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Soft triage gate (4 -> 5, Proposal Sent) — same shape as the funding gate.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Advancing a prospect to Proposal Sent (or beyond) without a completed triage is
+ * ALLOWED but prompts a confirm and flags the record (skipped_triage). Soft by
+ * design — never a hard block. Protects the uniformly-applied-criteria record by
+ * turning every deviation into a logged, deliberate act (PRD §2.3).
+ */
+export const TRIAGE_GATE_STAGE = STAGE.PROPOSAL_SENT
+
+/** True when advancing to `targetStage` without a complete triage should prompt "advance anyway?". */
+export function requiresTriageConfirm(targetStage: number, triageComplete: boolean): boolean {
+  return targetStage >= TRIAGE_GATE_STAGE && !triageComplete
+}
+
+/** True when the amber "TRIAGE SKIPPED" badge should render for a record. */
+export function showTriageSkippedBadge(stage: number, skippedTriage: boolean): boolean {
+  return skippedTriage && stage >= TRIAGE_GATE_STAGE
 }
