@@ -73,6 +73,8 @@ CI and deploy-preview pass.
 14. Every `ops.decision_log` entry must set `residual_risk` explicitly (`none` | `accepted` | `unresolved`) — never leave it at the column default without deliberately confirming `none` is correct. This field is read literally by the Second-Opinion Gate comparison logic and must never be inferred from the `reasoning` text field.
 15. All PRs are merged via squash-merge only. Regular merge and rebase-merge are disabled at the repo level. Rationale: every ops.decision_log entry and handoff doc references a single commit SHA per PR — squash-merge preserves that 1:1 mapping; regular merge buries the referenced SHA under intermediate commits.
 16. At the end of every session, before closing: run git checkout main && git merge --ff-only origin/main to fast-forward local main to match remote. If --ff-only refuses, stop and report — do not force. This ensures local never falls behind cloud sessions.
+17. No task marked complete without citing a tool result from this session.
+18. Subagents never write to ops.decision_log — lead only, at phase close.
 
 ## Branch / Git Hygiene
 
