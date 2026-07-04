@@ -1,189 +1,228 @@
-import { createClient } from '@supabase/supabase-js'
-import { notFound } from 'next/navigation'
-import ScenarioCards from '@/components/ScenarioCards'
-import { penetrationScenarios } from '@/lib/territory-sizing'
+import { createClient } from '@supabase/supabase-js';
+import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
+import { Check, MapPin, ShieldCheck } from 'lucide-react';
+import Logo from '@/components/brand/Logo';
+import BrandLine from '@/components/brand/BrandLine';
+import ScenarioCards from '@/components/ScenarioCards';
+import { penetrationScenarios } from '@/lib/territory-sizing';
+
+export const dynamic = 'force-dynamic';
+
+// Public buyer-facing page — never indexed (PRD §3.3).
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 interface PageProps {
-  params: { prospectId: string }
+  params: { prospectId: string };
 }
 
-// Public page — no auth wall. Uses service role to bypass RLS (read-only, server-side only).
-export default async function ProposalPage({ params }: PageProps) {
-  const { prospectId } = params
+const usd = (n: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 
+export default async function ProposalPage({ params }: PageProps) {
+  const { prospectId } = params;
+
+  // Service role: public page bypasses RLS, read-only, server-side only.
   const admin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  )
+  );
 
-  // Fetch prospect
   const { data: prospect } = await admin
     .from('prospects')
-    .select('id, full_name, practice_name, specialty, email')
+    .select('id, full_name, practice_name, specialty')
     .eq('id', prospectId)
-    .single()
+    .single();
+  if (!prospect) return notFound();
 
-  if (!prospect) return notFound()
-
-  // Fetch most recent deal with territory data
   const { data: deal } = await admin
     .from('deals')
-    .select(`
-      id,
-      territory_price,
-      territories (
-        id,
-        name,
-        addressable_patients_primary,
-        center_lat,
-        center_lng
-      )
-    `)
+    .select('territory_price, territories ( name, addressable_patients_primary )')
     .eq('prospect_id', prospectId)
     .order('created_at', { ascending: false })
     .limit(1)
-    .single()
+    .maybeSingle();
 
-  // Supabase infers FK join results as arrays; cast through unknown then take [0]
-  const territory = (deal?.territories as unknown as {
-    id: string
-    name: string
-    addressable_patients_primary: number | null
-    center_lat: number
-    center_lng: number
-  }[] | undefined)?.[0] ?? null
-
-  const territoryPrice = deal?.territory_price
-    ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(
-        Number(deal.territory_price),
-      )
-    : '$179,000'
+  const t = deal?.territories as unknown as
+    | { name: string; addressable_patients_primary: number | null }
+    | { name: string; addressable_patients_primary: number | null }[]
+    | null;
+  const territory = Array.isArray(t) ? (t[0] ?? null) : (t ?? null);
+  const price = usd(deal?.territory_price ? Number(deal.territory_price) : 179000);
+  const addressable = territory?.addressable_patients_primary ?? null;
 
   return (
-    <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="bg-[#4681A3] text-white py-10 px-6">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center font-bold text-lg">
-              G
-            </div>
-            <span className="text-white/80 text-sm font-medium tracking-wide uppercase">GetHairMD</span>
+    <div className="min-h-screen bg-bg font-body text-text">
+      {/* Brand hero — expressive, dark */}
+      <header className="bg-black px-6 py-16 text-text-inverse sm:py-20">
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-10 flex flex-col items-start gap-3">
+            <Logo variant="white" width={200} priority />
+            <BrandLine className="text-text-inverse/70" />
           </div>
-          <h1 className="text-3xl font-bold mb-2">
-            Territory Proposal for {prospect.full_name}
+          <p className="font-serif text-lg text-text-inverse/70">A protected territory prepared for</p>
+          <h1 className="mt-2 font-heading text-4xl font-bold leading-tight sm:text-6xl">
+            {prospect.practice_name ?? prospect.full_name}
           </h1>
           {prospect.practice_name && (
-            <p className="text-white/80 text-lg">{prospect.practice_name}</p>
+            <p className="mt-3 text-xl text-text-inverse/80">{prospect.full_name}</p>
           )}
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-6 py-10 space-y-10">
-        {/* Territory Snapshot */}
-        {territory ? (
-          <section>
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Your Territory</h2>
-            <div className="rounded-xl border border-gray-200 p-6 bg-gray-50 space-y-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-sm text-gray-500 uppercase tracking-wide mb-1">Territory</p>
-                  <p className="text-2xl font-bold text-gray-900">{territory.name}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-gray-500 uppercase tracking-wide mb-1">Territory Price</p>
-                  <p className="text-2xl font-bold text-[#4681A3]">{territoryPrice}</p>
-                </div>
-              </div>
+      <main className="mx-auto max-w-4xl space-y-20 px-6 py-16">
+        {/* Executive summary */}
+        <section>
+          <p className="font-serif text-2xl leading-relaxed text-text sm:text-3xl">
+            GetHairMD builds a single, protected hair-restoration territory around your practice —
+            with the clinical model, buildout, and support to run it. This is the opportunity in
+            {territory ? ` ${territory.name}` : ' your market'}.
+          </p>
+        </section>
 
-              {territory.addressable_patients_primary != null && (
-                <div className="pt-4 border-t border-gray-200">
-                  <p className="text-sm text-gray-500 uppercase tracking-wide mb-1">Addressable Market</p>
-                  <p className="text-3xl font-bold text-gray-900">
-                    {territory.addressable_patients_primary.toLocaleString()}
-                    <span className="text-base font-normal text-gray-500 ml-2">addressable households</span>
-                  </p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Within your 30-minute primary drive-time zone — qualified households likely to seek treatment.
-                  </p>
-                </div>
-              )}
+        {/* Why this territory + market opportunity */}
+        {territory && (
+          <section className="grid gap-8 rounded-xl border border-mist bg-bg-subtle p-8 sm:grid-cols-2">
+            <div>
+              <p className="font-heading text-xs uppercase tracking-caps text-text-muted">Your territory</p>
+              <p className="mt-1 font-heading text-3xl font-bold text-text">{territory.name}</p>
+              <p className="mt-2 flex items-center gap-1.5 text-sm text-text-muted">
+                <MapPin className="h-4 w-4 text-primary" /> Exclusive 30-minute primary drive-time zone
+              </p>
             </div>
-          </section>
-        ) : null}
-
-        {/* Demand Projections */}
-        {territory && territory.addressable_patients_primary != null ? (
-          (() => {
-            const sizing = penetrationScenarios(territory.addressable_patients_primary)
-            return (
-              <section>
-                <h2 className="text-xl font-semibold text-gray-900 mb-1">Projected Demand</h2>
-                <p className="text-sm text-gray-500 mb-4">
-                  Estimated customers your territory could support across conservative, base, and upside adoption.
+            {addressable != null && (
+              <div>
+                <p className="font-heading text-xs uppercase tracking-caps text-text-muted">Addressable market</p>
+                <p className="mt-1 font-heading text-4xl font-bold text-primary">
+                  {addressable.toLocaleString()}
                 </p>
-                <ScenarioCards sizing={sizing} />
-              </section>
-            )
-          })()
-        ) : (
+                <p className="mt-1 text-sm text-text-muted">
+                  Qualified households in your primary zone likely to seek and finance treatment.
+                </p>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Revenue opportunity — penetration scenarios */}
+        {addressable != null && (
           <section>
-            <div className="rounded-xl border border-gray-200 p-6 bg-gray-50 text-gray-500">
-              Territory details are being prepared. Your representative will follow up shortly.
+            <h2 className="font-heading text-2xl font-bold text-text">Projected demand</h2>
+            <p className="mt-1 font-serif text-text-muted">
+              Customers your territory could support across conservative, base, and upside adoption.
+            </p>
+            <div className="mt-6">
+              <ScenarioCards sizing={penetrationScenarios(addressable)} />
             </div>
           </section>
         )}
 
-        {/* What's Included */}
+        {/* Protected territory map placeholder */}
         <section>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">What&apos;s Included</h2>
-          <ul className="space-y-3">
+          <h2 className="font-heading text-2xl font-bold text-text">A territory that&apos;s yours alone</h2>
+          <div className="mt-4 flex h-56 items-center justify-center rounded-xl border border-dashed border-mist bg-bg-subtle text-sm text-text-muted">
+            <span className="flex items-center gap-2"><MapPin className="h-4 w-4" /> Protected drive-time map</span>
+          </div>
+        </section>
+
+        {/* The GHMD model */}
+        <section>
+          <h2 className="font-heading text-2xl font-bold text-text">The GetHairMD model</h2>
+          <div className="mt-6 grid gap-6 sm:grid-cols-2">
+            {[
+              ['Clinical protocol', 'A proven, physician-led hair-restoration protocol and clinical training.'],
+              ['Practice buildout', 'Complete setup — space plan, equipment, and launch playbook.'],
+              ['Patient acquisition', 'Marketing and intake systems tuned for your territory.'],
+              ['Ongoing support', 'Clinical and operational support, plus the physician network.'],
+            ].map(([h, b]) => (
+              <div key={h} className="rounded-lg border border-mist bg-bg p-5">
+                <p className="font-heading text-sm font-semibold uppercase tracking-caps text-text">{h}</p>
+                <p className="mt-1.5 text-sm text-text-muted">{b}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Required investment */}
+        <section className="rounded-xl bg-black px-8 py-12 text-text-inverse">
+          <p className="font-heading text-xs uppercase tracking-caps text-text-inverse/60">Required investment</p>
+          <p className="mt-2 font-heading text-6xl font-bold">{price}</p>
+          <p className="mt-3 max-w-lg font-serif text-text-inverse/70">
+            One protected territory, the full GetHairMD model, and launch support. Financing is
+            available through our lender partners — your representative will walk you through
+            pre-qualification.
+          </p>
+        </section>
+
+        {/* Launch plan */}
+        <section>
+          <h2 className="font-heading text-2xl font-bold text-text">Your path to launch</h2>
+          <ol className="mt-6 space-y-4">
+            {[
+              'Reserve your protected territory',
+              'Complete financing pre-qualification',
+              'Execute the territory agreement',
+              'Buildout, training, and clinical onboarding',
+              'Open and begin patient acquisition',
+            ].map((step, i) => (
+              <li key={step} className="flex items-start gap-4">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary font-heading text-sm font-bold text-text-inverse">
+                  {i + 1}
+                </span>
+                <span className="pt-1 text-text">{step}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        {/* Support included */}
+        <section>
+          <h2 className="font-heading text-2xl font-bold text-text">What&apos;s included</h2>
+          <ul className="mt-6 space-y-3">
             {[
               'Exclusive protected territory with defined drive-time boundaries',
               'Complete GHMD practice buildout and clinical protocol',
-              'Marketing and patient acquisition system',
+              'Marketing and patient-acquisition system',
               'Ongoing clinical and operational support',
-              'GetHairMD brand license and physician network access',
-            ].map(item => (
+              'GetHairMD brand license and physician-network access',
+            ].map((item) => (
               <li key={item} className="flex items-start gap-3">
-                <span className="mt-1 w-5 h-5 rounded-full bg-[#4681A3] flex-shrink-0 flex items-center justify-center">
-                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                </span>
-                <span className="text-gray-700">{item}</span>
+                <Check className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                <span className="text-text">{item}</span>
               </li>
             ))}
           </ul>
         </section>
 
-        {/* Next Steps */}
-        <section className="rounded-xl bg-[#4681A3]/5 border border-[#4681A3]/20 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Next Steps</h2>
-          <p className="text-gray-600 mb-5">
-            Review the territory agreement and connect with your GetHairMD representative to finalize your territory.
+        {/* CTA → contract path */}
+        <section className="rounded-xl border border-primary/20 bg-primary/5 p-8 text-center">
+          <ShieldCheck className="mx-auto h-8 w-8 text-primary" />
+          <h2 className="mt-3 font-heading text-2xl font-bold text-text">Ready to reserve your territory?</h2>
+          <p className="mx-auto mt-2 max-w-lg font-serif text-text-muted">
+            Connect with your GetHairMD representative to finalize your territory and review the agreement.
           </p>
           <button
             type="button"
             disabled
-            className="inline-flex items-center gap-2 bg-[#E5B36A] text-white font-semibold px-6 py-3 rounded-lg opacity-70 cursor-not-allowed"
-            title="Agreement signing coming in Sprint 4"
+            title="Embedded signing arrives in a later phase"
+            className="mt-6 inline-flex cursor-not-allowed items-center gap-2 rounded-lg bg-accent px-6 py-3 font-heading text-sm font-semibold uppercase tracking-caps text-text opacity-80"
           >
-            Review Agreement
-            <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">Coming Soon</span>
+            Review agreement
+            <span className="rounded-full bg-black/10 px-2 py-0.5 text-[0.625rem]">Coming soon</span>
           </button>
-          <p className="text-xs text-gray-400 mt-2">Online agreement signing available soon.</p>
-        </section>
-
-        {/* Contact */}
-        <section className="pt-4 border-t border-gray-100 text-sm text-gray-500">
-          <p>Questions? Contact your GetHairMD representative or reply to the email where you received this link.</p>
         </section>
       </main>
 
-      <footer className="bg-gray-50 border-t border-gray-200 py-6 px-6 text-center text-xs text-gray-400">
-        &copy; {new Date().getFullYear()} GetHairMD. This proposal is confidential and intended solely for {prospect.full_name}.
+      <footer className="border-t border-mist bg-bg-subtle px-6 py-8 text-center">
+        <div className="mx-auto flex max-w-4xl flex-col items-center gap-3">
+          <Logo variant="primary" width={120} />
+          <p className="text-xs text-text-muted">
+            Confidential and intended solely for {prospect.full_name}. © 2026 GetHairMD.
+          </p>
+        </div>
       </footer>
     </div>
-  )
+  );
 }
