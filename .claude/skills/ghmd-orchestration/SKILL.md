@@ -29,8 +29,9 @@ state. Claims without evidence are re-run, not trusted.
 Rule 0 before anything. One repo per session. Squash-merge, one PR per phase,
 Second-Opinion Gate on every PR. Stage constants only via pipeline-stages.ts;
 formula constants only via /lib/addressable-market-constants.ts; prospect
-creation only via prospect-insert.ts. Subagents NEVER write to
-ops.decision_log — only the lead, at phase close, per the write contract
-(residual_risk ∈ none|accepted|unresolved; related_pr/related_repo together).
+creation only via prospect-insert.ts. Subagents and the lead NEVER write to
+ops.decision_log — Chat only, at phase close. The lead reports entry content and
+the squash SHA to Chat for the write; write contract remains residual_risk ∈
+none|accepted|unresolved, related_pr/related_repo together or both null.
 Parallel file edits require worktree isolation; migration-scale fan-out, if
 ever needed, uses worktrees + /batch with PRs through the gate.
