@@ -184,6 +184,7 @@ export default function DealRoom({
                       currentStage={prospect.stage}
                       fundingPrequalCleared={prospect.funding_prequal_cleared}
                       skippedFundingPrequal={prospect.skipped_funding_prequal}
+                      skippedTriage={prospect.skipped_triage}
                     />
                     <DealStatusSelector prospectId={prospect.id} currentStatus={prospect.deal_status} />
                     <FundingPrequalToggle
