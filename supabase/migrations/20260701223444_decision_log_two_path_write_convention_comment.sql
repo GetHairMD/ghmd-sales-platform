@@ -1,0 +1,22 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ops.decision_log — write-convention table comment (HISTORICAL RECONCILIATION)
+--
+-- Supabase project: ghmd-sales-platform (cprltmwwldbxcsunsafl). NIP never touched.
+--
+-- WHAT: applied to prod as migration version 20260701223444 (2026-07-01) but the
+-- migration FILE was never committed — the same untracked-migration drift M0
+-- closed for the sprint1 base schema. Recovered VERBATIM from
+-- supabase_migrations.schema_migrations (2026-07-04). Nothing below is edited.
+--
+-- ALREADY APPLIED — DO NOT RE-APPLY: version 20260701223444 is in schema_migrations.
+-- Repo reconciliation only, committed at its original version so migration history
+-- is complete for branch databases / repo-only reconstruction.
+--
+-- SUPERSEDED: the "(2) sanctioned write paths" text below is STALE. The write
+-- policy is now single-path (Chat only) per decision #57 / PR #58. The live
+-- comment is corrected by the follow-up migration
+-- 20260704052856_decision_log_single_path_write_comment.sql. This file is retained
+-- unedited to preserve the true applied history.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+COMMENT ON TABLE ops.decision_log IS 'GHMD Sales Platform decision log — compliance spine. Append-only: rows are never updated or deleted (supersede, never delete). A superseded decision is retained and linked to its replacement via superseded_by. Sanctioned write paths (2): (1) Coder agent via service key; (2) Trace-directed Claude chat sessions via the Supabase MCP connector. RLS posture unchanged: service_role only. Convention mirrors NIP ops.decision_log decision 847d2cbe (2026-07-01).';
