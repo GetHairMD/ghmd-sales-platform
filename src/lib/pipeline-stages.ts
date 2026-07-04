@@ -55,6 +55,30 @@ export const STAGE = {
 export const FIRST_STAGE = STAGE.NEW_LEAD
 export const LAST_STAGE = STAGE.IMPLEMENTATION_HANDOFF_SCHEDULED
 
+/**
+ * Board mapping (PRD §2.5): the 11 stages render as 6 grouped columns. Derived
+ * from STAGE constants — never hardcode the integers. Group order is pipeline order.
+ */
+export interface BoardColumn {
+  key: string
+  label: string
+  stageIds: number[]
+}
+
+export const BOARD_COLUMNS: BoardColumn[] = [
+  { key: 'leads', label: 'Leads', stageIds: [STAGE.NEW_LEAD, STAGE.CONTACTED] },
+  { key: 'discovery', label: 'Discovery', stageIds: [STAGE.DISCOVERY_CALL_SCHEDULED, STAGE.DISCOVERY_CALL_MET] },
+  { key: 'proposal', label: 'Proposal', stageIds: [STAGE.PROPOSAL_SENT, STAGE.VALIDATION] },
+  { key: 'funding', label: 'Funding', stageIds: [STAGE.FUNDING_PRE_QUALIFIED] },
+  { key: 'contract', label: 'Contract', stageIds: [STAGE.CONTRACT_SENT, STAGE.CONTRACT_SIGNED] },
+  { key: 'won', label: 'Won', stageIds: [STAGE.FUNDED_WON, STAGE.IMPLEMENTATION_HANDOFF_SCHEDULED] },
+]
+
+/** The board column a stage belongs to (or undefined if out of range). */
+export function boardColumnForStage(stage: number): BoardColumn | undefined {
+  return BOARD_COLUMNS.find((c) => c.stageIds.includes(stage))
+}
+
 /** Label for a stage id, with a safe fallback for out-of-range values. */
 export function stageLabel(id: number): string {
   return PIPELINE_STAGES.find(s => s.id === id)?.label ?? `Stage ${id}`
