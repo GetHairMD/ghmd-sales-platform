@@ -6,6 +6,46 @@
 
 ---
 
+## [2026-07-03] Sequential-Sprint Rule RETIRED → Reconciliation Precondition + Session-Boot Rule — ADOPTED
+
+**Decision:** The sequential-sprint rule ("Sprint N+1 LOCKED, do not open") is retired. Precipitating exception: pipeline-v2 (PR #52) merged to main while SPRINT-STATE declared pipeline work Sprint 4 LOCKED — the rule was written but unenforced. Replacement, two rules: (1) RECONCILIATION PRECONDITION — no new sprint opens until docs/SPRINT-STATE.md, the current handoff at /handoffs/LATEST.md, and the decision-log mirror at /decisions/DECISION_LOG.md all reflect main HEAD; verified at sprint open. (2) SESSION-BOOT RULE — any Chat session touching architecture or PRD work opens by pulling ops.decision_log and /handoffs/LATEST.md before drafting.
+
+**Reasoning:** A written-but-unenforced rule corrodes the credibility of load-bearing rules. Sequential locking protected parallel workstreams that do not exist (single builder, serial work). The failure mode actually experienced twice on 2026-07-03 was stale-state drift (PRD v1.0 drafted without a decision-log pull; PRD v1.1 nearly canonized against a pipeline model that had merged hours earlier). Both replacement rules are 90-second human-checkable preconditions that would have caught both incidents at creation.
+
+**Status:** ADOPTED  ·  Source session: Claude chat 2026-07-03 — CRM PRD reconciliation session
+
+---
+
+## [2026-07-03] CRM / Territory Sales OS PRD v1.2 — ADOPTED
+
+**Decision:** PRD v1.2 adopted as governing architecture for the CRM front-end (Pipeline Board, Deal Room, Proposal Page). To be committed at /docs/prd/GHMD_Territory_Sales_OS_PRD_v1.2.md. Conforms to pipeline-v2 (PR #52): single 11-stage machine per src/lib/pipeline-stages.ts with deal_status health overlay. Session decisions included: (A) deals demoted to Territory Agreement record, deals.stage DEPRECATED; (B) soft triage gate at stage 4→5 (skipped_triage flag + badge, mirrors requiresFundingPrequalConfirm pattern); (D) call_scores designated Salesperson Scorecard (seller side of bilateral scoring); (E) routes modified in place, no /demo/* namespace, demo state via seed script. Gate architecture: capital gate soft (shipped, #12-consistent), triage gate soft (movement), confidence/Tier-2 gates hard on triage generation (#2). #15 outcome fields (signed_and_funded binary + machine-instrumentation tag) required at stage 9→10. Retention framework drafted in PRD §9.6 pending Rick Dahlson review. RESIDUAL RISK DETAIL: base-table DDL (prospects/deals/territories) remains untracked in repo migrations until baseline migration M0 lands (PRD P0.5); schema not reconstructible from repo until then. Cites decisions #1, #2, #8, #9, #12, #14, #15, #20, #50.
+
+**Reasoning:** Reconciled against repo main 306fdbd (PRs #50–55), pipeline-stages.ts, migration 20260703120000, seed_capture_taxonomy.sql, migration 20260629000000, live schema, and Track B locked decisions. Supersedes chat-drafted v1.0/v1.1 which predated the pipeline-v2 merge. Demo-first phasing: Trace sole builder/user, Leif independent Tier 2 validation, until legal checkpoint and quality bar are satisfied.
+
+**Status:** ADOPTED  ·  ⚖ Legal flag  ·  Source session: Claude chat 2026-07-03 — CRM PRD reconciliation session
+
+---
+
+## [2026-07-03] Grandfathering RETIRED — Supersedes #40
+
+**Decision:** Territory proposal grandfathering is retired entirely, effective immediately. No freeze logic will be built. All proposals — including any previously considered in-flight — display live formula-v2 numbers. The July 31, 2026 window and the in-flight boundary concept are void. This supersedes decision #40 (Grandfathering + Penetration Bridge).
+
+**Reasoning:** Trace explicitly killed grandfathering during the 2026-07-03 pipeline-v2 design session ("Stop worrying about grandfathering altogether... It is not a concern of mine"). Context supporting the call: the sales DB contains zero rows — no in-flight proposals exist in the platform to protect (Hausauer/San Rafael was never recorded), so freeze logic would have protected nothing while adding permanent complexity. Simplifies pipeline-v2 build and all future territory-output display work.
+
+**Status:** LOCKED  ·  Source session: 2026-07-03-session-3
+
+---
+
+## [2026-07-03] Second-Opinion Gate — PR #51 Manual Accept (GPT-5 Unavailable)
+
+**Decision:** PR #51 accepted by human review in lieu of automated second opinion. Gate cleared manually by Trace Herchman (President).
+
+**Reasoning:** Gate ran twice on PR #51 (runs #33 and #34), both failed at 40s with gpt-unavailable — OpenAI GPT-5 API down, not a code finding. CI evidence: 131/131 tests pass, tsc clean, national reconciliation exact at 69.6M/56.3M (@PTI8/@PTI5), Marin exact at 64,194, Task G 3,144-county fixture reconciliation passed. No adversarial findings surfaced. Human reviewer accepted after two failed retry attempts.
+
+**Status:** CONFIRMED  ·  Source session: 2026-07-03-session-3
+
+---
+
 ## [2026-07-03] National QA Targets Corrected — 16-State Credit Discrepancy Resolved (Task G)
 
 **Decision:** The national addressable-market QA targets are corrected from 69.8M @PTI8 / 56.4M @PTI5 to 69,581,844 @PTI8 (69.6M) / 56,283,042 @PTI5 (56.3M). The shipping credit table (data/experian-credit-share-by-state.json, from the state CSV est_share_fico_ge_670_DERIVED) is confirmed AUTHORITATIVE. The county-analysis fixtures (data/sources/ghmd_county_analysis_PTI8/PTI5.csv) carry a stale/erroneous credit column for 16 states (AR, FL, GA, IN, KY, LA, MO, NC, NM, NV, OK, SC, TN, TX, WV, DC), which is what produced the old 69.8M/56.4M. The Task G reconciliation test now asserts the shipping formula (households x income x OUR credit) hits 69.6M/56.3M, documents the fixture column summing to the old 69.8M/56.4M, and bounds the 16-state divergence. Marin is unchanged at 64,194 @PTI8 / 57,826 @PTI5 (CA credit 0.7172 agrees in both files).
