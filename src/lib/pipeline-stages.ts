@@ -95,3 +95,25 @@ export function requiresFundingPrequalConfirm(
 export function showPrequalSkippedBadge(stage: number, skippedFundingPrequal: boolean): boolean {
   return skippedFundingPrequal && stage >= FUNDING_PREQUAL_GATE_STAGE
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Soft triage gate (4 -> 5, Proposal Sent) — same shape as the funding gate.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Advancing a prospect to Proposal Sent (or beyond) without a completed triage is
+ * ALLOWED but prompts a confirm and flags the record (skipped_triage). Soft by
+ * design — never a hard block. Protects the uniformly-applied-criteria record by
+ * turning every deviation into a logged, deliberate act (PRD §2.3).
+ */
+export const TRIAGE_GATE_STAGE = STAGE.PROPOSAL_SENT
+
+/** True when advancing to `targetStage` without a complete triage should prompt "advance anyway?". */
+export function requiresTriageConfirm(targetStage: number, triageComplete: boolean): boolean {
+  return targetStage >= TRIAGE_GATE_STAGE && !triageComplete
+}
+
+/** True when the amber "TRIAGE SKIPPED" badge should render for a record. */
+export function showTriageSkippedBadge(stage: number, skippedTriage: boolean): boolean {
+  return skippedTriage && stage >= TRIAGE_GATE_STAGE
+}
