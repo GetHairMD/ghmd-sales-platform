@@ -87,7 +87,7 @@ export interface RepCard {
 /** §6.18 Next Step — the representative's card. Content-pending. */
 export const NEXT_STEP_REP: RepCard = {
   name: 'Trace',
-  title: 'Franchise Development',
+  title: 'Territory Development',
   blurb: 'Your point of contact for this territory. Reach out with any questions.',
 }
 
