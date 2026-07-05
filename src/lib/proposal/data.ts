@@ -82,3 +82,20 @@ export async function logProposalEvent(input: {
     payload: input.payload ?? null,
   })
 }
+
+/**
+ * Persist a Next Step message-form submission (spec §6.18 secondary action) as a
+ * prospect activity note, so it lands on the rep's timeline. Prospect identity
+ * comes from the verified unlock cookie, never the request body.
+ */
+export async function logProposalMessage(input: {
+  prospectId: string
+  message: string
+}): Promise<void> {
+  await serviceClient().from('activities').insert({
+    prospect_id: input.prospectId,
+    activity_type: 'note',
+    body: `Proposal message from prospect:\n${input.message}`,
+    created_by: 'proposal_message',
+  })
+}
