@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
@@ -77,5 +77,113 @@ describe('internal territory page — keeps the explicit indicator (Task 2)', ()
   })
   it('renders scenario cards in the internal variant', () => {
     expect(src).toMatch(/<ScenarioCards[^>]*\binternal\b/)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Session B — /p/[slug] proposal system guardrails (brief §2; decision #68).
+// Scans the whole gated-proposal render tree, not just one page.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Recursively collect .ts/.tsx files under a repo-relative dir (skips stories). */
+function collect(relDir: string, opts: { includeStories?: boolean } = {}): string[] {
+  const abs = join(process.cwd(), relDir)
+  if (!existsSync(abs)) return []
+  const out: string[] = []
+  for (const entry of readdirSync(abs)) {
+    const rel = `${relDir}/${entry}`
+    const full = join(process.cwd(), rel)
+    if (statSync(full).isDirectory()) {
+      out.push(...collect(rel, opts))
+    } else if (/\.tsx?$/.test(entry)) {
+      if (!opts.includeStories && /\.stories\.tsx?$/.test(entry)) continue
+      out.push(rel)
+    }
+  }
+  return out
+}
+
+const PROPOSAL_TREE = [
+  ...collect('src/components/proposal'),
+  ...collect('src/app/p'),
+]
+const PROPOSAL_PAGE = 'src/app/p/[slug]/page.tsx'
+// Section-4 files carry the decision-#68 language ban (demographics ≠ demand-weighting).
+const SECTION4_FILES = [
+  'src/components/proposal/TerritoryAnalysis.tsx',
+  'src/components/proposal/DemandTable.tsx',
+  'src/components/proposal/TerritoryMap.tsx',
+]
+// Terms banned in Section 4 (no demand-weighting / propensity / qualification framing).
+const SECTION4_FORBIDDEN = /propensity|conversion|weighted|weighting|more likely|qualif/i
+
+describe('proposal /p tree — exists', () => {
+  it('has render-tree files to scan', () => {
+    expect(PROPOSAL_TREE.length).toBeGreaterThan(0)
+  })
+})
+
+describe('proposal /p tree — no formula mechanics (brief §2.1)', () => {
+  for (const file of PROPOSAL_TREE) {
+    const src = read(file)
+    for (const { name, re } of FORBIDDEN_FORMULA) {
+      it(`${file} does not expose ${name}`, () => {
+        expect(src).not.toMatch(re)
+      })
+    }
+  }
+})
+
+describe('proposal /p tree — no viability semantics (brief §2.2)', () => {
+  for (const file of PROPOSAL_TREE) {
+    const src = read(file)
+    for (const term of FORBIDDEN_VIABILITY) {
+      it(`${file} has no viability token "${term}"`, () => {
+        expect(src).not.toContain(term)
+      })
+    }
+  }
+})
+
+describe('proposal Section 4 — demographics, not demand-weighting (decision #68)', () => {
+  for (const file of SECTION4_FILES) {
+    it(`${file} uses no propensity/conversion/weighting/qualification language`, () => {
+      if (!existsSync(join(process.cwd(), file))) {
+        throw new Error(`expected Section-4 file missing: ${file}`)
+      }
+      expect(read(file)).not.toMatch(SECTION4_FORBIDDEN)
+    })
+  }
+})
+
+describe('proposal /p tree — client bundle never imports formula constants (brief §2.1/§5.3)', () => {
+  for (const file of PROPOSAL_TREE) {
+    const src = read(file)
+    if (!src.includes("'use client'")) continue
+    it(`${file} (client) does not import formula/constants modules`, () => {
+      expect(src).not.toMatch(/territory-sizing|addressable-market-constants|lib\/census/)
+    })
+  }
+})
+
+describe('proposal page — gate renders before any data fetch (brief §6, no pre-auth leak)', () => {
+  const src = read(PROPOSAL_PAGE)
+  it('returns the AccessCodeGate before fetching the proposal', () => {
+    // Match usage sites (not imports): the gate is *rendered* before the data
+    // fetch is *called*, guaranteeing no proposal data is fetched pre-auth.
+    const gateAt = src.indexOf('<AccessCodeGate')
+    const fetchAt = src.indexOf('await getProposalBySlug')
+    expect(gateAt).toBeGreaterThan(-1)
+    expect(fetchAt).toBeGreaterThan(-1)
+    expect(gateAt).toBeLessThan(fetchAt)
+  })
+})
+
+describe('scarcity banner — exact spec copy (spec §6 item 5)', () => {
+  const file = 'src/components/proposal/ScarcityBanner.tsx'
+  it('renders the exact scarcity sentence (with en-dash)', () => {
+    const src = read(file)
+    expect(src).toContain('Most physicians reach a decision within 2–3 conversations.')
+    expect(src).toContain('we cannot hold it without a signed agreement.')
   })
 })

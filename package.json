@@ -49,6 +49,18 @@
     "extends": [
       "next/core-web-vitals",
       "plugin:storybook/recommended"
+    ],
+    "overrides": [
+      {
+        "files": ["src/components/proposal/**/*.{ts,tsx}", "src/app/p/**/*.{ts,tsx}"],
+        "rules": {
+          "no-restricted-syntax": [
+            "error",
+            { "selector": "JSXAttribute[name.name='className'] Literal[value=/\\b(gray|red|blue)-/]", "message": "Raw gray/red/blue Tailwind utilities are banned on the proposal surface — use design tokens (src/design/tokens.ts)." },
+            { "selector": "JSXAttribute[name.name='className'] TemplateElement[value.raw=/\\b(gray|red|blue)-/]", "message": "Raw gray/red/blue Tailwind utilities are banned on the proposal surface — use design tokens (src/design/tokens.ts)." }
+          ]
+        }
+      }
     ]
   }
 }

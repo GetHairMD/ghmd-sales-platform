@@ -27,10 +27,12 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  // /proposals/* is publicly accessible — no auth required (prospect-facing pages)
+  // Prospect-facing pages are publicly accessible — no auth required.
+  // NOTE: '/p/' (trailing slash) so this does not also match /pipeline, /prospects, /proposals.
   const isPublicPath =
     request.nextUrl.pathname.startsWith('/login') ||
-    request.nextUrl.pathname.startsWith('/proposals')
+    request.nextUrl.pathname.startsWith('/proposals') ||
+    request.nextUrl.pathname.startsWith('/p/')
 
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone()
