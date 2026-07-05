@@ -14,7 +14,7 @@ Supersedes: v2.27. Session B (proposal system) **SHIPPED** — PR #65 merged to 
 | Branch protection | main requires the `gate` status check (Second-Opinion Gate LIVE — `SECOND_OPINION_GATE_ENABLED=true`) |
 | Active branch | `chore/methodology-and-handoff-v2.28` (this docs-only PR) |
 | Governing docs | [`docs/prd/GHMD_Territory_Sales_OS_PRD_v1.2.md`](../docs/prd/GHMD_Territory_Sales_OS_PRD_v1.2.md) (build phasing, authoritative) + [`docs/SALES-OS-SPEC.md`](../docs/SALES-OS-SPEC.md) (proposal-system + Sales OS scope) + [`docs/TERRITORY-METHODOLOGY.md`](../docs/TERRITORY-METHODOLOGY.md) (formula v2 narrative; §8 v3 drive-time spec — Trace-owned) |
-| Decision mirror | `/decisions/DECISION_LOG.md` — regenerated via `npm run log:export`; entries through **id 73** |
+| Decision mirror | `/decisions/DECISION_LOG.md` — regenerated via `npm run log:export`; entries through **id 74** |
 
 ## What Shipped Since v2.27
 
