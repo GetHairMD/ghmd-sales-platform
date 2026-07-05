@@ -18,6 +18,11 @@
 import { createClient } from '@supabase/supabase-js'
 import { STAGE } from '../src/lib/pipeline-stages'
 import { buildSeedProspectInsert, DEMO_LEAD_SOURCE, type SeedProspectInput } from '../src/lib/prospect-insert'
+import { hashAccessCode, generateSalt } from '../src/lib/proposal/gate'
+import { getCohortPopulationByCounty } from '../lib/census/queries'
+import { PENETRATION_RATE_LOW, PENETRATION_RATE_HIGH } from '../lib/addressable-market-constants'
+import type { DemandMatrix } from '../src/lib/proposal/types'
+import { CensusError, CENSUS_YEAR } from '../lib/census/client'
 
 const DEMO_TAG = '[demo_seed]'
 
@@ -172,6 +177,7 @@ async function main() {
   let prospectCount = 0
   let dealCount = 0
   let activityCount = 0
+  const prospectNameToId = new Map<string, string>()
   for (const p of PROSPECTS) {
     const row = buildSeedProspectInsert(p)
     const { data: inserted, error } = await db
@@ -181,6 +187,7 @@ async function main() {
       .single()
     if (error) fail(`insert prospect ${p.full_name}: ${error.message}`)
     const prospectId = inserted!.id
+    prospectNameToId.set(p.full_name, prospectId)
     prospectCount++
 
     if (p.territory) {
@@ -211,9 +218,88 @@ async function main() {
     }
   }
 
+  console.log('[seed-demo] Seeding proposal for Dr. Elena Petrov…')
+  const DEMO_PROPOSAL_SLUG = 'petrov-a1b2'
+  const DEMO_ACCESS_CODE = 'GHMD-DEMO-2026'
+
+  const prospectId = prospectNameToId.get('Dr. Elena Petrov')
+  if (!prospectId) fail('Dr. Elena Petrov not found in inserted prospects')
+
+  // Addressable market total from the inserted Austin – Westlake territory.
+  const austinTerritory = await db
+    .from('territories')
+    .select('addressable_patients_primary')
+    .eq('name', 'Austin – Westlake')
+    .eq('notes', DEMO_TAG)
+    .single()
+  if (austinTerritory.error) fail(`fetch Austin – Westlake territory: ${austinTerritory.error.message}`)
+  const addressable_market_total = austinTerritory.data!.addressable_patients_primary
+
+  // B01001 demand matrix from Census. Throws CensusError if CENSUS_API_KEY is unset.
+  let cohorts: Array<{ ageBand: string; male: number; female: number }>
+  try {
+    cohorts = await getCohortPopulationByCounty('48453') // Travis County, TX (Austin – Westlake)
+  } catch (e) {
+    if (e instanceof CensusError) {
+      fail(
+        `CENSUS_API_KEY required to compute the B01001 demand_matrix for the proposal seed (decision #68). Set CENSUS_API_KEY and re-run. See PR notes. Error: ${e.message}`,
+      )
+    }
+    throw e
+  }
+
+  const sumMale = cohorts.reduce((s, c) => s + c.male, 0)
+  const sumFemale = cohorts.reduce((s, c) => s + c.female, 0)
+  const total_pop = sumMale + sumFemale
+  const demand_matrix: DemandMatrix = {
+    // Vintage reflects what the census client actually fetches (CENSUS_YEAR), not
+    // the constants file's declared ACS5 vintage — keep provenance honest.
+    source: `ACS B01001 (ACS5 ${CENSUS_YEAR})`,
+    vintage: CENSUS_YEAR,
+    cohorts,
+  }
+  const male_pct = total_pop ? +(sumMale / total_pop * 100).toFixed(1) : null
+  const female_pct = total_pop ? +(sumFemale / total_pop * 100).toFixed(1) : null
+
+  const new_patients_range_low = Math.round(PENETRATION_RATE_LOW * addressable_market_total)
+  const new_patients_range_high = Math.round(PENETRATION_RATE_HIGH * addressable_market_total)
+
+  const salt = generateSalt()
+  const access_code_hash = hashAccessCode(DEMO_ACCESS_CODE, salt)
+
+  // ILLUSTRATIVE demo values — no formula-v2 revenue model exists yet. These are earnings-representation content (spec §10 ⚠, active 506(b)); replace with a cleared revenue model before ANY live send. Flagged to Chat.
+  const scenario_outputs = { conservative: 378000, moderate: 546000, growth: 714000, break_even_months: 9 }
+
+  const { error: pErr } = await db.from('proposals').insert({
+    prospect_id: prospectId,
+    slug: DEMO_PROPOSAL_SLUG,
+    access_code_hash,
+    access_code_salt: salt,
+    prospect_name_full: 'Dr. Elena Petrov',
+    practice_name: 'Petrov Aesthetic Group',
+    specialty: 'Dermatology',
+    territory_name: 'Austin – Westlake',
+    prepared_month: 'July 2026',
+    practice_logo_url: null,
+    prospect_photo_url: null,
+    territory_polygon: null,
+    territory_pin_lat: 30.2711,
+    territory_pin_lng: -97.8047,
+    addressable_market_total,
+    addressable_market_male_pct: male_pct,
+    addressable_market_female_pct: female_pct,
+    demand_matrix,
+    new_patients_range_low,
+    new_patients_range_high,
+    scenario_inputs: { patient_base: 2400, candidate_pct: 37, conversion_pace: 84 },
+    scenario_outputs,
+  })
+  if (pErr) fail(`insert proposal for Dr. Elena Petrov: ${pErr.message}`)
+
   console.log(
     `[seed-demo] Done: ${TERRITORIES.length} territories, ${prospectCount} prospects, ${dealCount} deals, ${activityCount} activities.`,
   )
+  console.log(`[seed-demo] Proposal seeded: /p/${DEMO_PROPOSAL_SLUG}  (access code: ${DEMO_ACCESS_CODE})`)
 }
 
 main().catch((e) => fail(e instanceof Error ? e.message : String(e)))
