@@ -35,7 +35,7 @@ const sourceCodePro = Source_Code_Pro({
 
 export const metadata: Metadata = {
   title: "GHMD Sales Platform",
-  description: "GetHairMD franchise sales operations",
+  description: "GetHairMD territory sales operations",
 };
 
 export default function RootLayout({

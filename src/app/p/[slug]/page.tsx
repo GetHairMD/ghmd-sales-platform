@@ -12,8 +12,17 @@ import PracticeOpportunity from '@/components/proposal/PracticeOpportunity'
 import TerritoryAnalysis from '@/components/proposal/TerritoryAnalysis'
 import ScarcityBanner from '@/components/proposal/ScarcityBanner'
 import FinancingCta from '@/components/proposal/FinancingCta'
+import PracticeAlignment from '@/components/proposal/PracticeAlignment'
+import PlatformSection from '@/components/proposal/PlatformSection'
 import ProvenResults from '@/components/proposal/ProvenResults'
 import PhysicianVoices from '@/components/proposal/PhysicianVoices'
+import TrainingOnboarding from '@/components/proposal/TrainingOnboarding'
+import PatientResults from '@/components/proposal/PatientResults'
+import NationalNetwork from '@/components/proposal/NationalNetwork'
+import Investment from '@/components/proposal/Investment'
+import OnboardingLaunch from '@/components/proposal/OnboardingLaunch'
+import AdvisoryBoard from '@/components/proposal/AdvisoryBoard'
+import CommonQuestions from '@/components/proposal/CommonQuestions'
 import NextStep from '@/components/proposal/NextStep'
 import StickyBar from '@/components/proposal/StickyBar'
 import { CALENDLY_SCHEDULING_URL, deriveProspectFirstDisplay } from '@/components/proposal/constants'
@@ -89,7 +98,15 @@ export default async function ProposalSlugPage({ params }: { params: { slug: str
         <FinancingCta slug={slug} />
       </SectionTracker>
 
-      {/* Sections 7–8 land in PR-B (static Platform + Alignment). */}
+      {/* 7 — Practice Alignment (dark) */}
+      <SectionTracker slug={slug} section="practice_alignment">
+        <PracticeAlignment />
+      </SectionTracker>
+
+      {/* 8 — The Platform (light) */}
+      <SectionTracker slug={slug} section="platform">
+        <PlatformSection />
+      </SectionTracker>
 
       {/* 9 — Proven Results (light) — case-study tabs */}
       <SectionTracker slug={slug} section="proven_results">
@@ -101,7 +118,40 @@ export default async function ProposalSlugPage({ params }: { params: { slug: str
         <PhysicianVoices slug={slug} />
       </SectionTracker>
 
-      {/* Sections 11–17 land in PR-B. */}
+      {/* 11 — Training & Onboarding (light) */}
+      <SectionTracker slug={slug} section="training_onboarding">
+        <TrainingOnboarding />
+      </SectionTracker>
+
+      {/* 12 — Patient Results (Ocean) — claims-gated static shell */}
+      <SectionTracker slug={slug} section="patient_results">
+        <PatientResults />
+      </SectionTracker>
+
+      {/* 13 — National Network (dark) — single sourced count */}
+      <SectionTracker slug={slug} section="national_network">
+        <NationalNetwork />
+      </SectionTracker>
+
+      {/* 14 — Investment (light) — $179K + illustrative ROI snapshot */}
+      <SectionTracker slug={slug} section="investment">
+        <Investment proposal={proposal} />
+      </SectionTracker>
+
+      {/* 15 — Onboarding & Launch (light) */}
+      <SectionTracker slug={slug} section="onboarding_launch">
+        <OnboardingLaunch />
+      </SectionTracker>
+
+      {/* 16 — Clinical Advisory Board (light) */}
+      <SectionTracker slug={slug} section="advisory_board">
+        <AdvisoryBoard />
+      </SectionTracker>
+
+      {/* 17 — Common Questions (always expanded) */}
+      <SectionTracker slug={slug} section="common_questions">
+        <CommonQuestions />
+      </SectionTracker>
 
       {/* 18 — Next Step (dark) — Calendly + message form */}
       <SectionTracker slug={slug} section="next_step">
