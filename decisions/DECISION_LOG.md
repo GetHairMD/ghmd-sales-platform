@@ -6,6 +6,26 @@
 
 ---
 
+## [2026-07-05] Session C PR-A merged — proposal_events taxonomy extension, Wistia/Calendly primitives, sections 6/9/10/18/19
+
+**Decision:** PR #68 merged to main, squash 6a0531d8046edbfb911bae21648a26f9d93d1a5d. Delivered: (1) proposal_events CHECK constraint widened enum-only to 11 event types (migration 20260705120000, applied to cprltmwwldbxcsunsafl; RLS untouched, no new policy, get_advisors post-apply = zero new findings); taxonomy source-of-truth module (src/lib/proposal/events.ts) with client/server/webhook emit-path partition and a Vitest parity test against the migration CHECK. (2) calendly_canceled added per Trace direction — live Calendly subscription will carry invitee.created + invitee.canceled; webhook maps both, 2xx to both. (3) Guarded calendly_booked webhook endpoint (HMAC signature verification, 503 until CALENDLY_WEBHOOK_SIGNING_KEY is provisioned in Netlify). (4) Sections 6/9/10/18/19 with WistiaPlayer (brand playerColor) and CalendlyEmbed primitives; sticky bar auto-hides over Next Step per §9. (5) NEW SCOPE ACCEPTED by Trace: §6.18 message form writes a real activities note (cookie-verified prospect identity, 2000-char server cap). (6) Prospect-facing positioning fix pre-merge: rep-card title Franchise Development → Territory Development (commit 4cff587) — platform is licensee model, never franchise; zero franchise occurrences remain in the proposal surface. Verification: tsc 0 errors, vitest 623/623, lint 0 errors, build pass, 390px QA on all five sections + sticky bar. Gate green on final head.
+
+**Reasoning:** PR-A of the approved two-PR Session C split (decision #75). Migration and its consuming interactive sections shipped together so new enum values are exercised by real emitters in the same diff. Message form accepted as a real write rather than inert: a prospect taking the secondary action after declining Calendly is exactly the signal §7 triggers exist to capture; risk bounded by cookie gating and length cap. Content-pending constants (Wistia media IDs, Calendly scheduling URL, case-study copy) carry no earnings figures and remain gated on Rick Dahlson/CLAIMS_MATRIX-cleared material per standing #68/#71 boundaries — nothing in PR-A resolves or weakens those.
+
+**Status:** ADOPTED  ·  Source session: chat-session-2026-07-05-session-c-open
+
+---
+
+## [2026-07-05] Session C opened — proposal system p2 (sections 6-19, Wistia + Calendly, scarcity repeat, event instrumentation)
+
+**Decision:** Trace approved opening Session C per SALES-OS-SPEC.md §11 Build Order. Scope: sections 6–19; Wistia embeds with brand-restyled play button; Calendly embedded in Next Step (§18); scarcity banner repeated at final CTA; full first-party event instrumentation per §7 (session_start, section_view, calculator_interaction, financing_cta_click, calendly_open, calendly_booked webhook, video_play, case_study_tab, get_started_click, dwell time) — excluding heatmap/replay tooling (Clarity vs PostHog), which §7 itself flags as requiring its own decision-log entry, not resolved here. Precondition: Session B (PR #65, squash 246a94d) and both housekeeping PRs (#66 methodology doc, #67 mirror regen) confirmed merged on main; decision log tip #74 at time of opening.
+
+**Reasoning:** Trace approved both Session C and v3 drive-time scoping together, directing sequencing rather than parallel work. Session C first: proven Session B patterns, no outstanding technical unknowns; v3 (isochrone computation, overlap-clipping geometry) is genuinely exploratory and deserves dedicated scoping attention. Neither track is revenue-gated — hard rule 10 blocks live sends regardless of methodology. Session C carries forward two standing items directly relevant to its own content without resolving either: #71 (Section 14 Investment ROI/scenario figures remain illustrative-only) and the open Patient Results claims/consent question (§10, relevant to Section 12). Analytics heatmap/replay vendor choice is explicitly out of scope for this opening.
+
+**Status:** ADOPTED  ·  Source session: chat-session-2026-07-05-session-c-open
+
+---
+
 ## [2026-07-05] docs/TERRITORY-METHODOLOGY.md created (Trace sole ownership); v3 drive-time boundary methodology fully specified — PR #66
 
 **Decision:** File created, superseding all uploaded/offline copies, documenting v2 formula narrative (households × income-qualified share × credit-eligible share, no prevalence term, decision #46) plus new §8: v3 drive-time boundary methodology, NOT implemented. Governance corrected — sole ownership/sign-off authority rests with Trace; no attribution to Leif Isaacson (formula) or Bruce Vermeulen (economics). §8 decided: isochrone replaces ZCTA/county as the boundary entirely; dynamic sizing expands the isochrone until qualified households at Conservative (0.5%) penetration clear 93 customers (CUSTOMERS_NEEDED 62 × 1.5 buffer); 45-min max radius; overlap resolved by first-territory-sold precedence (later isochrone clipped at an already-sold neighbor's boundary). lib/addressable-market-constants.ts and all deployed code unchanged. §5 QA anchors (69.6M / 56.3M / Marin 64,194) remain v2/ZCTA-only, retained as legacy regression targets once v3 ships.
