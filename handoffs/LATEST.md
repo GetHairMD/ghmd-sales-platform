@@ -1,7 +1,7 @@
-# GHMD Sales Platform — Handoff v2.27
+# GHMD Sales Platform — Handoff v2.28
 
-Date: 2026-07-04 | Prepared by: Coder | Purpose: New session bootstrap — supersedes v2.26
-Supersedes: v2.26 (one-bullet correction — the `rls_auto_enable()` advisor bullet under **Security Advisor Status** updated to reflect decision #64, ADOPTED / `residual_risk = accepted`; confirmed inert, no fix applied. All other v2.26 content carried forward unchanged).
+Date: 2026-07-05 | Prepared by: Coder | Purpose: New session bootstrap — supersedes v2.27 (and v2.26)
+Supersedes: v2.27. Session B (proposal system) **SHIPPED** — PR #65 merged to main, squash `246a94d`. Decision-log tip advanced to **#73**. New `docs/TERRITORY-METHODOLOGY.md` (Trace-owned) added this session. All v2.27 Security Advisor dispositions carried forward unchanged, plus one new INFO disposition for the three proposal tables.
 
 ## Current State — Exact Snapshot
 
@@ -10,68 +10,79 @@ Supersedes: v2.26 (one-bullet correction — the `rls_auto_enable()` advisor bul
 | Repo | GetHairMD/ghmd-sales-platform |
 | Supabase | `cprltmwwldbxcsunsafl` (NIP `kjweckggegifjmmqccul` — never touch) |
 | Netlify | ghmdsalesplatform.netlify.app (main auto-deploys) |
-| main | **`936aa82`** — even with origin/main (PRs #56–#62 merged) |
+| main | **`246a94d`** — even with origin/main (PRs #56–#65 merged) |
 | Branch protection | main requires the `gate` status check (Second-Opinion Gate LIVE — `SECOND_OPINION_GATE_ENABLED=true`) |
-| Active branch | `chore/handoff-v2.27` (this docs-only handoff correction) |
-| Governing docs | [`docs/prd/GHMD_Territory_Sales_OS_PRD_v1.2.md`](../docs/prd/GHMD_Territory_Sales_OS_PRD_v1.2.md) (build phasing, authoritative) + [`docs/SALES-OS-SPEC.md`](../docs/SALES-OS-SPEC.md) (proposal-system + Sales OS scope, Session B onward) |
-| Decision mirror | `/decisions/DECISION_LOG.md` — regenerated via `npm run log:export`; entries through **id 64** |
+| Active branch | `chore/methodology-and-handoff-v2.28` (this docs-only PR) |
+| Governing docs | [`docs/prd/GHMD_Territory_Sales_OS_PRD_v1.2.md`](../docs/prd/GHMD_Territory_Sales_OS_PRD_v1.2.md) (build phasing, authoritative) + [`docs/SALES-OS-SPEC.md`](../docs/SALES-OS-SPEC.md) (proposal-system + Sales OS scope) + [`docs/TERRITORY-METHODOLOGY.md`](../docs/TERRITORY-METHODOLOGY.md) (formula v2 narrative; §8 v3 drive-time spec — Trace-owned) |
+| Decision mirror | `/decisions/DECISION_LOG.md` — regenerated via `npm run log:export`; entries through **id 73** |
 
-## What Shipped Since v2.25
+## What Shipped Since v2.27
 
 | Work | PR | Result |
 |------|----|--------|
-| P-1 → P0.5 foundation | #56–#60 | Reconciliation commit (#56); brand tokens → `src/design/tokens.ts` + Tailwind + Storybook §4.3 foundation components (#57); `ops.decision_log` sole-write-path governance — Chat only (#58); M0 baseline migration + M0.5 designations — `deals.stage` deprecation, `call_scores` = Salesperson Scorecard (#59); decision-log migration restore + stale table-comment fix (#60). |
-| P1 demo build — all three surfaces | #61 | Pipeline Board (6 grouped columns + priority list + metric strip), Deal Room (3-column command center), Proposal Page (brand quality) on seeded data; idempotent seed script (every stage + one stalled + TRIAGE SKIPPED + PRE-QUAL SKIPPED). Squash **861e043**. |
-| StageSelector gate parity + spec reconciliation | #62 | Deal Room `StageSelector` routed through the shared `moveProspectStage` server action + `ConfirmDialog` so **both** soft gates (triage → Proposal Sent, funding pre-qual → Contract Sent) record skips **server-side** — closed the residual on `ops.decision_log` **id 60**. `docs/SALES-OS-SPEC.md` committed (previously repo-invisible; now carries the PRD-precedence governance line at its top). Squash **936aa82**. |
+| **Session B — proposal system (P1)** | **#65** | Proposal data-model migration (`20260705003707_proposal_system_p1.sql` — `proposals`, `proposal_sessions`, `proposal_events`); **`/p/[slug]` gated route live in production** (`https://ghmdsalesplatform.netlify.app/p/<slug>`); access-code gate + session logging; sections 1–5 incl. calculator + mobile demand-table treatment; idempotent `npm run seed:demo` (Dr. Elena Petrov, Austin–Westlake, real B01001 demographics, real `addressableHouseholds()` output). Squash **`246a94d63962dff602e21f4749e4dceef0851a1d`**. |
+| Docs — territory methodology + handoff v2.28 | *(this PR)* | `docs/TERRITORY-METHODOLOGY.md` created (Trace-owned; formula v2 narrative + fully-specified-but-unimplemented v3 drive-time §8); handoff regen. Docs-only, no code/migration/constants change. |
 
-## Current Sprint — crm-demo-v1
+## Prior sprint context (crm-demo-v1, carried for reference)
 
-**Mission:** Build the Territory Sales OS front-end per PRD v1.2 — three surfaces (Pipeline Board `/pipeline`, Deal Room `/prospects/[id]`, public Proposal Page `/proposals/[prospectId]`), modified **in place**, demo-grade on seeded data.
+P-1 → P0 → P0.5 → P1 demo build shipped in #56–#62 (see v2.27). Session B (#65) built the real gated proposal surface on top of that foundation: three surfaces (Pipeline Board `/pipeline`, Deal Room `/prospects/[id]`) plus the public gated Proposal Page now at **`/p/[slug]`** (superseding the original `/proposals/[prospectId]` placeholder path).
 
-**Scope: P-1 → P0 → P0.5 → P1 — all SHIPPED.** Nothing beyond P1 this sprint.
+## Governance Changes (decision_log) — tip = #73
 
-| Phase | Deliverable | Status |
-|-------|-------------|--------|
-| **P-1** | Reconciliation commit (docs-only) | **SHIPPED** (#56) |
-| **P0** | Brand tokens → `src/design/tokens.ts` + Tailwind + Storybook foundation components (PRD §4.2–4.3) | **SHIPPED** (#57) |
-| **P0.5** | M0 baseline migration + M0.5 designations (`deals.stage` deprecation, `call_scores` = Salesperson Scorecard) | **SHIPPED** (#59, restore/fix #60) |
-| **P1** | DEMO: board + Deal Room + Proposal Page + idempotent seed script | **SHIPPED** (#61); gate-parity + spec follow-up (#62) |
+Decision-log tip advanced from **#64** (v2.27) to **#73**. Session B chain:
 
-## Governance Changes (decision_log)
+- **#66** — Session B opened.
+- **#68** — Section 4 age/sex demographic table = **Census demographics (B01001)**, carries **no propensity / clinical-demand claim**. `legal_flag: true`, **unresolved / standing**. Cross-ref Monday item `12447243443` + Rick Dahlson legal review.
+- **#69** — Session B phase-close. **SUPERSEDED by #73.**
+- **#71** — Section 3 revenue `scenario_outputs` (conservative/moderate/growth revenue, break-even) are **illustrative-only** — no formula-v2 producer. `legal_flag: true`, **unresolved / standing**, not PR-tied.
+- **#73** — post-merge phase-close carrying the #65 squash SHA (`246a94d…`); **supersedes #69**.
 
-- Decision mirror now runs **through id 61**. **#60** (Deal Room / StageSelector gate-bypass residual) and **#61** (PR #62 phase-close) both closed with `residual_risk = none`.
-- **#58 — `ops.decision_log` sole write path is Chat.** Neither Coder nor any subagent writes to `ops.decision_log`; Coder reports entry content (status, `residual_risk`, `related_pr`, `related_repo`) + squash SHA to Chat, which appends. RLS unchanged (service_role only). Append-only, supersede-never-delete.
-- **#53 — PRD v1.2 ADOPTED** (⚖ legal flag): `deals` demoted to Territory Agreement record; **`deals.stage` DEPRECATED**; soft triage gate at 4→5 (`skipped_triage` flag + amber badge, mirrors funding-prequal pattern); `call_scores` designated **Salesperson Scorecard**; routes modified in place (no `/demo/*`).
-- Gate-decision anon-execute disposition (this session): see **Security Advisor Status** — Trace ruled *accept as intentional*; Chat to record at phase close if a formal entry is wanted.
+**Legal boundary (standing):** neither the #68 age/sex table nor the #71 revenue scenarios may reach a real prospect or Rick Dahlson-reviewed material until its decision is resolved. Nothing in the proposal surface is an earnings representation. See `docs/TERRITORY-METHODOLOGY.md` §7.
 
-## Hard Constraints (PRD §12)
+## Netlify Environment
 
-- Stage constants only via `src/lib/pipeline-stages.ts`; formula constants only via `/lib/addressable-market-constants.ts`; prospect creation only via `src/lib/prospect-insert.ts`.
-- Frontend **reads** state, never computes it; all gates + skip-recording server-side (both soft gates now enforced server-side via `moveProspectStage` from both the Pipeline Board drag-drop and the Deal Room selector).
-- RLS on every table from creation. Squash-merge only, feature branch + PR, no direct push to main. Second-Opinion Gate every category-2+ PR. Every phase-close decision-logged with explicit `residual_risk`.
-- Read the frontend-design skill + brand package before any UI work — planning-PDF navy/teal mockups are **NOT** the target.
+- **`PROPOSAL_GATE_SECRET`** — set + **secret/masked across all four contexts** (production / deploy-preview / branch-deploy / dev). Backs the `/p/[slug]` access-code gate.
+- **`CENSUS_API_KEY`** — live (Edge Function / server only).
+- **`NEXT_PUBLIC_MAPBOX_TOKEN`** — live (client, restricted). Note: already provisioned for the future v3 drive-time isochrone work (methodology §8.6) — **not yet used** by any deployed code.
+- Box Sign vars (`BOX_CLIENT_ID` / `BOX_CLIENT_SECRET` / `BOX_WEBHOOK_SECRET`) still **not set** — pending provisioning (unchanged).
 
-## STOP POINTS — status
+## `docs/TERRITORY-METHODOLOGY.md` — new this session
 
-1. **P-1 PR → Trace review** — **CLEARED** (shipped #56).
-2. **P0 → logo files from Trace** — **CLEARED** (P0 shipped #57).
-3. **End P1 → Trace design review** — **CLEARED** this session (Trace design review of the P1 demo passed; #61/#62 merged).
+- **Session bootstrap fetch item resolved** — the methodology doc now exists in-repo and is authoritative, superseding all uploaded/offline copies.
+- **Sole owner: Trace.** Any change to formula terms, thresholds, sources, or QA anchors is a Trace decision → PR → `ops.decision_log` entry (§9). Not a Coder call.
+- Documents **formula v2** (current, implemented): households × income-qualified share (ACS B19001, ZCTA, straddle interpolation) × credit-eligible share (Experian state CSV). **No prevalence term** (decision #46). QA anchors (v2/ZCTA): national **69.6M** @ PTI8, **56.3M** @ PTI5, Marin County **exactly 64,194**.
+- **§8 documents a fully-specified v3 drive-time boundary methodology — NOT implemented.** Nothing in §8 is live in `lib/addressable-market-constants.ts` or any deployed code. Decided: isochrone **replaces** ZCTA/county as the boundary; dynamic sizing to the smallest radius clearing **93 customers** (`CUSTOMERS_NEEDED 62 × 1.5` buffer — provisional, recalibrate after first v3 cohort) at the **Conservative (0.5%) penetration rate** (floor of 18,600 qualified households); **45-minute maximum radius**; **first-territory-sold overlap precedence**. **Only remaining open item: minimum radius floor (deferred, non-blocking).** v3 is **scoping-ready** pending Trace's explicit go-ahead to open that work — **not scheduled this handoff**, and distinct from Session C.
 
-**Session B has NOT been scoped or opened.** Its content (proposal access gate, `/p/[slug]`, `proposal_events` / analytics, calculator, Wistia/Calendly, scarcity banner) is deliberately not pre-planned here. Do not presume its shape until Trace opens it.
+## Sessions — status
+
+- **Session B — SHIPPED** (#65). Nothing open.
+- **Session C is NOT open.** Next logical scope per `docs/SALES-OS-SPEC.md` §11 (sections 6–19, Wistia + Calendly, scarcity repeat, full event instrumentation) — requires **explicit Trace authorization** after this handoff lands. **Distinct and unrelated** to the §8 v3 drive-time methodology work above (that is a separate future Coder scoping session, also pending explicit Trace go-ahead).
 
 ## Open Blockers
 
-**None carried forward.** P-1/P0/P0.5/P1 all shipped; no phase blocker is open. (The v2.25 P-1 blocker — orchestration skill / `implementer` / `sweeper` agent bodies "text not included" — is resolved: `.claude/skills/ghmd-orchestration/` loads and the agent types are available.)
+**None carried forward.** Session B shipped; no phase blocker open.
 
-## Security Advisor Status (last `get_advisors` security run — 2026-07-04)
+- **Monday.com item `12447243443`** — "Patient-mix data pull + Rick Dahlson legal review" — **open, Stuck.** Cross-ref decision **#68** (age/sex table legal disposition). Not a code blocker; gates live prospect sends via Hard Rule 10.
+- **Disregard the pre-resolution Pilot QA output** dispatched during the page mis-load confusion — **unverified, not a defect list.** Do not treat it as a work queue.
+
+## STOP POINTS — status
+
+1. **P-1 / P0 / P0.5 / P1 demo** — **CLEARED** (v2.27).
+2. **Session B → proposal system** — **CLEARED** this session (#65 merged; `/p/[slug]` live in production).
+3. **Session C** — **NOT opened.** Requires explicit Trace authorization (SALES-OS-SPEC §11).
+4. **v3 drive-time methodology (§8)** — **scoping-ready, NOT opened.** Requires explicit Trace go-ahead for a dedicated Coder scoping session.
+
+## Security Advisor Status (last `get_advisors` security run — 2026-07-04, carried forward + one addition)
 
 Standing findings and their dispositions. None is an open task this session.
 
-- **Always-true RLS on 7 tables** (`activities`, `call_scores`, `deals`, `outreach_touches`, `prospects`, `spoke_candidates`, `territories`) — WARN [lint 0024]. **Accepted per decision #58**; deferred to the Session B role-isolation design. Not a patch to make now.
+- **`proposals`, `proposal_sessions`, `proposal_events` RLS-enabled-no-policy** — INFO [lint 0008]. **Intentional — service-role-only by design (new this session, Session B).** Same pattern as the operator tables below; the `/p/[slug]` route and event logging use the service role, no anon/authenticated policy needed.
+- **Always-true RLS on 7 tables** (`activities`, `call_scores`, `deals`, `outreach_touches`, `prospects`, `spoke_candidates`, `territories`) — WARN [lint 0024]. **Accepted per decision #58**; deferred to the role-isolation design. Not a patch to make now.
 - **4 operator tables RLS-enabled-no-policy** (`operators`, `operator_enrichment`, `operator_scores`, `operator_score_records`) — INFO [lint 0008]. **Intentional per decision #58** (service-role-only by design).
-- **`gate_decision_for_pr` anon-execute** — WARN [lint 0028]. **ACCEPTED as intentional — Trace ruling 2026-07-04. NOT fixed / no migration.** The `anon` EXECUTE grant is a deliberate least-privilege control for the **live** CI Second-Opinion Gate: the SECURITY DEFINER function returns a narrow projection (`id, residual_risk, status`) for one repo+PR and `anon` cannot read `ops.decision_log`. `run-gate.ts` calls it via `SUPABASE_ANON_KEY`; revoking `anon` would fail the required `gate` check closed on every PR. Revisit only via a dedicated scoped CI role (out of current scope). *(Chat to log at phase close if a formal decision_log entry is wanted.)*
-- Leaked password protection — CLOSED 2026-07-04. Supabase project upgraded to Pro; "Prevent use of leaked passwords" enabled; minimum password length raised 6→8 with full complexity requirements. Confirmed cleared via fresh get_advisors scan.
-- **`rls_auto_enable()` anon- and authenticated-executable SECURITY DEFINER** — WARN [lint 0028/0029]. **ADOPTED per decision #64 (`residual_risk = accepted`). Investigated, confirmed inert — NOT fixed / no migration.** The function is an `event_trigger` handler: its `event_trigger` return type makes it non-invocable by any caller regardless of the EXECUTE grant (event-trigger functions fire only on DDL events and can never be called directly), so the `anon`/`authenticated` EXECUTE grant cannot be exercised. Verified independently by Chat against the live DB. Two optional low-priority cleanups noted, neither required: (1) a safe `REVOKE` of the `anon`/`authenticated` EXECUTE grant — advisor-noise suppression only, no security effect; (2) reconciliation of the untracked migration behind this function — bundle with future baseline-hygiene work. Neither actioned this session.
+- **`gate_decision_for_pr` anon-execute** — WARN [lint 0028]. **ACCEPTED as intentional — Trace ruling 2026-07-04. NOT fixed / no migration.** SECURITY DEFINER function returns a narrow projection (`id, residual_risk, status`) for one repo+PR; `anon` cannot read `ops.decision_log`. `run-gate.ts` calls it via `SUPABASE_ANON_KEY`; revoking `anon` would fail the required `gate` check closed on every PR. Revisit only via a dedicated scoped CI role (out of scope).
+- **CI `gate` fail-open** — `gate_decision_for_pr` returns **empty (green)** when no decision-log row exists for the repo+PR. **Low urgency** (Trace is sole merger, so no un-reviewed merge can slip through); flagged as future housekeeping PR, not actioned this session.
+- **Leaked password protection** — CLOSED 2026-07-04 (Pro upgrade; leaked-password check on; min length 6→8 + complexity). Confirmed cleared.
+- **`rls_auto_enable()` anon-/authenticated-executable SECURITY DEFINER** — WARN [lint 0028/0029]. **ADOPTED per decision #64 (`residual_risk = accepted`). Confirmed inert — NOT fixed / no migration.** `event_trigger` return type makes it non-invocable regardless of the EXECUTE grant. Two optional low-priority cleanups noted (safe REVOKE; untracked-migration reconciliation), neither required, neither actioned.
 
 ## Agent Roles
 
