@@ -11,6 +11,13 @@ import ProposalHero from '@/components/proposal/ProposalHero'
 import PracticeOpportunity from '@/components/proposal/PracticeOpportunity'
 import TerritoryAnalysis from '@/components/proposal/TerritoryAnalysis'
 import ScarcityBanner from '@/components/proposal/ScarcityBanner'
+import FinancingCta from '@/components/proposal/FinancingCta'
+import ProvenResults from '@/components/proposal/ProvenResults'
+import PhysicianVoices from '@/components/proposal/PhysicianVoices'
+import NextStep from '@/components/proposal/NextStep'
+import StickyBar from '@/components/proposal/StickyBar'
+import { CALENDLY_SCHEDULING_URL, deriveProspectFirstDisplay } from '@/components/proposal/constants'
+import { withProspectTracking } from '@/lib/proposal/calendly'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,6 +52,15 @@ export default async function ProposalSlugPage({ params }: { params: { slug: str
         }))
       : []
 
+  // Calendly scheduling URL is public (no secret); prospect attribution rides in
+  // utm_content so the webhook can map a booking back. Built server-side to keep
+  // node:crypto out of the client bundle. Null until Trace provisions the URL.
+  const calendlyUrl = CALENDLY_SCHEDULING_URL
+    ? withProspectTracking(CALENDLY_SCHEDULING_URL, proposal.prospect_id)
+    : null
+
+  const firstDisplay = deriveProspectFirstDisplay(proposal.prospect_name_full)
+
   return (
     <div className="min-h-screen bg-bg font-body text-text">
       {/* 1 — Confidential top bar */}
@@ -67,6 +83,41 @@ export default async function ProposalSlugPage({ params }: { params: { slug: str
 
       {/* 5 — Scarcity banner (immediately after Territory Analysis) */}
       <ScarcityBanner territoryName={proposal.territory_name} />
+
+      {/* 6 — Financing CTA (dark) — hot-lead trigger */}
+      <SectionTracker slug={slug} section="financing">
+        <FinancingCta slug={slug} />
+      </SectionTracker>
+
+      {/* Sections 7–8 land in PR-B (static Platform + Alignment). */}
+
+      {/* 9 — Proven Results (light) — case-study tabs */}
+      <SectionTracker slug={slug} section="proven_results">
+        <ProvenResults slug={slug} />
+      </SectionTracker>
+
+      {/* 10 — Physician Voices (dark) — Wistia */}
+      <SectionTracker slug={slug} section="physician_voices">
+        <PhysicianVoices slug={slug} />
+      </SectionTracker>
+
+      {/* Sections 11–17 land in PR-B. */}
+
+      {/* 18 — Next Step (dark) — Calendly + message form */}
+      <SectionTracker slug={slug} section="next_step">
+        <NextStep
+          slug={slug}
+          firstDisplay={firstDisplay}
+          territoryName={proposal.territory_name}
+          calendlyUrl={calendlyUrl}
+        />
+      </SectionTracker>
+
+      {/* Spacer so the last content clears the fixed sticky bar (spec §9). */}
+      <div aria-hidden className="h-20" />
+
+      {/* 19 — Sticky bottom bar (persistent; hides over Next Step) */}
+      <StickyBar slug={slug} territoryName={proposal.territory_name} />
     </div>
   )
 }

@@ -9,15 +9,13 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { PROPOSAL_COOKIE_NAME, verifyProposalCookie } from '@/lib/proposal/gate'
 import { logProposalEvent } from '@/lib/proposal/data'
-import type { ProposalEventType } from '@/lib/proposal/types'
+import { isClientProposalEvent, type ClientProposalEventType } from '@/lib/proposal/events'
 
 export const dynamic = 'force-dynamic'
 
-// session_start is emitted server-side by the gate, not accepted from clients.
-const CLIENT_EVENTS: ReadonlySet<ProposalEventType> = new Set<ProposalEventType>([
-  'section_view',
-  'calculator_interaction',
-])
+// Accepts only client-emitted events (isClientProposalEvent). session_start is
+// emitted server-side by the gate and calendly_booked only by the verified
+// webhook — neither is accepted here.
 
 export async function POST(request: NextRequest, { params }: { params: { slug: string } }) {
   const unlock = verifyProposalCookie(request.cookies.get(PROPOSAL_COOKIE_NAME)?.value, params.slug)
@@ -33,14 +31,14 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     return NextResponse.json({ ok: false }, { status: 400 })
   }
 
-  if (typeof type !== 'string' || !CLIENT_EVENTS.has(type as ProposalEventType)) {
+  if (!isClientProposalEvent(type)) {
     return NextResponse.json({ ok: false }, { status: 400 })
   }
 
   await logProposalEvent({
     prospectId: unlock.prospectId,
     sessionCookieId: unlock.sid,
-    eventType: type as ProposalEventType,
+    eventType: type as ClientProposalEventType,
     payload,
   })
   return NextResponse.json({ ok: true })

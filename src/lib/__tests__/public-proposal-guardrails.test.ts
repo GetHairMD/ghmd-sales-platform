@@ -187,3 +187,33 @@ describe('scarcity banner — exact spec copy (spec §6 item 5)', () => {
     expect(src).toContain('we cannot hold it without a signed agreement.')
   })
 })
+
+describe('scarcity repeat at final CTA + brand line (spec §6.5 / §6.18)', () => {
+  it('the shared helper produces the exact scarcity sentence', () => {
+    const src = read('src/components/proposal/constants.ts')
+    expect(src).toContain('Most physicians reach a decision within 2–3 conversations.')
+    expect(src).toContain('we cannot hold it without a signed agreement.')
+  })
+  it('Next Step repeats the scarcity line via the shared helper', () => {
+    const src = read('src/components/proposal/NextStep.tsx')
+    expect(src).toContain('scarcitySentence(')
+  })
+  it('Next Step closes on the brand line token (KEEP • IMPROVE • GROW)', () => {
+    const src = read('src/components/proposal/NextStep.tsx')
+    expect(src).toContain('brand.line')
+  })
+})
+
+describe('Session C instrumentation surface (spec §7)', () => {
+  it('the client tracker never sends server- or webhook-only events', () => {
+    // The analytics helper is typed to ClientProposalEventType; the ingest route
+    // guards with isClientProposalEvent. Belt-and-braces: the route imports the guard.
+    const route = read('src/app/p/[slug]/event/route.ts')
+    expect(route).toContain('isClientProposalEvent')
+  })
+  it('the calendly webhook is guarded closed until the signing key is provisioned', () => {
+    const route = read('src/app/api/calendly/webhook/route.ts')
+    expect(route).toContain('isCalendlyWebhookConfigured')
+    expect(route).toContain('503')
+  })
+})

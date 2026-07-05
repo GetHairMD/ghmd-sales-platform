@@ -63,10 +63,9 @@ export interface ProposalRecord {
   scenario_outputs: ScenarioOutputs | null
 }
 
-export type ProposalEventType =
-  | 'session_start'
-  | 'section_view'
-  | 'calculator_interaction'
+// Event taxonomy lives in ./events (isomorphic single source of truth, spec §7).
+// Re-exported here so existing `from './types'` imports keep resolving.
+export type { ProposalEventType } from './events'
 
 /** Penetration scenario view — computed server-side, passed to the client as
  *  final numbers only (no viability fields, no formula constants). */
