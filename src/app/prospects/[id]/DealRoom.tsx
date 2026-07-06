@@ -22,6 +22,7 @@ import FourColumnField from '@/components/ui/FourColumnField';
 import StageSelector from '@/components/StageSelector';
 import DealStatusSelector from '@/components/DealStatusSelector';
 import FundingPrequalToggle from '@/components/FundingPrequalToggle';
+import type { TimelineEntry } from '@/lib/proposal/timeline';
 
 export interface DealRoomProspect {
   id: string;
@@ -40,14 +41,6 @@ export interface DealRoomProspect {
   funding_prequal_cleared_at: string | null;
   skipped_funding_prequal: boolean;
   skipped_triage: boolean;
-}
-
-export interface DealRoomActivity {
-  id: string;
-  created_at: string;
-  activity_type: string;
-  body: string;
-  created_by: string;
 }
 
 const TABS: TabItem[] = [
@@ -80,11 +73,11 @@ function Signal({ label, children }: { label: string; children: React.ReactNode 
 export default function DealRoom({
   prospect,
   territory,
-  activities,
+  timeline,
 }: {
   prospect: DealRoomProspect;
   territory: { name: string; addressable_patients_primary: number | null } | null;
-  activities: DealRoomActivity[];
+  timeline: TimelineEntry[];
 }) {
   const [tab, setTab] = useState('action');
 
@@ -248,15 +241,24 @@ export default function DealRoom({
 
           <div className="rounded-lg border border-mist bg-bg p-4">
             <p className="mb-3 font-heading text-xs uppercase tracking-caps text-text-muted">Timeline</p>
-            {activities.length === 0 ? (
+            {timeline.length === 0 ? (
               <p className="text-sm text-text-muted">No activity yet.</p>
             ) : (
               <ol className="space-y-3">
-                {activities.map((a) => (
-                  <li key={a.id} className="border-l-2 border-mist pl-3">
-                    <p className="text-sm text-text">{a.body}</p>
+                {timeline.map((e) => (
+                  <li
+                    key={e.id}
+                    className={cn('border-l-2 pl-3', e.hot ? 'border-accent' : 'border-mist')}
+                  >
+                    <p className="text-sm text-text">
+                      {e.title}
+                      {e.detail && <span className="text-text-muted"> — {e.detail}</span>}
+                    </p>
                     <p className="mt-0.5 text-xs text-text-muted">
-                      {a.activity_type} · {new Date(a.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {new Date(e.at).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
                     </p>
                   </li>
                 ))}
