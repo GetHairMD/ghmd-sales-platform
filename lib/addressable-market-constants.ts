@@ -248,6 +248,55 @@ export const PENETRATION_SCENARIOS: PenetrationScenario[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// v3 Drive-Time Sizing Engine (decision_log #89)
+//
+// ADDITIVE ONLY. These constants back the drive-time isochrone sizing engine
+// (docs/TERRITORY-METHODOLOGY.md §8, docs/V3-DRIVE-TIME-SCOPING.md §3.3). They do
+// NOT modify or replace any v2 constant above — v2 territories keep their existing
+// behavior (formula_version = 2). v3 is a parallel, opt-in path.
+//
+// Sizing rule (§8.3): expand the drive-time isochrone from the practice location
+// until the addressable households inside it (after income + credit qualification)
+// clear a minimum viable customer count, anchored at the Conservative 0.5%
+// penetration rate:
+//
+//   minimum viable customers = CUSTOMERS_NEEDED (62) × V3_VIABILITY_BUFFER (1.5) = 93
+//   minimum addressable floor = 93 ÷ PENETRATION_RATE_LOW (0.005)              = 18,600
+//
+// The smallest drive-time (integer minutes, capped at 45) that clears the floor is
+// the territory boundary. If even the 45-minute ceiling falls short, the engine
+// returns a typed UNRESOLVED result — never a 45-minute boundary presented as viable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Viability buffer multiplier applied over CUSTOMERS_NEEDED for v3 sizing.
+ * DECIDED, provisional (§8.3): a starting value confirmed by Trace, not empirically
+ * derived. Carries an explicit recalibration trigger — revisit after the first cohort
+ * of v3-sized territories has real conversion data, adjust via PR + ops.decision_log.
+ */
+export const V3_VIABILITY_BUFFER = 1.5;
+
+/**
+ * Minimum viable customers a v3 territory must be able to yield.
+ * = CUSTOMERS_NEEDED (62) × V3_VIABILITY_BUFFER (1.5) = 93.
+ */
+export const V3_MIN_VIABLE_CUSTOMERS = 93;
+
+/**
+ * Minimum addressable (qualified) households a v3 isochrone must contain.
+ * = V3_MIN_VIABLE_CUSTOMERS (93) ÷ PENETRATION_RATE_LOW (0.5%) = 18,600.
+ * The smallest drive-time isochrone that clears this floor is the boundary.
+ */
+export const V3_MIN_ADDRESSABLE_FLOOR = 18_600;
+
+/**
+ * Hard maximum drive-time (minutes) for any v3 territory boundary (§8.3).
+ * No boundary expands beyond a 45-minute isochrone, whether or not the viability
+ * threshold has been cleared. Sits inside Mapbox's own 60-min/contour cap.
+ */
+export const V3_MAX_DRIVE_MINUTES = 45;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Sprint 1 Validation Targets
 // ─────────────────────────────────────────────────────────────────────────────
 
