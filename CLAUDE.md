@@ -4,8 +4,8 @@
 
 ## Project Identity
 
-**GetHairMD Franchise Sales Platform** — a standalone Next.js / Supabase / Netlify application
-purpose-built for franchise prospect-to-close sales operations.
+**GetHairMD Sales Platform** — a standalone Next.js / Supabase / Netlify application
+purpose-built for prospect-to-close sales operations.
 
 This is **entirely separate** from the GHMD Network Intelligence Platform (NIP).
 
