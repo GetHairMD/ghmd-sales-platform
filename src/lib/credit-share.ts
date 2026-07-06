@@ -39,6 +39,38 @@ export function creditShareForState(
   return typeof override === 'number' ? override : EXPERIAN_NATIONAL_CREDIT_SHARE
 }
 
+/**
+ * Household-weighted credit-eligible share for a polygon that may span several states
+ * (v3, resolved decision #89 flag #4 — "population/household-weighted blend across the
+ * state-clipped portions of the isochrone"). Extends creditShareForState() without
+ * modifying it: each state's per-state Experian share is weighted by that state's
+ * apportioned household count inside the polygon, then summed.
+ *
+ *   blended = Σ_state ( households_state / Σ households ) × creditShareForState(state)
+ *
+ * - `stateHouseholds` maps a 2-letter USPS code (any case) → apportioned households
+ *   inside the polygon for that state (from the §3.2 block-weighted apportionment).
+ * - A single-state polygon collapses to exactly creditShareForState(thatState).
+ * - Empty / all-zero input → national fallback (EXPERIAN_NATIONAL_CREDIT_SHARE), same
+ *   as an unknown single state, so the engine never divides by zero.
+ */
+export function blendCreditShareByHouseholds(
+  stateHouseholds: Record<string, number>,
+  table: Pick<ExperianCreditShareFile, 'states'>,
+): number {
+  const entries = Object.entries(stateHouseholds)
+    .map(([state, hh]) => [state, Math.max(0, hh)] as const)
+    .filter(([, hh]) => hh > 0)
+
+  const totalHH = entries.reduce((sum, [, hh]) => sum + hh, 0)
+  if (totalHH <= 0) return EXPERIAN_NATIONAL_CREDIT_SHARE
+
+  return entries.reduce(
+    (acc, [state, hh]) => acc + (hh / totalHH) * creditShareForState(state, table),
+    0,
+  )
+}
+
 /** Validate + normalize a parsed credit-share file. Throws on structural problems. */
 export function loadCreditShareFile(parsed: unknown): ExperianCreditShareFile {
   const file = parsed as ExperianCreditShareFile
