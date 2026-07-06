@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { DM_Sans, Poppins, Cardo, Source_Code_Pro } from "next/font/google";
 import "./globals.css";
-import Nav from "@/components/Nav";
+import AppShell from "@/components/shell/AppShell";
 
 // GHMD brand typography (PRD §4.2) — served via next/font (Google Fonts, no files).
 // DM Sans = headings + all-caps labels/buttons.
@@ -47,8 +47,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${fontVars} font-body antialiased bg-bg text-text`}>
-        <Nav />
-        {children}
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );
