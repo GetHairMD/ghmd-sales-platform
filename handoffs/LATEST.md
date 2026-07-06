@@ -22,7 +22,7 @@ Main has moved from `36b7c7f` to `be36525` (PR #75 merged) and the decision log 
 
 | # | What | Note |
 |---|------|------|
-| #86 | `/proposals` index shipped (PR #74) | Carried in v2.30 |
+| #86 | `/proposals` index shipped (PR #74) | First documented here (the drafted v2.30 bump was never committed) |
 | **#87** | — | **Gap, same pattern as #81/#83.** Failed insert (unique constraint violation on `(related_repo, related_pr)` — attempted to attach a new entry to PR #74, already claimed by #86) consumed a sequence value before the corrected insert (with `related_pr`/`related_repo` both null) succeeded. Append-only means nothing was touched or deleted. **Three gaps now on record (#81, #83, #87), all the same failure mode** — worth a Coder look at whether the insert-retry pattern in the sanctioned-writer flow could avoid consuming a sequence value on a predictable constraint violation, though this is cosmetic, not a data-integrity issue. |
 | #88 | Mobile bottom-tab count flagged as an open product question (side effect of PR #74) — not yet decided | PR #74's nav change auto-derived a 5th mobile bottom tab (`BOTTOM_TABS` includes any nav item with an `href`). Benign layout-wise (flex-1, no overflow), desktop/demo path unaffected, but genuinely undecided as IA: is 5 tabs intended, or should Proposals be excluded from `BOTTOM_TABS` and stay desktop/sidebar-only? **Unresolved, owner Trace** — natural to resolve alongside the 390px mobile QA sweep below, same live look at the mobile shell. |
 | #89 | v3 drive-time build — all 8 scoping flags resolved (`docs/V3-DRIVE-TIME-SCOPING.md` §9); build session cleared to open | Trace resolved all 8 flags in one pass: PostGIS approved; Mapbox server token to be scaffolded (not provisioned) by Coder; population-weighted apportionment; population-weighted multi-state credit blend; `denoise=1.0` default accepted; `deals.signed_at` as sold-precedence key; unresolved-at-ceiling economics out of scope; two-ring→single-ring display confirmed conceptually (UI change itself deferred). Cleared the path for an unattended cloud-session build with zero open product decisions embedded. |
@@ -48,7 +48,7 @@ Enabling PostGIS (decision #89 flag 1, executed in PR #75) introduced new findin
 
 ## The 2026-07-06 demo — resolved, no follow-up needed
 
-Per v2.30, the demo outcome was unknown at that handoff's authorship. **This has since been superseded by events** — the same-day session moved straight into the v3 build track without any reported demo-fix requests, so treat the demo as closed unless Trace raises something retroactively.
+As of the prior draft, the demo outcome was unknown at that handoff's authorship. **This has since been superseded by events** — the same-day session moved straight into the v3 build track without any reported demo-fix requests, so treat the demo as closed unless Trace raises something retroactively.
 
 ## Standing deferrals — carried forward, none resolved
 
@@ -77,7 +77,7 @@ The backend sizing engine is merged. Two things remain, both explicitly out of s
 
 **Do not assume — ask or wait for direction**, same as every prior handoff.
 
-## Security Advisor Status (confirmed fresh this session, independently re-run — not carried blindly from v2.30)
+## Security Advisor Status (confirmed fresh this session, independently re-run — not carried blindly from the prior draft)
 
 7 always-true RLS policies (`activities`, `call_scores`, `deals`, `outreach_touches`, `prospects`, `spoke_candidates`, `territories`) — unchanged. 7 no-policy tables at INFO (`operator_enrichment`, `operator_score_records`, `operator_scores`, `operators`, `proposal_events`, `proposal_sessions`, `proposals` — the last three newly itemized this session, not new regressions). `gate_decision_for_pr` and `rls_auto_enable` anon/authenticated SECURITY DEFINER exposure — unchanged, both previously dispositioned (intentional / confirmed false-positive respectively). **New this session, from PostGIS enablement:** `spatial_ref_sys` RLS-disabled ERROR, `postgis` extension-in-public WARN, `st_estimatedextent` (3 overloads) anon/authenticated SECURITY DEFINER WARN — all standard, unavoidable PostGIS-on-Supabase artifacts, not remediated, folded into the standing item. Hard Rule 10 continues to block any live prospect send regardless of feature progress.
 
