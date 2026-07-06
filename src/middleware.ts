@@ -28,10 +28,14 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   // Prospect-facing pages are publicly accessible — no auth required.
-  // NOTE: '/p/' (trailing slash) so this does not also match /pipeline, /prospects, /proposals.
+  // Trailing slashes are load-bearing:
+  //   • '/p/'          → the gated /p/[slug] render (never matches /pipeline etc).
+  //   • '/proposals/'  → the legacy public buyer page /proposals/[prospectId].
+  // The BARE '/proposals' index is REP-facing (engagement stats) and must stay
+  // auth-gated like /dashboard — 'startsWith('/proposals/')' excludes it exactly.
   const isPublicPath =
     request.nextUrl.pathname.startsWith('/login') ||
-    request.nextUrl.pathname.startsWith('/proposals') ||
+    request.nextUrl.pathname.startsWith('/proposals/') ||
     request.nextUrl.pathname.startsWith('/p/')
 
   if (!user && !isPublicPath) {
