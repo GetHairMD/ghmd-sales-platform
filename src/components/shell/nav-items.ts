@@ -23,7 +23,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
   { label: 'Pipeline', icon: GitBranch, href: '/pipeline' },
   { label: 'Prospects', icon: Users, href: '/prospects' },
-  { label: 'Proposals', icon: FileText, comingSoon: true },
+  { label: 'Proposals', icon: FileText, href: '/proposals' },
   { label: 'Territories', icon: Map, href: '/territories' },
   { label: 'Insights', icon: Sparkles, comingSoon: true },
 ]
