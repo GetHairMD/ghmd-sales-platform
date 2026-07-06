@@ -7,7 +7,7 @@
  * modules (unit-tested); this file only fetches and shapes.
  */
 import { createServiceClient } from '../supabase/service'
-import { PIPELINE_STAGES } from '../pipeline-stages'
+import { PIPELINE_STAGES, STAGE } from '../pipeline-stages'
 import {
   aggregateEngagement,
   computeEngagementFeed,
@@ -29,6 +29,10 @@ export interface StageCount {
 export interface DashboardData {
   stageCounts: StageCount[]
   totalActive: number
+  /** Live proposals attached to non-lost prospects (spec §4B KPI: "active proposals"). */
+  activeProposals: number
+  /** Prospects at Funded/Won or later (stage ≥ 10) — the honest "closed" figure. */
+  wonCount: number
   feed: FeedItem[]
   hotLeads: HotLead[]
 }
@@ -44,11 +48,13 @@ interface ProspectRow {
 export async function getDashboardData(nowMs: number = Date.now()): Promise<DashboardData> {
   const db = createServiceClient()
 
-  const [{ data: prospects }, { data: events }, { data: sessions }] = await Promise.all([
-    db.from('prospects').select('id, full_name, practice_name, stage, deal_status').eq('archived', false),
-    db.from('proposal_events').select('prospect_id, event_type, payload, created_at'),
-    db.from('proposal_sessions').select('prospect_id, started_at'),
-  ])
+  const [{ data: prospects }, { data: events }, { data: sessions }, { data: proposals }] =
+    await Promise.all([
+      db.from('prospects').select('id, full_name, practice_name, stage, deal_status').eq('archived', false),
+      db.from('proposal_events').select('prospect_id, event_type, payload, created_at'),
+      db.from('proposal_sessions').select('prospect_id, started_at'),
+      db.from('proposals').select('prospect_id'),
+    ])
 
   const rows = (prospects ?? []) as ProspectRow[]
 
@@ -75,9 +81,22 @@ export async function getDashboardData(nowMs: number = Date.now()): Promise<Dash
     display,
   )
 
+  // Active proposals: live proposal rows attached to a non-lost prospect.
+  const nonLostIds = new Set(rows.filter((p) => p.deal_status !== 'lost').map((p) => p.id))
+  const activeProposals = ((proposals ?? []) as { prospect_id: string }[]).filter((pr) =>
+    nonLostIds.has(pr.prospect_id),
+  ).length
+
+  // Won: prospects that have reached Funded/Won (stage 10) or later.
+  const wonCount = rows.filter(
+    (p) => p.stage != null && p.stage >= STAGE.FUNDED_WON && p.deal_status !== 'lost',
+  ).length
+
   return {
     stageCounts,
     totalActive: rows.filter((p) => p.deal_status !== 'lost').length,
+    activeProposals,
+    wonCount,
     feed: computeEngagementFeed(engagements, nowMs),
     hotLeads: computeHotLeads(engagements, nowMs),
   }
