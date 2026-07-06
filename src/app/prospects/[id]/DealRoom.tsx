@@ -22,6 +22,7 @@ import FourColumnField from '@/components/ui/FourColumnField';
 import StageSelector from '@/components/StageSelector';
 import DealStatusSelector from '@/components/DealStatusSelector';
 import FundingPrequalToggle from '@/components/FundingPrequalToggle';
+import GenerateProposalPanel from '@/components/proposal/GenerateProposalPanel';
 import type { TimelineEntry } from '@/lib/proposal/timeline';
 
 export interface DealRoomProspect {
@@ -187,6 +188,7 @@ export default function DealRoom({
                     />
                   </div>
                 </div>
+                <GenerateProposalPanel prospectId={prospect.id} />
                 {prospect.notes && (
                   <div className="rounded-lg border border-mist bg-bg p-4">
                     <p className="font-heading text-xs uppercase tracking-caps text-text-muted">Notes</p>

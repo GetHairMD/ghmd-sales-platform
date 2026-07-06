@@ -10,6 +10,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { PROPOSAL_COOKIE_NAME, verifyProposalCookie } from '@/lib/proposal/gate'
 import { logProposalEvent } from '@/lib/proposal/data'
 import { isClientProposalEvent, type ClientProposalEventType } from '@/lib/proposal/events'
+import { isEmailConfigured, notifyTriggerFired } from '@/lib/notify/email'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,5 +43,27 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     eventType: type as ClientProposalEventType,
     payload,
   })
+
+  // Hot-lead email v1 (spec §7): financing CTA click notifies the sales inbox.
+  // Guard-closed until Resend is provisioned (isEmailConfigured) so no DB read or
+  // send happens today; never blocks/breaks the ingest. (Dwell/session-count email
+  // needs a fired-state table to avoid repeats — deferred; see PR notes.)
+  if (type === 'financing_cta_click' && isEmailConfigured()) {
+    try {
+      const { data: p } = await createServiceClient()
+        .from('prospects')
+        .select('full_name')
+        .eq('id', unlock.prospectId)
+        .maybeSingle()
+      await notifyTriggerFired({
+        prospectId: unlock.prospectId,
+        prospectName: (p?.full_name as string | undefined) ?? 'A prospect',
+        triggerLabel: 'Clicked “See what you qualify for” (financing CTA)',
+      })
+    } catch (e) {
+      console.error('[notify] financing-click notification failed:', e)
+    }
+  }
+
   return NextResponse.json({ ok: true })
 }
