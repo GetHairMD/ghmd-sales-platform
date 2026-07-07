@@ -20,23 +20,23 @@
 import { createServiceClient } from '../../src/lib/supabase/service'
 import { runSizingJob } from '../../src/lib/territory-sizing-jobs'
 
-// Minimal local typing — @netlify/functions is not a dependency and the app tsconfig does
-// not compile .mts, so we avoid importing its types. A Background Function returns void.
-interface NetlifyEvent {
-  body?: string | null
-}
-
-export default async function handler(event: NetlifyEvent): Promise<void> {
+// This is a modern Netlify Function (ESM `.mts`, `export default`): it is invoked with the
+// Web `Request` API — NOT the legacy `(event)` lambda shape whose `event.body` was a string.
+// The previous `event.body` read never yielded a jobId under the v2 runtime. We type only
+// `Request` (a global) because @netlify/functions is not a dependency and the app tsconfig
+// does not compile .mts. A Background Function's response is ignored (Netlify returns 202).
+export default async function handler(req: Request): Promise<Response> {
   let jobId: string | undefined
   try {
-    jobId = JSON.parse(event.body ?? '{}')?.jobId
+    const body = (await req.json()) as { jobId?: string } | null
+    jobId = body?.jobId
   } catch {
     console.error('[size-territory-background] invalid JSON body')
-    return
+    return new Response(null, { status: 400 })
   }
   if (!jobId) {
     console.error('[size-territory-background] missing jobId')
-    return
+    return new Response(null, { status: 400 })
   }
 
   try {
@@ -46,4 +46,5 @@ export default async function handler(event: NetlifyEvent): Promise<void> {
     // runSizingJob already records structured failure on the row; log for observability.
     console.error(`[size-territory-background] job ${jobId} threw`, err)
   }
+  return new Response(null, { status: 202 })
 }

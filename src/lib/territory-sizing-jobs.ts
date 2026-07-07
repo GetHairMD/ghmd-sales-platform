@@ -264,12 +264,20 @@ export async function triggerSizingJob(jobId: string): Promise<{ triggered: bool
   const origin = siteOrigin()
   if (!origin) return { triggered: false, detail: 'no site origin env (URL/DEPLOY_PRIME_URL) available' }
   try {
+    // `redirect: 'manual'` is load-bearing: this internal call re-enters the site through
+    // Netlify's edge. If anything (e.g. the app auth middleware) redirects the path, we must
+    // SEE it as a non-2xx here rather than have fetch transparently follow it to /login and
+    // report a bogus success — the failure mode that left jobs stuck 'queued' invisibly.
     const res = await fetch(`${origin}/.netlify/functions/${SIZING_BACKGROUND_FUNCTION}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jobId }),
+      redirect: 'manual',
     })
-    return { triggered: res.ok || res.status === 202 }
+    // A Background Function accepts the POST and returns 202. Treat only a real 2xx/202 as
+    // triggered; surface anything else (redirect status, 4xx/5xx) in detail for observability.
+    if (res.status === 202 || res.ok) return { triggered: true }
+    return { triggered: false, detail: `background function returned HTTP ${res.status}` }
   } catch (err) {
     return { triggered: false, detail: err instanceof Error ? err.message : 'trigger fetch failed' }
   }
