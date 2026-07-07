@@ -25,9 +25,14 @@ import {
 import { incomeQualifiedShare } from './income-screen'
 import { addressableHouseholds } from './addressable'
 import { blendCreditShareByHouseholds, type ExperianCreditShareFile } from './credit-share'
-import { fetchB19001ForPolygon, type ApportionmentDeps, type PolygonApportionment } from './polygon-apportionment'
+import {
+  apportionB19001,
+  type ApportionmentDeps,
+  type BlockGroupRecord,
+  type PolygonApportionment,
+} from './polygon-apportionment'
 import type { PolygonalGeometry } from './geometry'
-import type { IsochroneCenter, IsochroneContour } from './isochrone'
+import { MAPBOX_MAX_CONTOURS, type IsochroneCenter, type IsochroneContour } from './isochrone'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Addressable for a polygon apportionment (reuses v2 arithmetic + multi-state blend)
@@ -251,34 +256,58 @@ export interface SizeTerritoryOutcome {
  * clipping, household apportionment, v2 income + multi-state credit qualification, and
  * the coarse-to-fine expansion search. Fully testable with fake deps (no live calls).
  *
- * The `evaluate` passed to sizeByExpansion fetches one batched isochrone request per
- * candidate-minute set (§3.1), then for each contour clips against the sold union and
- * apportions households to an addressable count. Contour polygons are memoized so the
- * final viable minute's polygon can be returned for boundary persistence.
+ * SUPERSET-ONCE (perf, §3.1 diagnosis): the intersecting block-group data is the
+ * expensive network work, and a smaller candidate contour is contained in the larger one,
+ * so its intersecting block groups are a strict subset of the max contour's. We therefore
+ * call `fetchIntersectingBlockGroups` EXACTLY ONCE — for the max-contour (45-min)
+ * superset — and then run the pure, in-memory `apportionB19001` per candidate minute (the
+ * per-block point-in-polygon against each minute's contour naturally yields the smaller
+ * count). The only per-minute network is the cheap Mapbox isochrone contour itself
+ * (batched ≤4/request). Contour polygons are memoized for boundary provenance.
  */
 export async function sizeDriveTimeTerritory(
   center: IsochroneCenter,
   deps: SizeTerritoryDeps,
 ): Promise<SizeTerritoryOutcome> {
   const contourByMinute = new Map<number, IsochroneContour>()
+  const maxMinutes = deps.expansion?.maxMinutes ?? V3_MAX_DRIVE_MINUTES
+  let superset: BlockGroupRecord[] | null = null
+
+  // Fetch (and memoize) any contours we don't already have, ≤4 minutes per Mapbox request.
+  const fetchMissingContours = async (minutes: number[]): Promise<void> => {
+    const missing = minutes.filter((m) => !contourByMinute.has(m))
+    for (let i = 0; i < missing.length; i += MAPBOX_MAX_CONTOURS) {
+      const chunk = missing.slice(i, i + MAPBOX_MAX_CONTOURS)
+      const contours = await deps.fetchContours(center, chunk)
+      for (const c of contours) contourByMinute.set(c.minutes, c)
+    }
+  }
+
+  // Fetch the max-contour block-group superset exactly once.
+  const ensureSuperset = async (): Promise<void> => {
+    if (superset) return
+    await fetchMissingContours([maxMinutes])
+    const maxContour = contourByMinute.get(maxMinutes)
+    superset = maxContour
+      ? await deps.apportionment.fetchIntersectingBlockGroups(maxContour.polygon)
+      : []
+  }
 
   const evaluate = async (minutes: number[]): Promise<MinuteAddressable[]> => {
-    const contours = await deps.fetchContours(center, minutes)
+    await ensureSuperset()
+    await fetchMissingContours(minutes)
     const out: MinuteAddressable[] = []
-    for (const contour of contours) {
-      contourByMinute.set(contour.minutes, contour)
-      const apportionment = await fetchB19001ForPolygon(
-        contour.polygon,
-        deps.apportionment,
-        deps.soldUnion,
-      )
-      const detail = computeAddressableForPolygon(apportionment, deps.creditTable, deps.incomeThreshold)
-      out.push({ minutes: contour.minutes, addressable: detail.addressable })
-    }
-    // A requested minute Mapbox did not return is treated as 0 addressable (fail-safe:
-    // a missing contour never counts as viable), so the search still terminates.
     for (const m of minutes) {
-      if (!contourByMinute.has(m)) out.push({ minutes: m, addressable: 0 })
+      const contour = contourByMinute.get(m)
+      // A requested minute Mapbox did not return is treated as 0 addressable (fail-safe:
+      // a missing contour never counts as viable), so the search still terminates.
+      if (!contour) {
+        out.push({ minutes: m, addressable: 0 })
+        continue
+      }
+      const apportionment = apportionB19001(superset!, contour.polygon, deps.soldUnion)
+      const detail = computeAddressableForPolygon(apportionment, deps.creditTable, deps.incomeThreshold)
+      out.push({ minutes: m, addressable: detail.addressable })
     }
     return out
   }
