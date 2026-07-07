@@ -48,5 +48,10 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  // `.netlify/*` is EXCLUDED: these are Netlify platform routes (Background Functions,
+  // etc.), not app pages. The async sizing pipeline triggers its worker via an internal
+  // fetch to `/.netlify/functions/size-territory-background`; without this exclusion the
+  // middleware ran on that internal call, found no user session, and 307-redirected it to
+  // `/login` — so the Background Function was never invoked (P0: jobs stuck 'queued').
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|\\.netlify|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 }
