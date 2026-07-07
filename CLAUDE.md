@@ -134,7 +134,7 @@ cost adjustment formula inline in Edge Functions or components. Always import fr
 - Confirm current sprint with Trace at session start
 - Do not begin Sprint N+1 work during a Sprint N session
 - All acceptance criteria must pass before sprint is closed
-- See `docs/SPRINT-STATE.md` for current sprint and open blockers
+- Current sprint status and open blockers live in `handoffs/LATEST.md`, read fresh each session (standing rule #11). The former `docs/SPRINT-STATE.md` tracker is retired.
 - See `docs/QA-SPRINT-1.md` for Sprint 1 acceptance criteria
 
 ## Agent Roles
@@ -164,7 +164,7 @@ Never committed to git.
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Client | Restricted to proposals.gethairmd.com domain |
 | `CENSUS_API_KEY` | Server only | Edge Function only |
 | `GOOGLE_PLACES_API_KEY` | Server only | Edge Function only; restricted to server IP |
-| `BOX_CLIENT_ID` | Server only | Box Sign (signing integration). **Not yet set in Netlify** — SPRINT-STATE tasks 2–3 OPEN |
+| `BOX_CLIENT_ID` | Server only | Box Sign (signing integration). **Not yet set in Netlify** — pending provisioning |
 | `BOX_CLIENT_SECRET` | Server only | Box Sign. **Not yet set in Netlify** — pending provisioning |
 | `BOX_WEBHOOK_SECRET` | Server only | Verify Box Sign webhook signatures. **Not yet set in Netlify** — pending |
 | `GHL_WEBHOOK_SECRET` | Server only | Verify AesthetiX webhook signatures |
@@ -174,7 +174,7 @@ Never committed to git.
 
 | Item | Value |
 |------|-------|
-| Austin Westlake baseline | 5,483 addressable patients (Sprint 1 QA anchor) |
+| Austin Westlake baseline (v1/Sprint 1, HISTORICAL) | 5,483 addressable patients — superseded by the v3 drive-time anchor (decision #94, 59,699.47 @ 15-min); retained for historical record only, **not a current reference value** |
 | Territory standard price | $179,000 (non-negotiable Phase 1) |
 | Proposal subdomain | `proposals.gethairmd.com` |
 | Drive folder | `1NX32J_EElgpANLzJetN1BmS6gOYzAK3Z` |
