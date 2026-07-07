@@ -144,3 +144,8 @@ vite.config.ts.timestamp-*
 
 *storybook.log
 storybook-static
+
+# Locally-installed agent skills (npx skills add ...) — keep out of the repo
+.agents/
+skills-lock.json
+.claude/skills/box
