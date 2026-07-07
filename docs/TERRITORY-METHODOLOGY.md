@@ -185,10 +185,44 @@ Once implemented, this is a **formula version bump (v2 → v3)**, not a patch:
   **v2-only** and will not reproduce once the boundary definition changes.
   They are retained in §5 as the historical/legacy check for the ZCTA-based
   stage, not as ongoing regression targets once v3 ships.
-- New v3 QA anchors must be established once v3 is implemented, and locked
-  via a dedicated `ops.decision_log` entry.
-- This is out of scope for the current docs-only PR. It requires a dedicated
-  Coder scoping session, which Trace has not yet opened.
+- New v3 QA anchors **have now been established and locked** via a dedicated
+  `ops.decision_log` entry — see §8.8. (This section previously stated they
+  "must be established once v3 is implemented"; that step is done.)
+
+### 8.8 v3 QA Anchors — Drive-Time Geography (established, decision #94)
+
+The v3 drive-time sizing engine is implemented (PR #75), runs asynchronously
+in production (PR #78/#79), and its QA anchors are now **locked** under
+decision **#94**. Three reference territories were sized at a **15-minute**
+drive-time isochrone and each reproduced **exactly across two independent
+production runs** before being locked:
+
+| Territory | 15-min addressable (VIABLE) |
+|---|---|
+| Austin – Westlake | **59,699.47** |
+| Dallas – Preston Hollow | **120,318.47** |
+| Nashville – Green Hills | **33,969.31** |
+
+Full detail (job IDs and the 15/25/35/45-minute probe sets) lives in decision
+**#94**; decision #94 is authoritative for these figures.
+
+**These are point-in-time reference values, NOT strict pass/fail regression
+targets.** This distinction is methodological, not merely operational, and a
+future reader must not treat these anchors as infallible. The reason: unlike
+the §5 v2 anchors (which derive from static ZCTA/county geography), the v3
+isochrone polygon is fetched **live from Mapbox on every job** and is not
+frozen or cached at lock time. A future Mapbox road-graph change can move the
+15-minute boundary — and therefore the addressable figure — **without any
+change to this platform's code or formula**. Consequently, a deviation from
+these anchors **requires investigation before it may be treated as a code
+regression**: first rule out isochrone/road-graph drift, then look for a code
+cause. Freezing/caching the isochrone geometry at lock time (which would make
+these hard regression targets) has been proposed but is **not built** as of
+this writing; until it is, treat these three figures as calibrated reference
+points, not invariants.
+
+**§5 (the v2 ZCTA anchors) is unaffected by this section** and remains the
+legacy regression check for the ZCTA-based stage.
 
 ## 9. Change Control
 
