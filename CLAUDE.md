@@ -37,7 +37,7 @@ npm run dev            # Next.js dev server (localhost:3000)
 npm run build          # production build
 npm run lint           # next lint
 npm test               # vitest run (tests in src/lib/__tests__)
-npm run log:export     # regenerate decisions/DECISION_LOG.md mirror (never hand-edit the mirror)
+npm run log:export     # FROZEN — mirror is historical-only per decisions/DECISION_LOG.md notice; running this is a rule violation
 npm run seed:demo      # seed demo data
 npm run storybook      # Storybook on :6006
 ```

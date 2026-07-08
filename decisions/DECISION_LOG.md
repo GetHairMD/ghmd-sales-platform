@@ -1,3 +1,14 @@
+> **FROZEN — HISTORICAL ONLY (2026-07-08).** This mirror is permanently
+> frozen at its current content (last successfully regenerated 2026-07-07
+> through decision #96 — the isochrone-freeze proposal — as 75 entries via
+> PR #81; it has since drifted three entries behind, with #97–#99 absent)
+> and will not be regenerated. The sole authoritative decision log is
+> the `ops.decision_log` table in Supabase (`cprltmwwldbxcsunsafl`),
+> read live via MCP. This file is retained for repo-local historical
+> reference only. Do not update it, do not regenerate it, do not read
+> it as current. The log:export script remains in package.json but its
+> output target is frozen; running it is a rule violation.
+
 # GHMD Sales Platform — Decision Log
 > **Git mirror — generated file. Do not edit by hand.**  
 > Source of record: `ops.decision_log` (Supabase project `ghmd-sales-platform` / `cprltmwwldbxcsunsafl`).  

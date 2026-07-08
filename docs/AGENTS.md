@@ -82,6 +82,10 @@ Coder  →  Chat:    PR link + test results + blockers for Trace decision
 Coder  →  Pilot:   PR URL for UI review if MCP unavailable
 ```
 
+**The session handoff** (`handoffs/LATEST.md`) is narrative-only: what shipped and why, judgment calls, residual risks, deferrals, and the decision queue. It does not state volatile state facts — main HEAD, decision-log tip, open PRs, and advisor status are derived live at session start (git, `ops.decision_log`, `get_advisors`), never read from the handoff.
+
+**Session-close handoff rule:** Any session that merges a PR to main or writes to `ops.decision_log` must end with either (a) a handoff append/update PR, or (b) an explicit in-session statement that no handoff update is needed and why. A session that does neither is incomplete. The next session's bootstrap treats a handoff that is missing narrative for merged PRs as a flag-and-report condition (not a silent-reconcile condition).
+
 Communication style: bottom line first. Flag business-logic calls as Trace's decision. Challenge weak assumptions once with reasoning, then execute. Re-confirm before irreversible actions or anything touching regulatory filings, securities, or signed contracts.
 
 ## Hard Boundaries (All Agents)
