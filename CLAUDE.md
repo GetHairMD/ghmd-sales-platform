@@ -21,13 +21,34 @@ This is **entirely separate** from the GHMD Network Intelligence Platform (NIP).
 ## Stack
 
 - **Frontend**: Next.js (App Router)
-- **Database**: Supabase (PostgreSQL + RLS + Edge Functions)
+- **Database**: Supabase (PostgreSQL + RLS)
+- **Serverless compute**: Netlify Functions (`netlify/functions/`) — NOT Supabase Edge Functions (none exist in this repo)
 - **Deploy**: Netlify — `ghmdsalesplatform.netlify.app`
 - **Maps**: Mapbox GL JS + Isochrone API (drive-time, not radius)
 - **Demographics**: Census ACS API (B01001, B19001, B25105)
 - **Phase 2**: Whisper + Claude API call scoring
 - **Signing**: Box Sign (replaces DocuSign entirely — no DocuSign integration at any phase)
 - **CRM stopgap**: AesthetiX / GHL (pipeline tracking only during build)
+
+## Commands
+
+```bash
+npm run dev            # Next.js dev server (localhost:3000)
+npm run build          # production build
+npm run lint           # next lint
+npm test               # vitest run (tests in src/lib/__tests__)
+npm run log:export     # regenerate decisions/DECISION_LOG.md mirror (never hand-edit the mirror)
+npm run seed:demo      # seed demo data
+npm run storybook      # Storybook on :6006
+```
+
+## Repo Layout
+
+- `src/app/**` — Next.js App Router (`api`, `dashboard`, `territories`, `proposals`, `pipeline`, `prospects`, `p/`)
+- `src/lib/**` — business logic (`territory-sizing*`, `addressable`, `census*`, `isochrone`, `proposals`)
+- `lib/` — formula constants + census/npi helpers, **top-level, NOT `src/lib`** (see Formula Constants Location)
+- `netlify/functions/` — serverless background compute (e.g. `size-territory-background.mts`)
+- `supabase/migrations/` — timestamped SQL migrations (`YYYYMMDDHHMMSS_description.sql`)
 
 ## NIP Separation — Hard Boundary
 
@@ -59,8 +80,8 @@ Never:
 3. **RLS enabled on every table from creation** — never disabled
 4. No secrets in code or git history — all env vars via Netlify + Supabase secrets
 5. Census API responses cached in `territories.census_raw_data` — never re-fetched if < 90 days old
-6. **Formula constants live in `/lib/addressable-market-constants.ts`** — never hardcoded inline
-7. Every Edge Function has error logging — no silent failures
+6. **Formula constants live in `/lib/addressable-market-constants.ts`** (top-level `lib/`, not `src/lib`) — never hardcoded inline
+7. Every serverless function (Netlify) has error logging — no silent failures
 8. Sprint acceptance criteria must pass before closing the sprint
 9. Report blockers immediately — do not work around schema issues silently
 10. All commits — including handoff files — must go through a PR. 
@@ -90,10 +111,9 @@ Rationale: MERGED-but-squash-orphaned branches are routine auto-cleanup; unmerge
 
 ## Session Safety Rules (added June 25, 2026)
 
-- CLAUDE.md first-line stop condition: if `cat CLAUDE.md | head -1` does not return `# GHMD Sales Platform — CLAUDE.md` exactly — STOP.
-- One repo per Coder session: never open NIP and Sales Platform in the same session simultaneously.
-- `git status` after every cloud session: run before assuming working tree is clean.
-- Contamination scan: `git grep -r "kjweckggegifjmmqccul"` and `git grep -r "gethairmd-network"` must return empty.
+These are enforced via Standing Rules 0-B (CLAUDE.md first-line check), 0-C (one repo per session),
+0-D (`git status` after cloud session), and 0-E (NIP contamination scan). See those rules above for the
+authoritative text — do not duplicate them here.
 
 ## Decision Logging (system of record)
 
@@ -127,7 +147,7 @@ Rationale: MERGED-but-squash-orphaned branches are routine auto-cleanup; unmerge
 
 All addressable market formula constants are in `/lib/addressable-market-constants.ts`.
 Never hardcode prevalence rates, propensity rates, income band base rates, or the housing
-cost adjustment formula inline in Edge Functions or components. Always import from this file.
+cost adjustment formula inline in serverless functions or components. Always import from this file.
 
 ## Sprint Discipline
 
@@ -142,7 +162,7 @@ cost adjustment formula inline in Edge Functions or components. Always import fr
 See `docs/AGENTS.md` for full role definitions.
 
 - **Claude Chat**: PM + MCP ops (planning, Drive, Supabase console, Monday.com)
-- **Claude Code**: All code, migrations, git operations, Edge Functions
+- **Claude Code**: All code, migrations, git operations, serverless (Netlify) functions
 - **Claude Chrome**: GitHub UI fallback only (PR review, branch ops if CLI unavailable)
 
 ## Agent Names (locked June 25, 2026)
@@ -154,7 +174,7 @@ See `docs/AGENTS.md` for full role definitions.
 
 ## Environment Variables
 
-All secrets via Netlify environment variables and Supabase Edge Function secrets.
+All secrets via Netlify environment variables and Supabase project secrets.
 Never committed to git.
 
 | Variable | Scope | Notes |
@@ -162,8 +182,8 @@ Never committed to git.
 | `NEXT_PUBLIC_SUPABASE_URL` | Client + Server | Sales project only |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only | Never expose to client |
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Client | Restricted to proposals.gethairmd.com domain |
-| `CENSUS_API_KEY` | Server only | Edge Function only |
-| `GOOGLE_PLACES_API_KEY` | Server only | Edge Function only; restricted to server IP |
+| `CENSUS_API_KEY` | Server only | Netlify function only |
+| `GOOGLE_PLACES_API_KEY` | Server only | Netlify function only; restricted to server IP |
 | `BOX_CLIENT_ID` | Server only | Box Sign (signing integration). **Not yet set in Netlify** — pending provisioning |
 | `BOX_CLIENT_SECRET` | Server only | Box Sign. **Not yet set in Netlify** — pending provisioning |
 | `BOX_WEBHOOK_SECRET` | Server only | Verify Box Sign webhook signatures. **Not yet set in Netlify** — pending |
