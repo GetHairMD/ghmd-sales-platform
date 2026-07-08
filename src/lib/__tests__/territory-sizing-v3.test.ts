@@ -71,12 +71,45 @@ describe('sizeByExpansion (§3.1 coarse-to-fine, §5 UNRESOLVED)', () => {
     }
   })
 
-  it('smallest probe already clears → no refinement, returns that probe', async () => {
-    const { evaluate, calls } = makeEvaluator(() => 50_000) // clears everywhere
+  it('refines BELOW the smallest probe to the smallest qualifying minute (m* < 15)', async () => {
+    // Dense metro: clears at 8, fails ≤7. The smallest probe (15) already clears, so the
+    // search must continue downward rather than stopping at 15 (no 15-min floor).
+    const { evaluate } = makeEvaluator((m) => (m >= 8 ? 20_000 : 1_000))
+    const r = await sizeByExpansion({ evaluate })
+    expect(r.status).toBe(V3SizingStatus.VIABLE)
+    if (r.status === 'VIABLE') {
+      expect(r.minutes).toBe(8)
+      expect(r.addressable).toBeGreaterThanOrEqual(V3_MIN_ADDRESSABLE_FLOOR)
+    }
+  })
+
+  it('returns minute 1 when the floor is cleared even at a 1-minute drive-time', async () => {
+    const { evaluate } = makeEvaluator(() => 50_000) // clears everywhere, including m = 1
+    const r = await sizeByExpansion({ evaluate })
+    expect(r.status).toBe(V3SizingStatus.VIABLE)
+    if (r.status === 'VIABLE') expect(r.minutes).toBe(1)
+  })
+
+  it('keeps downward refinement batched ≤4 and strictly below the smallest probe', async () => {
+    const { evaluate, calls } = makeEvaluator((m) => (m >= 8 ? 20_000 : 1_000))
+    await sizeByExpansion({ evaluate })
+    expect(calls[0]).toEqual([15, 25, 35, 45]) // coarse probe first
+    for (const batch of calls.slice(1)) {
+      expect(batch.length).toBeLessThanOrEqual(4)
+      for (const m of batch) {
+        expect(m).toBeGreaterThanOrEqual(1)
+        expect(m).toBeLessThan(15)
+      }
+    }
+  })
+
+  it('returns the smallest probe (15) when nothing below it clears', async () => {
+    // Monotonic curve: only ≥ 15 clears. The downward search finds nothing smaller and
+    // reports 15 — the smallest probe is a valid m* when it is genuinely the minimum.
+    const { evaluate } = makeEvaluator((m) => (m >= 15 ? 20_000 : 1_000))
     const r = await sizeByExpansion({ evaluate })
     expect(r.status).toBe(V3SizingStatus.VIABLE)
     if (r.status === 'VIABLE') expect(r.minutes).toBe(15)
-    expect(calls).toHaveLength(1) // only the coarse probe
   })
 
   it('never clears even at the 45-min ceiling → UNRESOLVED with best achieved', async () => {

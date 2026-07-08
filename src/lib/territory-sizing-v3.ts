@@ -173,20 +173,17 @@ export async function sizeByExpansion(config: ExpansionConfig): Promise<V3Sizing
   }
 
   // 2. Binary-refine (lastFail, firstPass] to the smallest passing integer minute.
-  // Only refine into a gap bounded BELOW by an actually-failing probe. If the smallest
-  // probe already clears, there is nothing smaller to try — §3.1 starts the search at
-  // the smallest probe contour and enforces no floor below it (min radius deferred).
+  // The lower bound is the largest KNOWN-failing probe below the pass. When even the
+  // smallest probe already clears (dense metro), there is no failing probe below it, so
+  // we refine downward against a synthetic failing bound at minute 0: a 0-minute
+  // isochrone is empty (0 addressable), so it is a safe "fails" sentinel. It is never
+  // evaluated (no Mapbox call) and never emitted — every candidate the loop returns is
+  // ≥ 1. This removes the old 15-minute search floor: territories size to the smallest
+  // integer minute m* ≥ 1 clearing the floor (per ops.decision_log #102). The 45-min
+  // ceiling and UNRESOLVED behavior at the top end are unchanged.
   const failingBelow = probeMinutes.filter((m) => m < firstPassingProbe && !clears(m))
-  if (failingBelow.length === 0) {
-    return {
-      status: V3SizingStatus.VIABLE,
-      minutes: firstPassingProbe,
-      addressable: seen.get(firstPassingProbe) ?? floor,
-      probes,
-    }
-  }
 
-  let lo = Math.max(...failingBelow) // largest known-failing minute below the pass
+  let lo = failingBelow.length > 0 ? Math.max(...failingBelow) : 0 // largest known-failing minute below the pass (0 = empty-isochrone sentinel)
   let hi = firstPassingProbe // smallest known-passing minute
 
   while (hi - lo > 1) {
