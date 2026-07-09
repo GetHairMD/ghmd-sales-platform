@@ -75,10 +75,13 @@ export default function DealRoom({
   prospect,
   territory,
   timeline,
+  territoryArtifact = null,
 }: {
   prospect: DealRoomProspect;
   territory: { name: string; addressable_patients_primary: number | null } | null;
   timeline: TimelineEntry[];
+  /** Read-only §D artifact, present only when the linked territory has an approved v3 boundary. */
+  territoryArtifact?: React.ReactNode;
 }) {
   const [tab, setTab] = useState('action');
 
@@ -134,10 +137,14 @@ export default function DealRoom({
               <div><dt className="text-xs uppercase tracking-caps text-text-muted">Territory</dt><dd className="text-text">{territory?.name ?? 'Not assigned'}</dd></div>
               <div><dt className="text-xs uppercase tracking-caps text-text-muted">Assigned</dt><dd className="text-text">{prospect.assigned_rep ?? '—'}</dd></div>
             </dl>
-            <div className="mt-3 flex h-24 items-center justify-center rounded-md bg-mist text-xs text-text-muted">
-              Territory mini-map
-            </div>
+            {!territoryArtifact && (
+              <div className="mt-3 flex h-24 items-center justify-center rounded-md bg-mist text-xs text-text-muted">
+                Territory mini-map
+              </div>
+            )}
           </div>
+
+          {territoryArtifact}
 
           {/* Three-signal block — never blended (PRD §3.2) */}
           <div className="space-y-2">
