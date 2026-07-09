@@ -90,13 +90,13 @@ export default function PipelineBoard({
       } else if (!res.ok) {
         setProspects((all) => all.map((p) => (p.id === prospectId ? { ...p, stage: prevStage } : p)));
       } else {
-        // Reflect any recorded skip locally so the badge appears immediately.
+        // Reflect the recorded funding-prequal skip locally so its badge appears
+        // immediately. (Triage skip deprecated in place, #110 — no longer recorded.)
         setProspects((all) =>
           all.map((p) =>
             p.id === prospectId
               ? {
                   ...p,
-                  skipped_triage: p.skipped_triage || Boolean(confirmed.triage),
                   skipped_funding_prequal: p.skipped_funding_prequal || Boolean(confirmed.prequal),
                 }
               : p,

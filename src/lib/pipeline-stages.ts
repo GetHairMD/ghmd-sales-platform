@@ -18,19 +18,20 @@ export interface PipelineStage {
   label: string
 }
 
-/** The eleven pipeline stages, in order. Index is NOT the id — always read `.id`. */
+/** The twelve pipeline stages, in order. Index is NOT the id — always read `.id`. */
 export const PIPELINE_STAGES: PipelineStage[] = [
   { id: 1, label: 'New Lead' },
   { id: 2, label: 'Contacted' },
   { id: 3, label: 'Discovery Call Scheduled' },
   { id: 4, label: 'Discovery Call Met' },
-  { id: 5, label: 'Proposal Sent' },
-  { id: 6, label: 'Validation' }, // reference calls + proposal walkthrough / territory negotiation
-  { id: 7, label: 'Funding Pre-Qualified' }, // lender (iLease/Ottri) confirms pre-qual to GHMD
-  { id: 8, label: 'Contract Sent' },
-  { id: 9, label: 'Contract Signed' },
-  { id: 10, label: 'Funded / Won' },
-  { id: 11, label: 'Implementation Handoff Scheduled' },
+  { id: 5, label: 'Qualification Review' }, // first-meeting qualification gate (scoping §2, decision #110)
+  { id: 6, label: 'Proposal Sent' },
+  { id: 7, label: 'Validation' }, // reference calls + proposal walkthrough / territory negotiation
+  { id: 8, label: 'Funding Pre-Qualified' }, // lender (iLease/Ottri) confirms pre-qual to GHMD
+  { id: 9, label: 'Contract Sent' },
+  { id: 10, label: 'Contract Signed' },
+  { id: 11, label: 'Funded / Won' },
+  { id: 12, label: 'Implementation Handoff Scheduled' },
 ]
 
 /**
@@ -43,21 +44,24 @@ export const STAGE = {
   CONTACTED: 2,
   DISCOVERY_CALL_SCHEDULED: 3,
   DISCOVERY_CALL_MET: 4,
-  PROPOSAL_SENT: 5,
-  VALIDATION: 6,
-  FUNDING_PRE_QUALIFIED: 7,
-  CONTRACT_SENT: 8,
-  CONTRACT_SIGNED: 9,
-  FUNDED_WON: 10,
-  IMPLEMENTATION_HANDOFF_SCHEDULED: 11,
+  QUALIFICATION_REVIEW: 5,
+  PROPOSAL_SENT: 6,
+  VALIDATION: 7,
+  FUNDING_PRE_QUALIFIED: 8,
+  CONTRACT_SENT: 9,
+  CONTRACT_SIGNED: 10,
+  FUNDED_WON: 11,
+  IMPLEMENTATION_HANDOFF_SCHEDULED: 12,
 } as const
 
 export const FIRST_STAGE = STAGE.NEW_LEAD
 export const LAST_STAGE = STAGE.IMPLEMENTATION_HANDOFF_SCHEDULED
 
 /**
- * Board mapping (PRD §2.5): the 11 stages render as 6 grouped columns. Derived
- * from STAGE constants — never hardcode the integers. Group order is pipeline order.
+ * Board mapping (PRD §2.5): the 12 stages render as 7 grouped columns — Qualification
+ * Review gets its own column (the headline gate of this build, decision #110), inserted
+ * between Discovery and Proposal. Derived from STAGE constants — never hardcode the
+ * integers. Group order is pipeline order.
  */
 export interface BoardColumn {
   key: string
@@ -68,6 +72,7 @@ export interface BoardColumn {
 export const BOARD_COLUMNS: BoardColumn[] = [
   { key: 'leads', label: 'Leads', stageIds: [STAGE.NEW_LEAD, STAGE.CONTACTED] },
   { key: 'discovery', label: 'Discovery', stageIds: [STAGE.DISCOVERY_CALL_SCHEDULED, STAGE.DISCOVERY_CALL_MET] },
+  { key: 'qualification', label: 'Qualification', stageIds: [STAGE.QUALIFICATION_REVIEW] },
   { key: 'proposal', label: 'Proposal', stageIds: [STAGE.PROPOSAL_SENT, STAGE.VALIDATION] },
   { key: 'funding', label: 'Funding', stageIds: [STAGE.FUNDING_PRE_QUALIFIED] },
   { key: 'contract', label: 'Contract', stageIds: [STAGE.CONTRACT_SENT, STAGE.CONTRACT_SIGNED] },
@@ -97,7 +102,7 @@ export function isDealStatus(v: unknown): v is DealStatus {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Soft funding pre-qual gate (stage 8, Contract Sent)
+// Soft funding pre-qual gate (stage 9, Contract Sent)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -121,7 +126,7 @@ export function showPrequalSkippedBadge(stage: number, skippedFundingPrequal: bo
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Soft triage gate (4 -> 5, Proposal Sent) — same shape as the funding gate.
+// Soft triage gate (5 -> 6, Proposal Sent) — same shape as the funding gate.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**

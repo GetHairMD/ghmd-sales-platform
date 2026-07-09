@@ -4,13 +4,13 @@ import { cn } from '@/design/cn';
 interface StagePillProps {
   /** prospects.stage integer (1-based). */
   stage: number;
-  /** Append "n / 11" progress. */
+  /** Append "n / total" progress (denominator is LAST_STAGE). */
   showProgress?: boolean;
   className?: string;
 }
 
 /**
- * 11-stage-aware pill (PRD §4.3). Reads its label from pipeline-stages.ts —
+ * Stage-aware pill (PRD §4.3). Reads its label from pipeline-stages.ts —
  * never hardcodes a stage number or string.
  */
 export default function StagePill({ stage, showProgress = false, className }: StagePillProps) {

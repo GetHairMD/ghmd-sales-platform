@@ -7,7 +7,7 @@ const meta = {
   component: StagePill,
   parameters: { layout: 'centered' },
   args: { stage: 5, showProgress: false },
-  argTypes: { stage: { control: { type: 'number', min: 1, max: 11 } } },
+  argTypes: { stage: { control: { type: 'number', min: 1, max: PIPELINE_STAGES.length } } },
 } satisfies Meta<typeof StagePill>;
 
 export default meta;
