@@ -1,7 +1,7 @@
-# GHMD Sales Platform — Handoff v2.33
+# GHMD Sales Platform — Handoff v2.34
 
-Date: 2026-07-09 | Prepared by: Chat (drafted, Coder commits) | Purpose: Narrative update
-covering PRs #86–#88 and decisions #101–#106. Supersedes v2.32.
+Date: 2026-07-09 | Prepared by: Chat (drafted, Coder commits) | Purpose: Tight addendum to
+v2.33 — PR #90 and decision #107 shipped after v2.33 was written. Supersedes v2.33.
 
 > **State facts are never read from this file.** Main HEAD, decision-log tip, open PRs, and
 > security-advisor status are derived live at every session start (git, `ops.decision_log`,
@@ -34,6 +34,20 @@ covering PRs #86–#88 and decisions #101–#106. Supersedes v2.32.
   surface, AC2), `POST /api/territories/[id]/approve` persisting the boundary as EWKT, and a
   read-only Lead-profile Territory artifact on `prospects/[id]`. Closes #102 items 2–3.
   Logged as decision #106.
+
+## What shipped since v2.33 (this addendum)
+
+- **PR #90** (`4133d07`) — `docs/AGENTS.md` now codifies, in repo canon rather than only
+  session convention and Chat memory: a Coder "Capability Stack (standing assumption)"
+  section (browser automation via `chrome-devtools-mcp` + `playwright`, replacing Pilot for
+  deploy-preview QA, plus platform/security/docs/process skills — explicitly scoped as a
+  Claude-Code **user-level** install under Trace's profile, since only `netlify-skills` and
+  `typescript-lsp` are Project-scoped to this repo); Pilot tightened to GitHub-UI-fallback
+  only, with deploy-preview QA formally reassigned to Coder; a new top-level **Review SOP**
+  section defining three tiers — standard, review, ultrareview — with trigger tables and a
+  self-escalate-on-uncertainty rule; and an updated Handoff Protocol diagram line reflecting
+  Pilot's narrowed role. Logged as decision #107. Draft PR, Trace personally reviewed the
+  SOP text before merging (not a Chat-side rubber stamp).
 
 ## The Hard Rule 10 gap — what happened and why it matters going forward
 
@@ -68,8 +82,8 @@ Live QA against a Chat-seeded fixture territory (`2f89fe9e-eedf-49b0-bd5a-2e866a
 exec sees the sizing panel (not the rep fallback), live sizing returned VIABLE at 19,038
 addressable households / 9-minute boundary, the preview and approved states both render with
 zero drive-time-minute values anywhere, `sold_boundary_geom` is untouched by approve, and v2
-territories (spot-checked on Austin–Westlake) are pixel-unchanged. The fixture is now
-deleted — see Part 2 of this PR.
+territories (spot-checked on Austin–Westlake) are pixel-unchanged. The fixture and its QA
+sizing job were deleted after PR #88 merged (PR #89) — 3 anchor territories untouched.
 
 One accepted, non-blocking behavior change from #88: a `formula_version=2` territory with no
 addressable number now shows "Pending internal review" for reps instead of auto-recomputing
@@ -112,30 +126,28 @@ instrument redraft (Bruce/counsel). Reference decision #99 for the full legal an
 
 | Item | Owner | Status |
 |---|---|---|
-| **390px QA tooling gap on authenticated pages** | Trace / future Coder session | New this handoff — see residual risks. No fix path identified yet. |
+| **390px QA tooling gap on authenticated pages** | Trace / future Coder session | No fix path identified yet. |
 | **Isochrone-freeze for v3 QA anchors** | Trace to prioritize, then Coder | Unchanged — proposed (#96), not built. |
 | **Box Sign / Territory License Agreement** | Bruce / counsel, then Coder | Unchanged — paused per #99. |
-| **`docs/AGENTS.md` capability-stack + Review SOP codification** | Trace to dispatch | Drafted, reviewed by Trace, ready to send to Coder as a standalone docs-only PR. Not yet dispatched as of this handoff. |
 | **Functional global search** (TopBar) | future Coder session | Unchanged — dead field by design. |
 | **Repo-wide token-lint broadening** | future Coder session | Unchanged. |
 | **PRD v1.2 embedded-signing reference** | next PRD touch | Unchanged — still says "Box spike → embedded signing," stale vs #99. |
-| **Prospect-page hydration errors** (#418/#423/#425) | future Coder session | New this handoff — pre-existing, confirmed not a #88 regression, not yet ticketed. |
+| **Prospect-page hydration errors** (#418/#423/#425) | future Coder session | Pre-existing, confirmed not a #88 regression, not yet ticketed. |
 | Resend provisioning | Trace, manual, off-transcript | Unchanged. |
 | Calendly Phase 1 provisioning | Trace, manual, off-transcript | Unchanged. |
 | Proposal generator send-copy claims review | Trace / Rick Dahlson | Unchanged — blocks any real prospect send. |
 | `hausauerghmd` clone retirement | Trace | Unchanged. |
-| `reserved_for` dead column retirement | future Coder session | Carried from #88's PR body — NULL on all rows, superseded by `deals.territory_id`. |
-| Re-size-panel cosmetic follow-up (approved v3 territory) | future Coder session | New this handoff — re-size panel auto-resumes into a live second Approve control instead of sitting idle. Idempotent, not a data defect. |
+| `reserved_for` dead column retirement | future Coder session | NULL on all rows, superseded by `deals.territory_id`. |
+| Re-size-panel cosmetic follow-up (approved v3 territory) | future Coder session | Re-size panel auto-resumes into a live second Approve control instead of sitting idle. Idempotent, not a data defect. |
 
 ## Decision needed next session
 
-1. **Dispatch the `docs/AGENTS.md` capability-stack + Review SOP brief.** Drafted, Trace-reviewed, ready.
-2. **Isochrone-freeze follow-up** — closes the #94 residual risk. Still Chat's recommendation; still not picked.
-3. **390px tooling gap** — needs a decision on approach (manual pass vs. new automation path), separate from any specific PR.
-4. **Territory authoring/creation flow** — queued (referenced as "Brief 3" in recent session notes), not started.
-5. **Provisioning punch-list** — Resend, Calendly still outstanding.
-6. **Session E** — still unopened, still needs explicit Trace authorization.
-7. **Platform RBAC** — raised 2026-07-08, still no scoping doc.
+1. **Isochrone-freeze follow-up** — closes the #94 residual risk. Still Chat's recommendation; still not picked.
+2. **390px tooling gap** — needs a decision on approach (manual pass vs. new automation path), separate from any specific PR.
+3. **Territory authoring/creation flow** — queued (referenced as "Brief 3" in recent session notes), not started.
+4. **Provisioning punch-list** — Resend, Calendly still outstanding.
+5. **Session E** — still unopened, still needs explicit Trace authorization.
+6. **Platform RBAC** — raised 2026-07-08, still no scoping doc.
 
 **Do not assume — ask or wait for direction**, same as every prior handoff.
 
@@ -150,4 +162,4 @@ remain unopened — each requires explicit Trace authorization.
 |-------|-------|
 | Chat | PM + planning + MCP ops; **sole `ops.decision_log` writer**; Supabase access is read-only |
 | Coder | git + schema + code + migrations + live-DB deploy actions (fresh context each session) |
-| Pilot | GitHub UI fallback only when CLI/MCP unavailable |
+| Pilot | GitHub UI fallback only when CLI/MCP unavailable (deploy-preview QA reassigned to Coder — see `docs/AGENTS.md`) |
