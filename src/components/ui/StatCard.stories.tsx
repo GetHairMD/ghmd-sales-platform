@@ -20,7 +20,7 @@ export const Default: Story = {
   args: {
     label: 'Active prospects',
     value: 42,
-    sublabel: 'Across 11 pipeline stages',
+    sublabel: 'Across 12 pipeline stages',
     icon: <Users className="h-4 w-4 text-text-muted" aria-hidden="true" />,
   },
 }

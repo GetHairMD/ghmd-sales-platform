@@ -79,7 +79,7 @@ function StageStrip({ stages }: { stages: StageCount[] }) {
   return (
     <section>
       <SectionLabel>Pipeline by stage</SectionLabel>
-      {/* Horizontal scroll on mobile — never wrap the 11 cells at 390px. */}
+      {/* Horizontal scroll on mobile — never wrap the stage cells at 390px. */}
       <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
         {stages.map((s) => (
           <div
@@ -111,7 +111,7 @@ export default function DashboardView({ data }: { data: DashboardData }) {
         <StatCard
           label="Active prospects"
           value={totalActive}
-          sublabel="Across 11 pipeline stages"
+          sublabel={`Across ${stageCounts.length} pipeline stages`}
           icon={<Users className="h-4 w-4 text-text-muted" aria-hidden="true" />}
         />
         <StatCard

@@ -92,12 +92,11 @@ export interface SeedProspectInput {
   assigned_rep?: string
   icp_score?: number | null
   notes?: string | null
-  /** Any real pipeline stage id (1–11). */
+  /** Any real pipeline stage id (1–12). */
   stage: number
   deal_status?: DealStatus
   funding_prequal_cleared?: boolean
   skipped_funding_prequal?: boolean
-  skipped_triage?: boolean
 }
 
 export interface SeedProspectRow {
@@ -115,7 +114,6 @@ export interface SeedProspectRow {
   deal_status: DealStatus
   funding_prequal_cleared: boolean
   skipped_funding_prequal: boolean
-  skipped_triage: boolean
 }
 
 /** Build a validated demo-seed prospects row. Throws on an invalid stage or health. */
@@ -142,6 +140,5 @@ export function buildSeedProspectInsert(input: SeedProspectInput): SeedProspectR
     deal_status,
     funding_prequal_cleared: input.funding_prequal_cleared ?? false,
     skipped_funding_prequal: input.skipped_funding_prequal ?? false,
-    skipped_triage: input.skipped_triage ?? false,
   }
 }

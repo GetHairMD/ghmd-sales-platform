@@ -45,11 +45,11 @@ export async function moveProspectStage(
   }
 
   // Triage gate (crossing into Proposal Sent). Demo has no Tier 2 data → triage never complete.
+  // skipped_triage is DEPRECATED IN PLACE (#110): the confirm still nudges, but the flag is no
+  // longer persisted — the hard Qualification Review gate (PR3) supersedes the soft-skip record.
+  // Column not dropped; the (now-dormant) badge read-paths are a future cleanup.
   const crossesTriage = p.stage < TRIAGE_GATE_STAGE && targetStage >= TRIAGE_GATE_STAGE
-  if (crossesTriage) {
-    if (!confirmed.triage) return { ok: false, requiresConfirm: 'triage' }
-    update.skipped_triage = true
-  }
+  if (crossesTriage && !confirmed.triage) return { ok: false, requiresConfirm: 'triage' }
 
   // Funding pre-qual gate (crossing into Contract Sent) without cleared pre-qual.
   const crossesPrequal =

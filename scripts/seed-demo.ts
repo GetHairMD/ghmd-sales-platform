@@ -1,9 +1,10 @@
 /**
  * seed-demo.ts — idempotent demo seed for crm-demo-v1 P1.
  *
- * Populates one fictional practice per pipeline stage (1–11) plus a stalled deal,
- * a TRIAGE SKIPPED deal, a PRE-QUAL SKIPPED deal, and a lost deal — so every card
- * state and badge on the three surfaces renders from real data.
+ * Populates fictional practices across the live pipeline stages (Qualification Review,
+ * stage 5, has no demo prospect yet — deferred to PR3 so it can carry seeded
+ * qualification data) plus a stalled deal, a PRE-QUAL SKIPPED deal, and a lost deal.
+ * (TRIAGE SKIPPED retired — skipped_triage deprecated in place, decision #110.)
  *
  * All prospect rows are created through src/lib/prospect-insert.ts
  * (buildSeedProspectInsert) and tagged `lead_source = 'demo_seed'`. Territories and
@@ -89,12 +90,11 @@ const PROSPECTS: ProspectSeed[] = [
     activities: [{ activity_type: 'call_log', body: 'Discovery met. Strong interest, asked about financing.', daysAgo: 4 }],
   },
   {
-    // Advanced to Proposal Sent without a completed triage → TRIAGE SKIPPED.
     full_name: 'Dr. Elena Petrov', practice_name: 'Petrov Aesthetic Group', specialty: 'Dermatology',
     email: 'epetrov@petrovaesthetic.com', phone: '512-555-0154',
-    stage: STAGE.PROPOSAL_SENT, stageUpdatedDaysAgo: 2, icp_score: 79, skipped_triage: true,
+    stage: STAGE.PROPOSAL_SENT, stageUpdatedDaysAgo: 2, icp_score: 79,
     territory: 'Austin – Westlake',
-    activities: [{ activity_type: 'note', body: 'Proposal sent. Triage not yet complete — advanced with skip recorded.', daysAgo: 2 }],
+    activities: [{ activity_type: 'note', body: 'Proposal sent to the practice.', daysAgo: 2 }],
   },
   {
     // Stalled at Validation.

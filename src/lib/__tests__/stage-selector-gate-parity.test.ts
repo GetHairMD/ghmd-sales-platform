@@ -51,13 +51,14 @@ describe('Deal Room StageSelector routes through the sanctioned gate path', () =
   })
 })
 
-describe('the triage gate is enforced and recorded SERVER-SIDE', () => {
-  it('moveProspectStage requires confirm and records skipped_triage when crossing into Proposal Sent', () => {
+describe('the triage confirm is enforced SERVER-SIDE; skipped_triage is deprecated (#110)', () => {
+  it('moveProspectStage still requires the triage confirm but no longer records skipped_triage', () => {
     const src = read(ACTIONS)
     expect(src).toContain('TRIAGE_GATE_STAGE')
-    // Crossing the gate without confirmation returns requiresConfirm: 'triage' ...
+    // Crossing the gate without confirmation still returns requiresConfirm: 'triage' ...
     expect(src).toContain("requiresConfirm: 'triage'")
-    // ... and once confirmed, the skip is written to the record server-side.
-    expect(src).toContain('skipped_triage')
+    // ... but skipped_triage is deprecated in place (#110) — the flag must NOT be written
+    // (a deprecation *comment* naming the column is fine; only an assignment is forbidden).
+    expect(src, 'skipped_triage is deprecated (#110) — actions.ts must not write it').not.toMatch(/skipped_triage\s*[:=]/)
   })
 })

@@ -33,7 +33,7 @@ Does NOT:
 - CUSTOMERS_NEEDED = 62. Single source: lib/addressable-market-constants.ts.
 - Penetration scenarios: 0.5% / 1% / 2%, computed on render, not stored. Labels: Conservative / Base / Upside.
 - PTI5 not stored server-side — compute-vs-store decision deferred.
-- 11-stage pipeline (pipeline-stages.ts, single source of truth): New Lead → Contacted → Discovery Call Scheduled → Discovery Call Met → Proposal Sent → Validation → Funding Pre-Qualified → Contract Sent → Contract Signed → Funded/Won → Implementation Handoff Scheduled. No LOI stage, no FDD stage.
+- 12-stage pipeline (pipeline-stages.ts, single source of truth): New Lead → Contacted → Discovery Call Scheduled → Discovery Call Met → Qualification Review → Proposal Sent → Validation → Funding Pre-Qualified → Contract Sent → Contract Signed → Funded/Won → Implementation Handoff Scheduled. No LOI stage, no FDD stage. Qualification Review inserted per decision #110 (its stage-advancement gate enforcement lands with the PR3 UI).
 - Deal health separate from stage: prospects.deal_status (active|stalled|lost).
 - Funding gate is soft by explicit decision. Revisit only with skip-rate data.
 - Test conventions: vitest, pure-function + source-scan style. No RTL/jsdom — deliberate.

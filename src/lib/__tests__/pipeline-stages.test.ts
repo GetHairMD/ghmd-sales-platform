@@ -16,9 +16,9 @@ import {
 } from '../pipeline-stages'
 
 describe('PIPELINE_STAGES shape', () => {
-  it('has exactly 11 stages with sequential ids 1..11', () => {
-    expect(PIPELINE_STAGES).toHaveLength(11)
-    expect(PIPELINE_STAGES.map(s => s.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+  it('has exactly 12 stages with sequential ids 1..12', () => {
+    expect(PIPELINE_STAGES).toHaveLength(12)
+    expect(PIPELINE_STAGES.map(s => s.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
   })
 
   it('has the expected labels in order', () => {
@@ -27,6 +27,7 @@ describe('PIPELINE_STAGES shape', () => {
       'Contacted',
       'Discovery Call Scheduled',
       'Discovery Call Met',
+      'Qualification Review',
       'Proposal Sent',
       'Validation',
       'Funding Pre-Qualified',
@@ -63,11 +64,12 @@ describe('STAGE named ids', () => {
 
   it('anchors the known positions', () => {
     expect(STAGE.NEW_LEAD).toBe(1)
-    expect(STAGE.PROPOSAL_SENT).toBe(5)
-    expect(STAGE.FUNDING_PRE_QUALIFIED).toBe(7)
-    expect(STAGE.CONTRACT_SENT).toBe(8)
+    expect(STAGE.QUALIFICATION_REVIEW).toBe(5)
+    expect(STAGE.PROPOSAL_SENT).toBe(6)
+    expect(STAGE.FUNDING_PRE_QUALIFIED).toBe(8)
+    expect(STAGE.CONTRACT_SENT).toBe(9)
     expect(FIRST_STAGE).toBe(1)
-    expect(LAST_STAGE).toBe(11)
+    expect(LAST_STAGE).toBe(12)
   })
 })
 
@@ -96,57 +98,57 @@ describe('deal status', () => {
 })
 
 describe('soft funding pre-qual gate', () => {
-  it('gates at Contract Sent (stage 8)', () => {
-    expect(FUNDING_PREQUAL_GATE_STAGE).toBe(8)
+  it('gates at Contract Sent (stage 9)', () => {
+    expect(FUNDING_PREQUAL_GATE_STAGE).toBe(9)
   })
 
-  it('advancing to 8+ WITHOUT cleared pre-qual requires confirm', () => {
-    expect(requiresFundingPrequalConfirm(8, false)).toBe(true)
-    expect(requiresFundingPrequalConfirm(11, false)).toBe(true)
+  it('advancing to 9+ WITHOUT cleared pre-qual requires confirm', () => {
+    expect(requiresFundingPrequalConfirm(9, false)).toBe(true)
+    expect(requiresFundingPrequalConfirm(12, false)).toBe(true)
   })
 
-  it('advancing to 8+ WITH cleared pre-qual does not require confirm', () => {
-    expect(requiresFundingPrequalConfirm(8, true)).toBe(false)
-    expect(requiresFundingPrequalConfirm(10, true)).toBe(false)
+  it('advancing to 9+ WITH cleared pre-qual does not require confirm', () => {
+    expect(requiresFundingPrequalConfirm(9, true)).toBe(false)
+    expect(requiresFundingPrequalConfirm(11, true)).toBe(false)
   })
 
-  it('advancing below stage 8 never requires confirm, cleared or not', () => {
-    expect(requiresFundingPrequalConfirm(7, false)).toBe(false)
+  it('advancing below stage 9 never requires confirm, cleared or not', () => {
+    expect(requiresFundingPrequalConfirm(8, false)).toBe(false)
     expect(requiresFundingPrequalConfirm(1, false)).toBe(false)
   })
 
   it('badge shows only when skipped AND at/after the gate stage', () => {
-    expect(showPrequalSkippedBadge(8, true)).toBe(true)
-    expect(showPrequalSkippedBadge(10, true)).toBe(true)
-    expect(showPrequalSkippedBadge(7, true)).toBe(false) // moved back before gate
-    expect(showPrequalSkippedBadge(8, false)).toBe(false) // not skipped
+    expect(showPrequalSkippedBadge(9, true)).toBe(true)
+    expect(showPrequalSkippedBadge(11, true)).toBe(true)
+    expect(showPrequalSkippedBadge(8, true)).toBe(false) // moved back before gate
+    expect(showPrequalSkippedBadge(9, false)).toBe(false) // not skipped
   })
 })
 
 describe('soft triage gate', () => {
-  it('gates at Proposal Sent (stage 5)', () => {
-    expect(TRIAGE_GATE_STAGE).toBe(5)
+  it('gates at Proposal Sent (stage 6)', () => {
+    expect(TRIAGE_GATE_STAGE).toBe(6)
   })
 
-  it('advancing to 5+ WITHOUT a complete triage requires confirm', () => {
-    expect(requiresTriageConfirm(5, false)).toBe(true)
-    expect(requiresTriageConfirm(8, false)).toBe(true)
+  it('advancing to 6+ WITHOUT a complete triage requires confirm', () => {
+    expect(requiresTriageConfirm(6, false)).toBe(true)
+    expect(requiresTriageConfirm(9, false)).toBe(true)
   })
 
-  it('advancing to 5+ WITH a complete triage does not require confirm', () => {
-    expect(requiresTriageConfirm(5, true)).toBe(false)
-    expect(requiresTriageConfirm(11, true)).toBe(false)
+  it('advancing to 6+ WITH a complete triage does not require confirm', () => {
+    expect(requiresTriageConfirm(6, true)).toBe(false)
+    expect(requiresTriageConfirm(12, true)).toBe(false)
   })
 
-  it('advancing below stage 5 never requires confirm, triage complete or not', () => {
-    expect(requiresTriageConfirm(4, false)).toBe(false)
+  it('advancing below stage 6 never requires confirm, triage complete or not', () => {
+    expect(requiresTriageConfirm(5, false)).toBe(false)
     expect(requiresTriageConfirm(1, false)).toBe(false)
   })
 
   it('badge shows only when skipped AND at/after the gate stage', () => {
-    expect(showTriageSkippedBadge(5, true)).toBe(true)
-    expect(showTriageSkippedBadge(8, true)).toBe(true)
-    expect(showTriageSkippedBadge(4, true)).toBe(false) // moved back before gate
-    expect(showTriageSkippedBadge(5, false)).toBe(false) // not skipped
+    expect(showTriageSkippedBadge(6, true)).toBe(true)
+    expect(showTriageSkippedBadge(9, true)).toBe(true)
+    expect(showTriageSkippedBadge(5, true)).toBe(false) // moved back before gate
+    expect(showTriageSkippedBadge(6, false)).toBe(false) // not skipped
   })
 })
