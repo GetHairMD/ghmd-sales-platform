@@ -60,26 +60,98 @@ Does NOT:
 - Touch NIP project (`kjweckggegifjmmqccul`) or NIP Netlify (`ghmdnetwork.netlify.app`)
 - Open Sprint N+1 work during a Sprint N session without Trace sign-off
 
+### Capability Stack (standing assumption)
+This stack is installed at the Claude Code **user** level on Trace's machine — only
+`netlify-skills` and `typescript-lsp` are Project-scoped to this repo. It persists across
+sessions run under this profile but is **not guaranteed** for a Coder session run under a
+different account, a CI runner, or another machine. Briefs and sessions MUST assume and use
+what's below when running under Trace's profile — scoping work as if Coder is code-only is a
+planning error — but should not treat this as a repo-portable guarantee.
+
+Canonical capabilities:
+- **Browser automation:** `chrome-devtools-mcp` + `playwright` MCP — Coder drives a real
+  browser against Netlify deploy previews for visual/UX/functional QA. This replaces Pilot
+  for deploy-preview QA. chrome-devtools attaches to Trace's authenticated Chrome session;
+  credentials are never exchanged.
+- **Platform skills:** netlify-skills (deploy/config/functions), mapbox (incl. token-security
+  patterns), supabase + postgres-best-practices, github, monday CRM, firecrawl, context7,
+  typescript-lsp, desktop-commander, frontend-design.
+- **Security:** `security-guidance` — general security-review skill; use alongside
+  postgres-best-practices for anything touching auth, RLS, or schema-level access control.
+- **Docs hygiene:** `claude-md-management` — use when a task touches `CLAUDE.md` itself
+  (structure, commands, repo-layout sections).
+- **Process skills:** superpowers (TDD, verification-before-completion, code-review,
+  plan-writing), code-review plugin, skill-creator.
+Briefs SHOULD name the relevant skills for the task. Deploy-preview visual QA is assigned to
+Coder via browser automation unless a step genuinely requires human eyes or a session Coder
+cannot obtain.
+
 ## Pilot (Browser Extension / GitHub UI)
 
 **Role: GitHub UI Fallback Only**
 
 Owns:
-- Creating PRs via GitHub web UI when CLI/MCP unavailable
-- Reviewing and merging PRs if Trace requests it
-- Branch creation via UI if git CLI fails
+- GitHub web-UI operations ONLY when CLI/MCP is unavailable (PR creation, branch ops, merge
+  at Trace's request)
 
 Does NOT:
 - Write code
 - Make architectural decisions
 - Operate on any repository other than `GetHairMD/ghmd-sales-platform`
+- Perform deploy-preview QA (reassigned to Coder browser automation — see Coder Capability
+  Stack)
+
+## Review SOP
+
+Three tiers. Default is the floor; higher tiers fire on triggers, not on every PR — deep
+review is reserved for where logic risk lives, not spent on trivial diffs. The brief sets
+the tier; absent an explicit tier, the trigger table decides. Coder MUST self-escalate one
+tier when uncertain — uncertainty is a trigger, not a judgment call to skip.
+
+**standard** — every PR, no exceptions (this is the existing workflow, now named; near-zero
+added cost):
+1. Coder self-review of the full staged diff before commit.
+2. superpowers:verification-before-completion — no AC reported complete without a cited
+   tool result (mirrors CLAUDE.md Rule 17).
+3. CI gate green.
+4. Chat independent diff-and-claims verification via GitHub MCP before Trace merges.
+
+**review** — standard PLUS a dedicated code-review pass (code-review plugin /
+superpowers:requesting-code-review / pr-review-toolkit) focused on: logic correctness, edge
+cases (empty/null/boundary inputs, state transitions), error handling, and hygiene (naming,
+dead code, token-only styling). Triggers — any one fires it:
+- New or changed business logic in sizing, pricing, pipeline, or proposal code paths
+- Any file under src/lib/ with behavioral (non-type-only) changes
+- Diff > ~300 changed lines of source (tests excluded from the count)
+- Coder uncertainty about correctness anywhere in the diff
+
+**ultrareview** — review PLUS the full battery:
+5. Second-Opinion Gate (existing governance — unchanged).
+6. Deploy-preview QA via Coder browser automation against a stated checklist
+   (fixture-seeded where live data is insufficient; seeding is Chat's write).
+   (Preview hosts are auth-scoped: Trace signs in once on the PR's preview host before the
+   QA run — Coder never handles credentials.)
+7. Adversarial pass: attempt the failure modes the change is supposed to prevent
+   (non-privileged access to gated controls, invalid-state writes, RLS bypass) and report
+   observed refusals. Use `security-guidance` alongside this step for anything touching
+   auth/RLS/roles.
+Triggers — any one fires it:
+- Auth, RLS, roles, or session handling
+- Migrations touching data (not additive-schema-only)
+- Prospect-facing surfaces (/p/ pages, proposal content, anything a prospect can load)
+- Money: pricing, contract values, anything feeding a legal document
+- Chat or Trace flags it in the brief
+
+Tier applied (and any Trace-approved waiver) is stated in the PR description. Waivers are
+Trace decisions, not agent judgment calls. Docs-only and dependency-bump PRs are standard
+unless flagged.
 
 ## Handoff Protocol
 
 ```
 Chat   →  Coder:   spec doc + acceptance criteria + sprint number
 Coder  →  Chat:    PR link + test results + blockers for Trace decision
-Coder  →  Pilot:   PR URL for UI review if MCP unavailable
+Coder  →  Pilot:   GitHub UI ops only if CLI/MCP unavailable (QA is Coder browser automation)
 ```
 
 **The session handoff** (`handoffs/LATEST.md`) is narrative-only: what shipped and why, judgment calls, residual risks, deferrals, and the decision queue. It does not state volatile state facts — main HEAD, decision-log tip, open PRs, and advisor status are derived live at session start (git, `ops.decision_log`, `get_advisors`), never read from the handoff.
