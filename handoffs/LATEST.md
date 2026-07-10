@@ -1,8 +1,8 @@
-# GHMD Sales Platform — Handoff v2.36
+# GHMD Sales Platform — Handoff v2.37
 
-Date: 2026-07-10 | Prepared by: Chat (drafted, Coder commits) | Purpose: Close the
-4-PR Qualification Gate & Territory-Authoring Precondition arc (decisions #109/#110) with
-PR4's merge. Supersedes v2.35.
+Date: 2026-07-10 | Prepared by: Coder at session close (docs/AGENTS.md session-close rule),
+for Chat/Trace review | Purpose: capture the v3 floor clamp (#120), the #117 anchor re-run,
+and the full Nashville data-integrity incident arc (#100/#101/#123/#102). Supersedes v2.36.
 
 > **State facts are never read from this file.** Main HEAD, decision-log tip, open PRs, and
 > security-advisor status are derived live at every session start (git, `ops.decision_log`,
@@ -17,155 +17,104 @@ PR4's merge. Supersedes v2.35.
 | Supabase project | `cprltmwwldbxcsunsafl` (ghmd-sales-platform) — NIP `kjweckggegifjmmqccul` is a separate production system, **never touch** |
 | Netlify | `ghmdsalesplatform.netlify.app` (main auto-deploys) |
 
-## What shipped since v2.35 — PR4 closes the Qualification Gate arc
+## State as of this handoff (illustrative — verify live)
 
-**PR4 (#97, decision #118, ADOPTED)** — the last PR in the 4-PR shape authorized under
-decisions #109/#110. Shipped in three review rounds, not one; each round sent back rather
-than accepted defensively — worth recording in detail because the pattern (structural fix
-over defensive patch) is the standard this arc set, not a one-off.
+- Main HEAD `8518527` (PR #102 squash-merge). Open PRs: 0. Decision-log tip: **#123**.
 
-- **Round 1 — the nav split itself.** Renamed "Territories" → "Deal Territories"
-  (label-only, `/territories` route/data/behavior unchanged). Added exec-only "Territory
-  Scouting" as a Coming Soon placeholder — not the territory-creation flow, which stays
-  separately deferred and was confirmed absent from `src/` back in PR3. Gated via
-  `navItemsFor(designation)`, a pure filter reusing PR3's `getViewerDesignation()` /
-  `internal_users` pattern — no new role logic. `src/lib` genuinely untouched (type-only +
-  reused-function imports only, independently confirmed from the diff).
-- **Round 2 — sent back, not accepted.** Round 1 sourced `getViewerDesignation()` in the
-  **true root layout**, which wraps every route including the public `/p/[slug]` proposal
-  page — defended only by a try/catch fail-closed. Rather than accept that as a documented
-  residual risk, it was sent back for a structural fix: designation-sourcing moved into a
-  new `src/app/(app)` route group wrapping only internal pages (Dashboard, Pipeline,
-  Prospects, Territories, the internal Proposals index). The true root layout is now
-  genuinely minimal — html/body/fonts/metadata only, no auth call in its call graph at all.
-  Verified via the build (`/login` flipped back to static rendering — impossible if its
-  layout still read cookies) and a direct render-tree read (every
-  `getViewerDesignation()` call site confined to `(app)/` or `src/lib`).
-  **This round also surfaced and fixed a real pre-existing bug**, not introduced by this
-  PR: `AppShell`'s old per-path `CHROMELESS_PREFIXES` guard was stripping the shell from
-  the *internal* Proposals index (a rep-facing page reached from the sidebar) because it
-  matched on the bare `/proposals` prefix without distinguishing it from the public
-  `/proposals/[prospectId]` buyer page sharing that folder. Fixed as part of the
-  route-group move.
-- **Round 3 — codified, not left as a one-time check.** The chromeless-Proposals fix from
-  round 2 was verified manually but not regression-tested. Sent back a third time for
-  `app-shell-chrome-guardrails.test.ts` — a source-scan guardrail (repo's established
-  idiom, no RTL/jsdom) asserting the internal Proposals index lives inside `(app)`, the
-  legacy public buyer page stays at the shell-less root, and `AppShell` carries no
-  per-path chrome-stripping mechanism, scanned comment-stripped so its own JSDoc (which
-  legitimately names the retired token) can't false-pass the check.
+## What shipped since v2.36
 
-**Verification discipline held across all three rounds, independently, not from Coder's
-self-report:** each round's diff was pulled directly via GitHub MCP before the next
-request went out. The regression-guardrail trip-wire claim specifically was checked by
-fetching `AppShell.tsx` at both the pre-refactor commit and the final branch head directly
-— confirming `CHROMELESS_PREFIXES`/`isChromeless`/`usePathname` exist as genuine executable
-code in the old file and are absent (bar one JSDoc mention) in the new one, proving the new
-test is a real trip-wire and not a tautology.
+### 1. v3 minimum drive-time floor — PR #99, decision #120 (ADOPTED), merged `a8e928d`
+`V3_MIN_DRIVE_MINUTES = 5` added to `/lib/addressable-market-constants.ts`; `sizeByExpansion`
+clamps the **returned** boundary up to 5 minutes when the smallest qualifying minute m* < 5,
+re-evaluating addressable at 5 (never the smaller technically-sufficient count). Additive clamp
+— 45-min ceiling, `UNRESOLVED_*`, the 18,600 household floor, and the `[15,25,35,45]` probe set
+all unchanged. Resolves TERRITORY-METHODOLOGY.md **§8.5** (now "Resolved Parameters"). Full
+suite 971 at merge; `tsc`/lint clean. Review SOP tier `review` (dedicated pass, clean).
 
-**Final state:** 3 commits, 33 files changed, +254/−52. Full suite 967 passing (was 956
-before this arc began). Build clean, lint clean. Merged to main at `ff0ba50` (base `38d10f6`
-— the v2.35 handoff commit).
+### 2. #117 anchor re-run — Part 2, decision #117 still OPEN
+The three decision-#94-locked anchors were re-sized under the current (post-#102, #120) engine,
+run through the **live** deployed `size-territory-background` worker (auth POST path isn't
+headlessly drivable; Trace approved driving the real worker via a service-role-enqueued job).
+New `territory_sizing_jobs` rows written; the six pre-#87 evidentiary rows preserved;
+`territories.*` untouched.
 
-## A separate, unresolved finding from this session — decision #117
+| Anchor | New job id | Result |
+|---|---|---|
+| Austin – Westlake (`ab23f4d6…`) | `14fb63ba…` | VIABLE **13 min / 27,978.39** |
+| Dallas – Preston Hollow (`806ac611…`) | `d6efac7b…` | VIABLE **9 min / 19,141.31** |
+| Nashville – Green Hills (`5a89e1c9…`) | `7caf4c20…` | VIABLE **14 min / 21,420.60** |
 
-While sequencing PR4's greenlight, a second and unrelated issue was investigated and
-logged: **PR #87's sizing-algorithm change (removing v3's 15-minute search floor) very
-likely invalidates the three decision-#94-locked v3 QA anchor territories** (Austin –
-Westlake, Dallas – Preston Hollow, Nashville – Green Hills). Confirmed via code diff (the
-old algorithm returned the smallest clearing probe immediately; the new one refines
-downward past it) and via the stored job JSON on one locked anchor (Austin's `probes` array
-shows the old single-probe-return signature). No job has re-run against any of the three
-since PR #87 merged. **This is distinct from the already-known Mapbox isochrone-drift
-risk** — it's a deterministic code-behavior change, not live-data non-determinism, so
-"investigate before treating as regression" (decision #94's own guidance) doesn't apply;
-the diff fully explains the expected discrepancy.
+**Notable:** the #120 clamp was **inert** — all three m* landed at 9–14 min, well above the
+5-min floor, contrary to the "will clamp to 5" plausibility note in the brief. So #94 **is**
+invalidated (boundaries now 9–14 min, not the locked 15), but by the refine-down algorithm
+landing mid-range, not by pathologically small radii. The 15-min probe values are close to the
+old locked figures (small Mapbox drift) — the invalidation is algorithmic, consistent with #117.
 
-Logged as decision **#117, status `OPEN`** — records the gap, does not resolve it.
-**Re-lock (live re-run + supersede #94) vs. documentation-only (mark #94's figures as
-pre-#87 historical) is still Trace's call, not yet made.**
+**OUTSTANDING (unblocked, not done):** the #94 supersession and the §8.8 doc update are **still
+not written**. The job data exists and is verified; the `ops.decision_log` supersession entry
+(Chat's write) and the §8.8 anchor-table update are the remaining step. §8.8 still reads
+"established, decision #94."
+
+### 3. Nashville data-integrity incident — full arc (closed)
+- **Root cause:** the `territories/[id]` page render silently overwrote the Nashville
+  `qa_locked=true` anchor via an RLS-bypassing admin client during this session
+  (`addressable_patients_primary` 4,127 → 172,275, whole Davidson County), discovered by Chat
+  cross-checking against an earlier same-session query. Not caused by the v3 sizing jobs
+  (non-write boundary held) nor by any Coder `territories` write.
+- **Restore:** two data-only corrections (Chat-directed SQL, not a PR) returned all incident-
+  touched columns to their pre-incident/peer-consistent state; all three anchors now uniform.
+- **PR #100** — `shouldRefreshV2Census` guard (pure predicate, gates the render census write on
+  `!qa_locked` + cache-TTL + coords). Closes the render-write exposure. **No dedicated
+  #-numbered decision** (verified: no `ops.decision_log` row keyed to PR #100).
+- **PR #101** — `qa_locked` 409 guard on the approve route. Closes the second sibling, which was
+  **live-primed** by item 2's three succeeded VIABLE jobs against locked, `status='available'`
+  anchors (the status guard alone would not have blocked an exec approve).
+- **Decision #123 (ADOPTED)** — authorized a scoping-only investigation of the root pattern.
+- **PR #102** — `docs/RLS-BYPASS-WRITE-GUARD-SCOPING.md`: full inventory of every service-role/
+  admin write, three options (A per-site / B shared helper / C DB trigger), **recommends C**
+  (a `BEFORE UPDATE` trigger — the only mechanism that catches service-role + future write
+  sites; RLS can't, because `territories.internal_users_all` is unconditional and encodes no
+  `qa_locked` invariant), and six flags for Trace. Merged `8518527`. Build NOT authorized.
+
+## Standing queue — reprioritized (Trace, this session)
+
+**"Get everything tight and clean and secure before more building work."** The six flags from
+decision #123 (§5 of the scoping doc) are now the **top of the queue** — settle the durable
+governed-row protection before opening new build work.
+
+| Priority | Item | Owner | Status |
+|---|---|---|---|
+| **1** | **Decision #123 six flags** (RLS posture, locked-row escape-hatch, sold/reserved parity, #102-gate compat, scope beyond territories, proposals posture) | Trace decides, then Coder builds chosen option | New top of queue. Scoping done (PR #102); build unauthorized. |
+| **2** | **#94 supersession + §8.8 update** | Chat (decision-log) + doc | Unblocked by item 2 above, **not done**. Job data verified and ready. |
+| 3 | **Isochrone-freeze for v3 QA anchors** (#96) | Trace to prioritize, then Coder | Unchanged — proposed, not built. Closes #94's longstanding Mapbox-drift residual. |
+| 4 | **National territory status map** (#121 OPEN / #122 ADOPTED) | future Coder session | Confirmed a standalone nav item (not a Deal Territories expansion), rep-requested; not yet scoped. |
+| 5 | **Territory-creation / authoring flow** | future Coder session | Deferred, needs its own scoping brief. |
+| 6 | **390px / authenticated deploy-preview QA tooling gap** | Trace / future Coder | No fix path identified; still limits browser QA on auth'd surfaces. |
+| — | `qualification_reviews`/`rep_call_grades` FK cascade behavior | Trace decision | Open, not urgent. |
+| — | Session E; Platform RBAC (raised 2026-07-08, no scoping doc) | Trace authorization | Unopened. |
+| — | monday.com board ID discrepancy | Trace | Unreconciled since 2026-07-07. |
+| — | Rick Dahlson copy review (#68/#71, `legal_flag`) | Trace / Rick | Still the real gate on any live prospect send. |
+| — | Box Sign / Territory License Agreement (#99-legal) | Bruce / counsel, then Coder | Paused, unchanged. |
+| — | Legacy public `/proposals/[prospectId]` retirement; `reserved_for` dead column; TopBar global search; repo-wide token-lint; PRD v1.2 embedded-signing staleness; prospect-page hydration (#418/#423/#425); Resend + Calendly provisioning | various | All unchanged from v2.36 — carry forward, do not re-litigate. |
 
 ## Residual risks (stated plainly)
 
-- **v3 sizing anchors — see decision #117 above.** New this session, unresolved, needs a
-  Trace decision on path forward.
-- **v3 QA anchors still drift with Mapbox** (unchanged, longstanding) — isochrone fetched
-  live on every job, never cached. Isochrone-freeze fix proposed (#96), not built.
-- **390px / authenticated deploy-preview QA still has no working automated path**
-  (unchanged) — this gap directly limited PR4's own verification: the route-group refactor
-  and nav-gating behavior were verified via build output, render-tree reads, and unit
-  tests, but full exec-vs-rep browser verification on the live deploy-preview still
-  requires Trace's authenticated session.
-- **`qualification_reviews` / `rep_call_grades` FK cascade behavior** (RESTRICT vs
-  CASCADE) — still open, Trace call, not urgent.
-- **monday.com board ID discrepancy** — still unreconciled since 2026-07-07.
-- Rick Dahlson copy review (#68/#71, `legal_flag: true`) — still the real gate on any live
-  prospect send.
-- Hard Rule 10 remains genuinely remediated (decision #105) — reconfirmed via
-  `get_advisors` earlier this session, zero `rls_policy_always_true` findings.
-
-## New from this arc — small, explicitly not creeped into PR4
-
-- **`/territories` page `<h1>` still reads "Territories,"** not "Deal Territories" — a
-  page heading, not the nav item, correctly out of PR4's nav-component scope. Small
-  follow-up if the label mismatch matters. That line also carries a pre-existing
-  `text-gray-900` raw-utility violation, left untouched.
-- **The legacy public `/proposals/[prospectId]` buyer page** is now structurally
-  confirmed (via the route-group split) to be exactly what its own code comments already
-  said: superseded by `/p/[slug]`, never indexed, kept alive only at the shell-less root.
-  Worth a retirement decision at some point, now that its isolation is structurally clean
-  rather than accidental. Not urgent — noting so it surfaces as a deliberate choice next
-  time it's touched, not a surprise.
-
-## Box Sign / Territory License Agreement scoping (decision #99 — LOCKED, legal-flagged, unchanged)
-
-No change since v2.35. Architecture locked, build paused pending the hub-and-spoke
-instrument redraft (Bruce/counsel). Reference decision #99 for the full legal analysis.
-
-## Standing deferrals
-
-| Item | Owner | Status |
-|---|---|---|
-| **v3 sizing anchor reproducibility gap** (decision #117) | Trace decision | New — re-lock vs. document-only, not yet chosen. |
-| **Territory-creation screen mechanics** (location input, sizing-job kickoff UI) | future Coder session | Deferred, needs its own scoping brief; PR3 confirmed no placeholder exists yet. |
-| **Deal Economics & Margin Tracking** | future Coder session | Deferred, needs its own scoping document. |
-| **`qualification_reviews`/`rep_call_grades` FK cascade behavior** | Trace decision | Open, not urgent. |
-| **390px / authenticated deploy-preview QA tooling gap** | Trace / future Coder session | No fix path identified yet; directly limited PR4's own QA. |
-| **Isochrone-freeze for v3 QA anchors** | Trace to prioritize, then Coder | Unchanged — proposed (#96), not built. |
-| **`/territories` page `<h1>` label + pre-existing `text-gray-900`** | future Coder session | Small, flagged not done in PR4. |
-| **Legacy public `/proposals/[prospectId]` retirement** | Trace | New — structurally isolated now, not urgent, worth a deliberate call eventually. |
-| **Box Sign / Territory License Agreement** | Bruce / counsel, then Coder | Unchanged — paused per #99. |
-| **Functional global search** (TopBar) | future Coder session | Unchanged — dead field by design. |
-| **Repo-wide token-lint broadening** | future Coder session | Unchanged. |
-| **PRD v1.2 embedded-signing reference** | next PRD touch | Unchanged — still says "Box spike → embedded signing," stale vs #99. |
-| **Prospect-page hydration errors** (#418/#423/#425) | future Coder session | Pre-existing, confirmed not a #88 regression, not yet ticketed. |
-| **monday.com board ID discrepancy** | Trace | Unreconciled since 2026-07-07. |
-| Resend provisioning | Trace, manual, off-transcript | Unchanged. |
-| Calendly Phase 1 provisioning | Trace, manual, off-transcript | Unchanged. |
-| Proposal generator send-copy claims review | Trace / Rick Dahlson | Unchanged — blocks any real prospect send. |
-| `hausauerghmd` clone retirement | Trace | Unchanged. |
-| `reserved_for` dead column retirement | future Coder session | NULL on all rows, superseded by `deals.territory_id`. |
-| Re-size-panel cosmetic follow-up (approved v3 territory) | future Coder session | Idempotent, not a data defect. |
-
-## Decision needed next session
-
-1. **v3 sizing anchor gap (#117)** — re-lock via live re-run, or document-only. Newest, needs a call.
-2. **Isochrone-freeze follow-up** — closes the #94 residual risk. Still not picked.
-3. **390px / authenticated-preview tooling gap** — needs a decision on approach.
-4. **Territory authoring/creation flow** — queued, not started.
-5. **Provisioning punch-list** — Resend, Calendly still outstanding.
-6. **Session E** — still unopened, still needs explicit Trace authorization.
-7. **Platform RBAC** — raised 2026-07-08, still no scoping doc.
-8. **FK cascade behavior** on `qualification_reviews`/`rep_call_grades` hard-delete.
-9. **Legacy public proposals page retirement** — not urgent, worth a deliberate call.
-
-**Do not assume — ask or wait for direction**, same as every prior handoff.
+- **RLS-bypass write pattern** — root cause of the Nashville incident. Both known instances are
+  fixed (PR #100/#101), but the durable fix (DB trigger, Option C) is scoped-only and unbuilt;
+  a future service-role `territories` write with no guard would re-open the class. This is item 1.
+- **v3 anchors invalidated (#117 OPEN)** — the re-run data exists but #94 is not yet superseded
+  and §8.8 is stale; do not cite the old 15-min figures (59,699 / 120,318 / 33,969) as current.
+- **v3 QA anchors still drift with Mapbox** (longstanding) — isochrone fetched live per job,
+  never cached; isochrone-freeze (#96) not built.
+- **Authenticated deploy-preview QA has no automated path** — limited verification of PR
+  #100/#101 (guards proven by unit/source-scan tests, not browser); an exec-approve POST and a
+  qa_locked render are not headlessly drivable.
 
 ## Not This Session (escalate, don't creep)
 
-Session E, isochrone-freeze, Box Sign build, Platform RBAC, territory authoring, the v3
-anchor re-lock decision, and legacy-proposals retirement all remain unopened — each
-requires explicit Trace authorization.
+The #123 trigger build, the #94 supersession write, isochrone-freeze, the national status map,
+territory authoring, Session E, Platform RBAC, and Box Sign all remain unopened — each requires
+explicit Trace authorization (and, for #123, the six-flag decisions first).
 
 ## Agent Roles
 
