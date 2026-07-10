@@ -14,6 +14,7 @@ import { getViewerDesignation } from '@/lib/auth/internal-role'
 import {
   resolveTerritoryDisplayKind,
   addressableFloorStatus,
+  shouldRefreshV2Census,
 } from '@/lib/territories/v3-display'
 import type { InitialSizingJob } from '@/components/territory/V3SizingPanel'
 
@@ -171,16 +172,14 @@ export default async function TerritoryDetailPage({ params }: PageProps) {
   // ── V2_LEGACY: existing ZCTA/county display — UNCHANGED (AC7). Executives additionally get
   //    an additive "Size with v3" panel; reps see exactly what they see today. ───────────────
 
-  // Determine if census cache is stale
-  const cacheExpiresAt = territory.census_fetched_at
-    ? new Date(territory.census_fetched_at).getTime() + CENSUS_CACHE_TTL_DAYS * 86_400_000
-    : 0
-  const cacheStale = Date.now() > cacheExpiresAt
-
   let censusError: string | null = null
   let currentAddressable = territory.addressable_patients_primary as number | null
 
-  if (cacheStale && territory.center_lat && territory.center_lng) {
+  // qa_locked anchors are protected reference fixtures — NEVER recompute/overwrite them from a
+  // render side-effect (2026-07-10 Nashville incident: a stale-cache render clobbered the locked
+  // 4,127 figure with a whole-county recompute). shouldRefreshV2Census folds the qa_locked guard
+  // in with the cache-TTL freshness + center-coords checks that gated this block before.
+  if (shouldRefreshV2Census(territory)) {
     const censusApiKey = process.env.CENSUS_API_KEY
     if (!censusApiKey) {
       console.error('[census] CENSUS_API_KEY not set — skipping refresh')

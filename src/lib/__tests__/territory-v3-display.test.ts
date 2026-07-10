@@ -4,8 +4,9 @@ import {
   addressableFloorStatus,
   parseSizingJobResult,
   resolveProspectTerritory,
+  shouldRefreshV2Census,
 } from '../territories/v3-display'
-import { V3_MIN_ADDRESSABLE_FLOOR } from '../../../lib/addressable-market-constants'
+import { V3_MIN_ADDRESSABLE_FLOOR, CENSUS_CACHE_TTL_DAYS } from '../../../lib/addressable-market-constants'
 
 describe('resolveTerritoryDisplayKind', () => {
   it('is V2_LEGACY for a formula_version=2 territory with a number (AC7: v2 unchanged)', () => {
@@ -153,5 +154,57 @@ describe('resolveProspectTerritory (§D — deals.territory_id authoritative, re
     expect(r.territoryId).toBeNull()
     expect(r.source).toBeNull()
     expect(r.disagree).toBe(false)
+  })
+})
+
+describe('shouldRefreshV2Census (qa_locked write guard — 2026-07-10 Nashville incident)', () => {
+  const NOW = Date.UTC(2026, 6, 10, 15, 0, 0) // fixed clock so the TTL math is deterministic
+  const staleTs = new Date(Date.UTC(2026, 0, 1)).toISOString() // Jan → older than the 90-day TTL
+  const freshTs = new Date(NOW - 1 * 86_400_000).toISOString() // yesterday → inside the TTL
+  const center = { center_lat: 36.1006, center_lng: -86.8156 }
+
+  it('BLOCKS the refresh for a qa_locked anchor even when its cache is stale (the incident case)', () => {
+    // This is the exact condition that clobbered Nashville: qa_locked + census_fetched_at null.
+    expect(
+      shouldRefreshV2Census({ qa_locked: true, census_fetched_at: null, ...center }, NOW),
+    ).toBe(false)
+    // …and still blocked with an explicitly stale (non-null) timestamp.
+    expect(
+      shouldRefreshV2Census({ qa_locked: true, census_fetched_at: staleTs, ...center }, NOW),
+    ).toBe(false)
+  })
+
+  it('REFRESHES a non-locked territory whose cache is stale (real sold territories still work)', () => {
+    expect(
+      shouldRefreshV2Census({ qa_locked: false, census_fetched_at: null, ...center }, NOW),
+    ).toBe(true)
+    expect(
+      shouldRefreshV2Census({ qa_locked: false, census_fetched_at: staleTs, ...center }, NOW),
+    ).toBe(true)
+  })
+
+  it('does NOT refresh a non-locked territory whose cache is still fresh (< TTL)', () => {
+    expect(
+      shouldRefreshV2Census({ qa_locked: false, census_fetched_at: freshTs, ...center }, NOW),
+    ).toBe(false)
+  })
+
+  it('does NOT refresh (locked or not) without usable center coordinates', () => {
+    expect(
+      shouldRefreshV2Census({ qa_locked: false, census_fetched_at: null, center_lat: null, center_lng: null }, NOW),
+    ).toBe(false)
+  })
+
+  it('treats a null qa_locked as not-locked (defensive: only true blocks)', () => {
+    expect(
+      shouldRefreshV2Census({ qa_locked: null, census_fetched_at: staleTs, ...center }, NOW),
+    ).toBe(true)
+  })
+
+  it('uses CENSUS_CACHE_TTL_DAYS as the freshness window', () => {
+    const justInside = new Date(NOW - (CENSUS_CACHE_TTL_DAYS - 1) * 86_400_000).toISOString()
+    const justOutside = new Date(NOW - (CENSUS_CACHE_TTL_DAYS + 1) * 86_400_000).toISOString()
+    expect(shouldRefreshV2Census({ qa_locked: false, census_fetched_at: justInside, ...center }, NOW)).toBe(false)
+    expect(shouldRefreshV2Census({ qa_locked: false, census_fetched_at: justOutside, ...center }, NOW)).toBe(true)
   })
 })
