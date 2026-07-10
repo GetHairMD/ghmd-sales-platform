@@ -4,15 +4,20 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/design/cn'
 import Logo from '@/components/brand/Logo'
 import { BRAND_LINE } from '@/design/brand'
-import { NAV_ITEMS, isActive } from './nav-items'
+import type { Designation } from '@/lib/auth/internal-role'
+import { navItemsFor, isActive } from './nav-items'
 
 /**
  * Persistent left sidebar (spec §4B) — dark surface, GHMD reversed lockup +
  * "SALES PLATFORM" wordmark, icon nav with active state. Desktop only; the
  * mobile shell uses BottomTabBar instead (deliberate NIP deviation, spec §4B).
+ *
+ * `designation` (resolved server-side via getViewerDesignation, threaded through
+ * AppShell) gates exec-only items — reps never receive them in the rendered list.
  */
-export default function Sidebar() {
+export default function Sidebar({ designation }: { designation: Designation | null }) {
   const pathname = usePathname()
+  const items = navItemsFor(designation)
 
   return (
     <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-bg-dark text-text-inverse md:flex">
@@ -26,7 +31,7 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 space-y-1 px-3" aria-label="Primary">
-        {NAV_ITEMS.map((item) => {
+        {items.map((item) => {
           const Icon = item.icon
           const active = item.href ? isActive(pathname, item.href) : false
 

@@ -15,12 +15,12 @@ const RETIRED_LABELS = ['FDD Delivered', 'LOI Signed', 'Agreement Signed']
 // Files that render/mutate stage and must source it from the shared constant.
 const STAGE_CONSUMERS = [
   'src/components/StageSelector.tsx',
-  'src/app/pipeline/page.tsx',
-  'src/app/pipeline/PipelineBoard.tsx',
+  'src/app/(app)/pipeline/page.tsx',
+  'src/app/(app)/pipeline/PipelineBoard.tsx',
   'src/components/pipeline/ProspectCard.tsx',
-  'src/app/prospects/[id]/page.tsx',
-  'src/app/prospects/[id]/DealRoom.tsx',
-  'src/app/prospects/page.tsx',
+  'src/app/(app)/prospects/[id]/page.tsx',
+  'src/app/(app)/prospects/[id]/DealRoom.tsx',
+  'src/app/(app)/prospects/page.tsx',
 ]
 
 describe('no orphaned stage definitions', () => {
@@ -50,6 +50,6 @@ describe('no orphaned stage definitions', () => {
   })
 
   it('the new-prospect form no longer inserts the string stage "new_lead"', () => {
-    expect(read('src/app/prospects/new/page.tsx')).not.toContain("stage: 'new_lead'")
+    expect(read('src/app/(app)/prospects/new/page.tsx')).not.toContain("stage: 'new_lead'")
   })
 })

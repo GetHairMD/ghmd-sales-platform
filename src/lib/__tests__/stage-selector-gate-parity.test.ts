@@ -24,14 +24,14 @@ import { join } from 'node:path'
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8')
 
 const STAGE_SELECTOR = 'src/components/StageSelector.tsx'
-const PIPELINE_BOARD = 'src/app/pipeline/PipelineBoard.tsx'
-const ACTIONS = 'src/app/pipeline/actions.ts'
+const PIPELINE_BOARD = 'src/app/(app)/pipeline/PipelineBoard.tsx'
+const ACTIONS = 'src/app/(app)/pipeline/actions.ts'
 
 describe('Deal Room StageSelector routes through the sanctioned gate path', () => {
   it('calls the shared moveProspectStage server action', () => {
     const src = read(STAGE_SELECTOR)
     expect(src, 'StageSelector must import moveProspectStage').toContain('moveProspectStage')
-    expect(src).toContain("from '@/app/pipeline/actions'")
+    expect(src).toContain("from '@/app/(app)/pipeline/actions'")
   })
 
   it('does NOT write prospects.stage directly from the client', () => {

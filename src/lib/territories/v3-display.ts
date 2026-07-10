@@ -1,6 +1,6 @@
 /**
  * v3 territory display model — pure, UI-agnostic logic shared by the territory detail
- * page (src/app/territories/[id]) and the Lead-profile artifact (src/app/prospects/[id]).
+ * page (src/app/(app)/territories/[id]) and the Lead-profile artifact (src/app/(app)/prospects/[id]).
  *
  * Decisions this encodes (brief citing ops.decision_log #102, Trace rulings 2026-07-08):
  *   • The display "kind" (what number/map a viewer sees) depends ONLY on the persisted

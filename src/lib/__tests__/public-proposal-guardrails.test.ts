@@ -16,7 +16,7 @@ import { join } from 'node:path'
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8')
 
 const PUBLIC_PAGE = 'src/app/proposals/[prospectId]/page.tsx'
-const INTERNAL_PAGE = 'src/app/territories/[id]/page.tsx'
+const INTERNAL_PAGE = 'src/app/(app)/territories/[id]/page.tsx'
 
 // Affordability / formula-derivation terms that must never reach a prospect.
 // Word-boundary regexes so mechanic terms are caught (PTI8, PTI5) without false-positives

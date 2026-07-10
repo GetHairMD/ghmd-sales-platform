@@ -12,7 +12,7 @@ import {
 import {
   issueQualificationReview,
   saveQualificationRepNote,
-} from '@/app/prospects/[id]/qualification-actions'
+} from '@/app/(app)/prospects/[id]/qualification-actions'
 
 export interface QualificationReviewView {
   recommendation: QualificationRecommendation | null
