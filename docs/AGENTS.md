@@ -158,6 +158,8 @@ Coder  →  Pilot:   GitHub UI ops only if CLI/MCP unavailable (QA is Coder brow
 
 **Session-close handoff rule:** Any session that merges a PR to main or writes to `ops.decision_log` must end with either (a) a handoff append/update PR, or (b) an explicit in-session statement that no handoff update is needed and why. A session that does neither is incomplete. The next session's bootstrap treats a handoff that is missing narrative for merged PRs as a flag-and-report condition (not a silent-reconcile condition).
 
+**Automated reminder (`.github/workflows/handoff-reminder.yml`):** every PR to main runs a *non-blocking* check that posts a warning (a Checks-tab annotation plus a sticky PR comment) when the PR neither modifies `handoffs/LATEST.md` nor states an opt-out in its description. The opt-out is a line matching `Handoff: not needed` (case-insensitive), with any free text allowed after it — e.g. `Handoff: not needed — pure CI tooling change`. Touching `handoffs/LATEST.md` or including that line makes the check pass silently. The check never fails and never blocks merge; it is a visibility aid, not a gate. Note: it is a git-level check, so it cannot catch decision-log-only sessions that produce no PR — that remains a Chat session-discipline responsibility.
+
 Communication style: bottom line first. Flag business-logic calls as Trace's decision. Challenge weak assumptions once with reasoning, then execute. Re-confirm before irreversible actions or anything touching regulatory filings, securities, or signed contracts.
 
 ## Hard Boundaries (All Agents)
