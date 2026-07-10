@@ -7,9 +7,18 @@
  * (TRIAGE SKIPPED retired — skipped_triage deprecated in place, decision #110.)
  *
  * All prospect rows are created through src/lib/prospect-insert.ts
- * (buildSeedProspectInsert) and tagged `lead_source = 'demo_seed'`. Territories and
- * deals are tagged `notes = '[demo_seed]'`. Re-running deletes prior demo rows first
- * (prospects cascade to activities), so this is safe to run repeatedly.
+ * (buildSeedProspectInsert) and tagged `lead_source = 'demo_seed'`; deals are tagged
+ * `notes = '[demo_seed]'`. Re-running deletes prior demo prospects/deals first
+ * (prospects cascade to activities/proposals/qualification_*), so this is safe to
+ * run repeatedly.
+ *
+ * TERRITORIES are protected qa_locked reference fixtures (the decision #94 v3 sizing
+ * anchors), NOT demo churn: the seed ensures they exist (creating them qa_locked once
+ * if absent) and reuses their stable IDs, but NEVER deletes them. This keeps the
+ * anchor UUIDs and their territory_sizing_jobs provenance stable across reseeds
+ * (the failure the PR2 reseed hit). All fallible/external work (Census fetch) runs
+ * BEFORE any delete, so a mid-run failure can never leave demo rows
+ * deleted-but-not-reinserted.
  *
  * Writes to the SALES project only (cprltmwwldbxcsunsafl). Requires service role:
  *   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
@@ -150,28 +159,93 @@ const PROSPECTS: ProspectSeed[] = [
   },
 ]
 
+const QA_ANCHOR_TAG = '[qa_anchor]'
+
+/**
+ * Ensure the protected anchor territories exist; return name -> { id, addressable }.
+ *
+ * These are qa_locked reference fixtures (the decision #94 v3 sizing anchors). They
+ * are NEVER deleted or recreated by the seed — created once (qa_locked) if absent,
+ * otherwise reused as-is. Reusing their stable IDs is what keeps the anchor UUIDs and
+ * their territory_sizing_jobs provenance intact across reseeds. Demo deals attach to
+ * these rows; there are no separate churnable demo territories to collide with them.
+ */
+async function ensureAnchorTerritories(): Promise<Map<string, { id: string; addressable: number }>> {
+  const map = new Map<string, { id: string; addressable: number }>()
+  for (const t of TERRITORIES) {
+    const found = await db
+      .from('territories')
+      .select('id, addressable_patients_primary')
+      .eq('name', t.name)
+      .eq('qa_locked', true)
+      .maybeSingle()
+    if (found.error) fail(`lookup anchor territory ${t.name}: ${found.error.message}`)
+    if (found.data) {
+      map.set(t.name, { id: found.data.id, addressable: found.data.addressable_patients_primary ?? t.addressable_patients_primary })
+      continue
+    }
+    // Absent (fresh DB) → create it once, qa_locked, so future reseeds reuse it.
+    const ins = await db
+      .from('territories')
+      .insert({ ...t, status: 'available', formula_run_at: new Date().toISOString(), qa_locked: true, notes: QA_ANCHOR_TAG })
+      .select('id, addressable_patients_primary')
+      .single()
+    if (ins.error) fail(`create anchor territory ${t.name}: ${ins.error.message}`)
+    map.set(t.name, { id: ins.data!.id, addressable: ins.data!.addressable_patients_primary ?? t.addressable_patients_primary })
+  }
+  return map
+}
+
 async function main() {
-  console.log('[seed-demo] Cleaning prior demo rows…')
-  // deals reference prospects + territories (no cascade) → delete first.
+  // ── Prep phase (nothing churnable deleted yet) ────────────────────────────
+  // Everything fallible/external (anchor ensure + Census) happens BEFORE any
+  // delete, so a mid-run failure can never leave demo rows deleted-but-not-
+  // reinserted. Combined with never deleting territories, this removes both
+  // failure classes the PR2 reseed hit (territory/sizing-job FK collision + a
+  // mid-run Census throw).
+  console.log('[seed-demo] Ensuring protected anchor territories…')
+  const territoryMap = await ensureAnchorTerritories()
+
+  const austin = territoryMap.get('Austin – Westlake')
+  if (!austin) fail('Austin – Westlake anchor territory missing after ensure')
+  const addressable_market_total = austin.addressable
+
+  console.log('[seed-demo] Fetching Census demand matrix…')
+  // B01001 demand matrix from Census. Throws CensusError if CENSUS_API_KEY is unset.
+  let cohorts: Array<{ ageBand: string; male: number; female: number }>
+  try {
+    cohorts = await getCohortPopulationByCounty('48453') // Travis County, TX (Austin – Westlake)
+  } catch (e) {
+    if (e instanceof CensusError) {
+      fail(
+        `CENSUS_API_KEY required to compute the B01001 demand_matrix for the proposal seed (decision #68). Set CENSUS_API_KEY and re-run. Error: ${e.message}`,
+      )
+    }
+    throw e
+  }
+  const sumMale = cohorts.reduce((s, c) => s + c.male, 0)
+  const sumFemale = cohorts.reduce((s, c) => s + c.female, 0)
+  const total_pop = sumMale + sumFemale
+  const demand_matrix: DemandMatrix = {
+    // Vintage reflects what the census client actually fetches (CENSUS_YEAR), not
+    // the constants file's declared ACS5 vintage — keep provenance honest.
+    source: `ACS B01001 (ACS5 ${CENSUS_YEAR})`,
+    vintage: CENSUS_YEAR,
+    cohorts,
+  }
+  const male_pct = total_pop ? +((sumMale / total_pop) * 100).toFixed(1) : null
+  const female_pct = total_pop ? +((sumFemale / total_pop) * 100).toFixed(1) : null
+  const new_patients_range_low = Math.round(PENETRATION_RATE_LOW * addressable_market_total)
+  const new_patients_range_high = Math.round(PENETRATION_RATE_HIGH * addressable_market_total)
+
+  // ── Churn reset (FK-safe) ─────────────────────────────────────────────────
+  // deals (no cascade) first, then prospects (cascades activities/proposals/
+  // qualification_*). Territories are qa_locked fixtures — never deleted here.
+  console.log('[seed-demo] Resetting demo fixture rows…')
   const del1 = await db.from('deals').delete().eq('notes', DEMO_TAG)
   if (del1.error) fail(`clean deals: ${del1.error.message}`)
-  // prospects cascade to activities.
   const del2 = await db.from('prospects').delete().eq('lead_source', DEMO_LEAD_SOURCE)
   if (del2.error) fail(`clean prospects: ${del2.error.message}`)
-  const del3 = await db.from('territories').delete().eq('notes', DEMO_TAG)
-  if (del3.error) fail(`clean territories: ${del3.error.message}`)
-
-  console.log('[seed-demo] Inserting territories…')
-  const territoryIds = new Map<string, string>()
-  for (const t of TERRITORIES) {
-    const { data, error } = await db
-      .from('territories')
-      .insert({ ...t, status: 'available', formula_run_at: new Date().toISOString(), notes: DEMO_TAG })
-      .select('id')
-      .single()
-    if (error) fail(`insert territory ${t.name}: ${error.message}`)
-    territoryIds.set(t.name, data!.id)
-  }
 
   console.log('[seed-demo] Inserting prospects, deals, activities…')
   let prospectCount = 0
@@ -191,7 +265,7 @@ async function main() {
     prospectCount++
 
     if (p.territory) {
-      const territoryId = territoryIds.get(p.territory)
+      const territoryId = territoryMap.get(p.territory)?.id
       if (!territoryId) fail(`prospect ${p.full_name} references unknown territory ${p.territory}`)
       const { error: dErr } = await db.from('deals').insert({
         prospect_id: prospectId,
@@ -225,45 +299,8 @@ async function main() {
   const prospectId = prospectNameToId.get('Dr. Elena Petrov')
   if (!prospectId) fail('Dr. Elena Petrov not found in inserted prospects')
 
-  // Addressable market total from the inserted Austin – Westlake territory.
-  const austinTerritory = await db
-    .from('territories')
-    .select('addressable_patients_primary')
-    .eq('name', 'Austin – Westlake')
-    .eq('notes', DEMO_TAG)
-    .single()
-  if (austinTerritory.error) fail(`fetch Austin – Westlake territory: ${austinTerritory.error.message}`)
-  const addressable_market_total = austinTerritory.data!.addressable_patients_primary
-
-  // B01001 demand matrix from Census. Throws CensusError if CENSUS_API_KEY is unset.
-  let cohorts: Array<{ ageBand: string; male: number; female: number }>
-  try {
-    cohorts = await getCohortPopulationByCounty('48453') // Travis County, TX (Austin – Westlake)
-  } catch (e) {
-    if (e instanceof CensusError) {
-      fail(
-        `CENSUS_API_KEY required to compute the B01001 demand_matrix for the proposal seed (decision #68). Set CENSUS_API_KEY and re-run. See PR notes. Error: ${e.message}`,
-      )
-    }
-    throw e
-  }
-
-  const sumMale = cohorts.reduce((s, c) => s + c.male, 0)
-  const sumFemale = cohorts.reduce((s, c) => s + c.female, 0)
-  const total_pop = sumMale + sumFemale
-  const demand_matrix: DemandMatrix = {
-    // Vintage reflects what the census client actually fetches (CENSUS_YEAR), not
-    // the constants file's declared ACS5 vintage — keep provenance honest.
-    source: `ACS B01001 (ACS5 ${CENSUS_YEAR})`,
-    vintage: CENSUS_YEAR,
-    cohorts,
-  }
-  const male_pct = total_pop ? +(sumMale / total_pop * 100).toFixed(1) : null
-  const female_pct = total_pop ? +(sumFemale / total_pop * 100).toFixed(1) : null
-
-  const new_patients_range_low = Math.round(PENETRATION_RATE_LOW * addressable_market_total)
-  const new_patients_range_high = Math.round(PENETRATION_RATE_HIGH * addressable_market_total)
-
+  // addressable_market_total / demand_matrix / *_pct / new_patients_range_* were all
+  // computed in the prep phase (before any delete) — reuse them here.
   const salt = generateSalt()
   const access_code_hash = hashAccessCode(DEMO_ACCESS_CODE, salt)
 
