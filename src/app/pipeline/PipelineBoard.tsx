@@ -32,8 +32,8 @@ interface PendingGate {
   prospectId: string;
   targetStage: number;
   prevStage: number;
-  gate: 'triage' | 'prequal';
-  confirmed: { triage?: boolean; prequal?: boolean };
+  gate: 'prequal';
+  confirmed: { prequal?: boolean };
 }
 
 export default function PipelineBoard({
@@ -48,6 +48,7 @@ export default function PipelineBoard({
   const [metric, setMetric] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [pending, setPending] = useState<PendingGate | null>(null);
+  const [blocked, setBlocked] = useState(false);
   const [, startTransition] = useTransition();
 
   const metrics: Metric[] = useMemo(
@@ -84,7 +85,11 @@ export default function PipelineBoard({
 
     startTransition(async () => {
       const res = await moveProspectStage(prospectId, targetStage, confirmed);
-      if (res.requiresConfirm) {
+      if (res.blocked === 'qualification') {
+        // Hard gate — roll back the optimistic move and show a dismiss-only notice.
+        setProspects((all) => all.map((p) => (p.id === prospectId ? { ...p, stage: prevStage } : p)));
+        setBlocked(true);
+      } else if (res.requiresConfirm) {
         setProspects((all) => all.map((p) => (p.id === prospectId ? { ...p, stage: prevStage } : p)));
         setPending({ prospectId, targetStage, prevStage, gate: res.requiresConfirm, confirmed });
       } else if (!res.ok) {
@@ -202,17 +207,9 @@ export default function PipelineBoard({
 
       <ConfirmDialog
         open={pending !== null}
-        title={pending?.gate === 'prequal' ? 'Funding pre-qual not cleared' : 'Triage not complete'}
-        description={
-          pending?.gate === 'prequal'
-            ? 'Contract Sent normally follows a cleared lender pre-qual. You can advance anyway.'
-            : 'This prospect has no completed Tier 2 triage. You can advance to Proposal Sent anyway.'
-        }
-        records={
-          pending?.gate === 'prequal'
-            ? 'Advancing sets a PRE-QUAL SKIPPED flag on the record.'
-            : 'Advancing sets a TRIAGE SKIPPED flag on the record.'
-        }
+        title="Funding pre-qual not cleared"
+        description="Contract Sent normally follows a cleared lender pre-qual. You can advance anyway."
+        records="Advancing sets a PRE-QUAL SKIPPED flag on the record."
         confirmLabel="Advance anyway"
         onCancel={() => setPending(null)}
         onConfirm={() => {
@@ -222,6 +219,16 @@ export default function PipelineBoard({
           setPending(null);
           applyMove(prospectId, targetStage, next);
         }}
+      />
+
+      <ConfirmDialog
+        open={blocked}
+        acknowledgeOnly
+        tone="danger"
+        title="Qualification Review not cleared"
+        description="This prospect can't advance past Qualification Review until an executive issues a “Proceed” recommendation on the qualification review."
+        onCancel={() => setBlocked(false)}
+        onConfirm={() => setBlocked(false)}
       />
     </div>
   );

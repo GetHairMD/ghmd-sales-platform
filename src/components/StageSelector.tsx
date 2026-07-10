@@ -8,20 +8,19 @@ import { moveProspectStage } from '@/app/pipeline/actions'
 
 interface PendingGate {
   targetStage: number
-  gate: 'triage' | 'prequal'
-  /** The confirmations already granted on the in-flight move (accumulates across gates). */
-  confirmed: { triage?: boolean; prequal?: boolean }
+  gate: 'prequal'
+  /** The confirmations already granted on the in-flight move. */
+  confirmed: { prequal?: boolean }
 }
 
 /**
  * Deal Room stage control. Routes every stage change through the shared
  * `moveProspectStage` server action — the SAME path the Pipeline Board drag-drop
- * uses — so both soft gates (triage → Proposal Sent, funding pre-qual → Contract
- * Sent) are evaluated and their skip flags (`skipped_triage` / `skipped_funding_prequal`)
- * recorded SERVER-SIDE (PRD hard constraint: frontend reads state, never computes it).
- * Confirmation reuses `ConfirmDialog` — the exact pattern PipelineBoard uses; no second
- * confirm surface. A single move may cross both gates, so confirmations accumulate and
- * the action re-runs until it clears.
+ * uses — so the hard qualification gate (advancing past Qualification Review requires a
+ * cleared 'proceed' review) and the soft funding pre-qual gate (→ Contract Sent) are
+ * both evaluated SERVER-SIDE (PRD hard constraint: frontend reads state, never computes
+ * it). Confirmation and the hard-block notice reuse `ConfirmDialog` — the exact pattern
+ * PipelineBoard uses; no second confirm surface.
  *
  * The server is authoritative on gate state. `fundingPrequalCleared`,
  * `skippedFundingPrequal`, and `skippedTriage` are retained on the props contract
@@ -41,6 +40,7 @@ export default function StageSelector({
   const router = useRouter()
   const [stage, setStage] = useState(currentStage)
   const [pending, setPending] = useState<PendingGate | null>(null)
+  const [blocked, setBlocked] = useState(false)
   const [saving, setSaving] = useState(false)
   const [, startTransition] = useTransition()
 
@@ -48,7 +48,12 @@ export default function StageSelector({
     setSaving(true)
     startTransition(async () => {
       const res = await moveProspectStage(prospectId, targetStage, confirmed)
-      if (res.requiresConfirm) {
+      if (res.blocked === 'qualification') {
+        // Hard gate — NOT overridable. The controlled <select> stays on its prior
+        // value; surface a dismiss-only notice, no "advance anyway".
+        setBlocked(true)
+        setSaving(false)
+      } else if (res.requiresConfirm) {
         // A soft gate was crossed and not yet confirmed — surface the dialog.
         // The controlled <select> stays on its prior value until the move commits.
         setPending({ targetStage, gate: res.requiresConfirm, confirmed })
@@ -85,17 +90,9 @@ export default function StageSelector({
 
       <ConfirmDialog
         open={pending !== null}
-        title={pending?.gate === 'prequal' ? 'Funding pre-qual not cleared' : 'Triage not complete'}
-        description={
-          pending?.gate === 'prequal'
-            ? 'Contract Sent normally follows a cleared lender pre-qual. You can advance anyway.'
-            : 'This prospect has no completed Tier 2 triage. You can advance to Proposal Sent anyway.'
-        }
-        records={
-          pending?.gate === 'prequal'
-            ? 'Advancing sets a PRE-QUAL SKIPPED flag on the record.'
-            : 'Advancing sets a TRIAGE SKIPPED flag on the record.'
-        }
+        title="Funding pre-qual not cleared"
+        description="Contract Sent normally follows a cleared lender pre-qual. You can advance anyway."
+        records="Advancing sets a PRE-QUAL SKIPPED flag on the record."
         confirmLabel="Advance anyway"
         onCancel={() => setPending(null)}
         onConfirm={() => {
@@ -105,6 +102,16 @@ export default function StageSelector({
           setPending(null)
           applyMove(targetStage, next)
         }}
+      />
+
+      <ConfirmDialog
+        open={blocked}
+        acknowledgeOnly
+        tone="danger"
+        title="Qualification Review not cleared"
+        description="This prospect can't advance past Qualification Review until an executive issues a “Proceed” recommendation on the qualification review."
+        onCancel={() => setBlocked(false)}
+        onConfirm={() => setBlocked(false)}
       />
     </div>
   )

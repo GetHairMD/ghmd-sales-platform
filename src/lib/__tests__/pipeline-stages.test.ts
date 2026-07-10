@@ -13,6 +13,8 @@ import {
   TRIAGE_GATE_STAGE,
   requiresTriageConfirm,
   showTriageSkippedBadge,
+  QUALIFICATION_GATE_STAGE,
+  crossesQualificationGate,
 } from '../pipeline-stages'
 
 describe('PIPELINE_STAGES shape', () => {
@@ -150,5 +152,41 @@ describe('soft triage gate', () => {
     expect(showTriageSkippedBadge(9, true)).toBe(true)
     expect(showTriageSkippedBadge(5, true)).toBe(false) // moved back before gate
     expect(showTriageSkippedBadge(6, false)).toBe(false) // not skipped
+  })
+})
+
+describe('hard qualification gate (crossing past Qualification Review)', () => {
+  it('gates at Proposal Sent (stage 6) — the first stage past Qualification Review', () => {
+    expect(QUALIFICATION_GATE_STAGE).toBe(6)
+    expect(QUALIFICATION_GATE_STAGE).toBe(STAGE.PROPOSAL_SENT)
+    expect(STAGE.QUALIFICATION_REVIEW).toBe(5)
+  })
+
+  it('a move that CROSSES from at/before Qualification Review to past it is gated', () => {
+    // From Qualification Review itself into Proposal Sent — the core case.
+    expect(crossesQualificationGate(STAGE.QUALIFICATION_REVIEW, STAGE.PROPOSAL_SENT)).toBe(true)
+    // Skipping the review entirely (Discovery Met straight to Proposal, or further).
+    expect(crossesQualificationGate(STAGE.DISCOVERY_CALL_MET, STAGE.PROPOSAL_SENT)).toBe(true)
+    expect(crossesQualificationGate(STAGE.NEW_LEAD, STAGE.VALIDATION)).toBe(true)
+  })
+
+  it('advancing INTO Qualification Review (not past it) is NOT gated', () => {
+    // You must be able to reach the review stage to perform the review.
+    expect(crossesQualificationGate(STAGE.DISCOVERY_CALL_MET, STAGE.QUALIFICATION_REVIEW)).toBe(false)
+    expect(crossesQualificationGate(STAGE.CONTACTED, STAGE.DISCOVERY_CALL_MET)).toBe(false)
+  })
+
+  it('a prospect ALREADY past the boundary is NOT re-gated on a further forward move', () => {
+    // Legacy fixtures seeded past Qualification Review before the review table existed
+    // (e.g. Petrov at Proposal Sent) must not be trapped — a 6->7 move does not cross
+    // the 5->6 boundary. This is the §3 edge-case decision made explicit.
+    expect(crossesQualificationGate(STAGE.PROPOSAL_SENT, STAGE.VALIDATION)).toBe(false)
+    expect(crossesQualificationGate(STAGE.CONTRACT_SIGNED, STAGE.FUNDED_WON)).toBe(false)
+    expect(crossesQualificationGate(STAGE.PROPOSAL_SENT, STAGE.IMPLEMENTATION_HANDOFF_SCHEDULED)).toBe(false)
+  })
+
+  it('a backward move (demotion) never crosses the gate', () => {
+    expect(crossesQualificationGate(STAGE.PROPOSAL_SENT, STAGE.QUALIFICATION_REVIEW)).toBe(false)
+    expect(crossesQualificationGate(STAGE.VALIDATION, STAGE.DISCOVERY_CALL_MET)).toBe(false)
   })
 })

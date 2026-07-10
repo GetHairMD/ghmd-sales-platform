@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import {
   FUNDING_PREQUAL_GATE_STAGE,
-  TRIAGE_GATE_STAGE,
+  crossesQualificationGate,
   FIRST_STAGE,
   LAST_STAGE,
 } from '@/lib/pipeline-stages'
@@ -12,20 +12,41 @@ import {
 export interface MoveResult {
   ok: boolean
   error?: string
-  /** Set when a soft gate is crossed and the caller hasn't confirmed the skip yet. */
-  requiresConfirm?: 'triage' | 'prequal'
+  /** Set when a SOFT gate is crossed and the caller hasn't confirmed the skip yet. */
+  requiresConfirm?: 'prequal'
+  /**
+   * Set when a HARD gate blocks the move outright. Unlike `requiresConfirm`, this is
+   * NOT overridable — there is no confirm that lets the move proceed (scoping §7,
+   * decision #110). Today the only hard gate is qualification.
+   */
+  blocked?: 'qualification'
 }
 
 /**
- * Move a prospect to `targetStage`, recording soft-gate skips SERVER-SIDE
- * (PRD hard constraint). A gate only fires when the move CROSSES the gate
- * boundary from below; already-past moves don't re-prompt. Never a hard block —
- * once confirmed, the skip flag is set and the move proceeds.
+ * Move a prospect to `targetStage`.
+ *
+ * Two enforcement layers, both SERVER-SIDE (PRD hard constraint; the client never
+ * decides gate state):
+ *
+ *  1. HARD qualification gate — a prospect may not advance PAST Qualification Review
+ *     (into Proposal Sent or beyond) unless a `qualification_reviews.recommendation =
+ *     'proceed'` exists for it. Not overridable (returns `blocked: 'qualification'`).
+ *     This replaces the soft triage confirm that previously sat at this same boundary
+ *     (scoping §2.1 — the hard gate makes it "redundant, not additional protection").
+ *     Enforced here regardless of the target stage the client submits — a direct call
+ *     with a manipulated `targetStage` hits the same check.
+ *
+ *  2. SOFT funding pre-qual gate — crossing into Contract Sent without a cleared
+ *     lender pre-qual is ALLOWED but prompts a confirm and flags the record. Once
+ *     confirmed, `skipped_funding_prequal` is recorded and the move proceeds.
+ *
+ * A gate only evaluates when the move CROSSES its boundary from below; already-past
+ * moves don't re-trigger it.
  */
 export async function moveProspectStage(
   prospectId: string,
   targetStage: number,
-  confirmed: { triage?: boolean; prequal?: boolean } = {},
+  confirmed: { prequal?: boolean } = {},
 ): Promise<MoveResult> {
   if (!Number.isInteger(targetStage) || targetStage < FIRST_STAGE || targetStage > LAST_STAGE) {
     return { ok: false, error: `invalid stage ${targetStage}` }
@@ -39,19 +60,33 @@ export async function moveProspectStage(
     .single()
   if (error || !p) return { ok: false, error: error?.message ?? 'prospect not found' }
 
+  // ── Hard qualification gate ────────────────────────────────────────────────
+  // Crossing past Qualification Review requires a cleared 'proceed' review. This is
+  // a hard block, evaluated on the move itself — not a UI-only guard (Hard Rule 10:
+  // a missing button is not a security control).
+  if (crossesQualificationGate(p.stage, targetStage)) {
+    const { data: review, error: rErr } = await supabase
+      .from('qualification_reviews')
+      .select('recommendation')
+      .eq('prospect_id', prospectId)
+      .maybeSingle()
+    if (rErr) return { ok: false, error: rErr.message }
+    if (review?.recommendation !== 'proceed') {
+      return {
+        ok: false,
+        blocked: 'qualification',
+        error:
+          'Qualification Review must be cleared with a “Proceed” recommendation before this prospect can advance past it.',
+      }
+    }
+  }
+
   const update: Record<string, unknown> = {
     stage: targetStage,
     stage_updated_at: new Date().toISOString(),
   }
 
-  // Triage gate (crossing into Proposal Sent). Demo has no Tier 2 data → triage never complete.
-  // skipped_triage is DEPRECATED IN PLACE (#110): the confirm still nudges, but the flag is no
-  // longer persisted — the hard Qualification Review gate (PR3) supersedes the soft-skip record.
-  // Column not dropped; the (now-dormant) badge read-paths are a future cleanup.
-  const crossesTriage = p.stage < TRIAGE_GATE_STAGE && targetStage >= TRIAGE_GATE_STAGE
-  if (crossesTriage && !confirmed.triage) return { ok: false, requiresConfirm: 'triage' }
-
-  // Funding pre-qual gate (crossing into Contract Sent) without cleared pre-qual.
+  // ── Soft funding pre-qual gate (crossing into Contract Sent) ────────────────
   const crossesPrequal =
     p.stage < FUNDING_PREQUAL_GATE_STAGE &&
     targetStage >= FUNDING_PREQUAL_GATE_STAGE &&

@@ -16,13 +16,20 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   /** 'soft' = amber soft-gate skip; 'danger' = destructive. */
   tone?: 'soft' | 'danger';
+  /**
+   * When true, this is a HARD block, not a confirm: render a single dismiss button
+   * (no "advance anyway"), because there is nothing the operator can override to
+   * proceed (scoping §7). `onCancel` is the dismiss handler; `onConfirm` is unused.
+   */
+  acknowledgeOnly?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
 /**
- * Soft-gate confirm dialog (PRD §2.3, §4.4). Never blocks — it states what is
- * incomplete and what a skip records, then lets the operator proceed deliberately.
+ * Soft-gate confirm dialog (PRD §2.3, §4.4). Normally never blocks — it states what
+ * is incomplete and what a skip records, then lets the operator proceed deliberately.
+ * With `acknowledgeOnly`, it becomes a dismiss-only hard-block notice (no override).
  */
 export default function ConfirmDialog({
   open,
@@ -32,6 +39,7 @@ export default function ConfirmDialog({
   confirmLabel = 'Advance anyway',
   cancelLabel = 'Cancel',
   tone = 'soft',
+  acknowledgeOnly = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -79,12 +87,20 @@ export default function ConfirmDialog({
           </div>
         </div>
         <div className="mt-6 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onCancel}>
-            {cancelLabel}
-          </Button>
-          <Button ref={confirmRef} variant={confirmVariant} size="sm" onClick={onConfirm}>
-            {confirmLabel}
-          </Button>
+          {acknowledgeOnly ? (
+            <Button ref={confirmRef} variant="primary" size="sm" onClick={onCancel}>
+              {cancelLabel === 'Cancel' ? 'OK' : cancelLabel}
+            </Button>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" onClick={onCancel}>
+                {cancelLabel}
+              </Button>
+              <Button ref={confirmRef} variant={confirmVariant} size="sm" onClick={onConfirm}>
+                {confirmLabel}
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>
