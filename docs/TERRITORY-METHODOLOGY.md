@@ -194,6 +194,17 @@ Once implemented, this is a **formula version bump (v2 → v3)**, not a patch:
 - New v3 QA anchors **have now been established and locked** via a dedicated
   `ops.decision_log` entry — see §8.8. (This section previously stated they
   "must be established once v3 is implemented"; that step is done.)
+- **Isochrone-freeze regression fixture now exists** (decision #96): the three
+  §8.8 anchors are frozen as real-derived test fixtures
+  (`src/lib/__fixtures__/qa-anchors/*.json`) and a CI regression test
+  (`src/lib/__tests__/v3-qa-anchors.regression.test.ts`) reproduces each anchor's
+  addressable figure exactly from its frozen isochrone + census inputs, with no
+  live Mapbox/Census call. **Scope:** the freeze validates the
+  **addressable-arithmetic path at the locked winning minute** — it does NOT
+  exercise the full drive-time expansion / minute-selection search (only the
+  winning contour is persisted per job), so it does not certify the whole engine
+  end-to-end. Whether this promotes the anchors from point-in-time references to
+  hard pass/fail regression targets is a Trace decision, not settled here — see §8.8.
 
 ### 8.8 v3 QA Anchors — Drive-Time Geography (decision #127, supersedes #94)
 
@@ -233,10 +244,21 @@ drive-time boundary — and therefore the addressable figure — **without any
 change to this platform's code or formula**. Consequently, a deviation from
 these anchors **requires investigation before it may be treated as a code
 regression**: first rule out isochrone/road-graph drift, then look for a code
-cause. Freezing/caching the isochrone geometry at lock time (which would make
-these hard regression targets) has been proposed but is **not built** as of
-this writing; until it is, treat these three figures as calibrated reference
-points, not invariants.
+cause. Freezing the isochrone geometry (with its census inputs) as an *offline
+regression fixture* — which reproduces these figures exactly without a live
+Mapbox call — **is now built** (decision #96):
+`src/lib/__fixtures__/qa-anchors/*.json` +
+`src/lib/__tests__/v3-qa-anchors.regression.test.ts`. (Production sizing is
+unchanged: a real territory is still sized against a *live* Mapbox isochrone, so
+the live path can still drift — the freeze is test/CI-layer only.) **Scope
+caveat:** the fixture reproduces the **addressable arithmetic at the locked
+winning minute**, NOT the full expansion / minute-selection search (only the
+winning contour is persisted per job), so it does not by itself certify the whole
+engine end-to-end. Whether these three figures are hereby promoted from
+point-in-time reference values to hard pass/fail regression targets remains a
+**Trace decision, not resolved here**; until Trace so decides, continue to treat
+these as calibrated reference points and a deviation as "rule out drift first,
+then look for a code cause."
 
 **§5 (the v2 ZCTA anchors) is unaffected by this section** and remains the
 legacy regression check for the ZCTA-based stage.
