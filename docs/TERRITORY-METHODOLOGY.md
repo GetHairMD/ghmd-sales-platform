@@ -195,22 +195,33 @@ Once implemented, this is a **formula version bump (v2 → v3)**, not a patch:
   `ops.decision_log` entry — see §8.8. (This section previously stated they
   "must be established once v3 is implemented"; that step is done.)
 
-### 8.8 v3 QA Anchors — Drive-Time Geography (established, decision #94)
+### 8.8 v3 QA Anchors — Drive-Time Geography (decision #127, supersedes #94)
 
 The v3 drive-time sizing engine is implemented (PR #75), runs asynchronously
-in production (PR #78/#79), and its QA anchors are now **locked** under
-decision **#94**. Three reference territories were sized at a **15-minute**
-drive-time isochrone and each reproduced **exactly across two independent
-production runs** before being locked:
+in production (PR #78/#79), and its QA anchors are established under decision
+**#127**, which **supersedes decision #94**. The three reference territories
+were re-sized under the current engine and land at the drive-time and
+addressable figures below:
 
-| Territory | 15-min addressable (VIABLE) |
-|---|---|
-| Austin – Westlake | **59,699.47** |
-| Dallas – Preston Hollow | **120,318.47** |
-| Nashville – Green Hills | **33,969.31** |
+| Territory | Addressable (VIABLE) | Drive-time |
+|---|---|---|
+| Austin – Westlake | **27,978.39** | 13 min |
+| Dallas – Preston Hollow | **19,141.31** | 9 min |
+| Nashville – Green Hills | **21,420.60** | 14 min |
 
-Full detail (job IDs and the 15/25/35/45-minute probe sets) lives in decision
-**#94**; decision #94 is authoritative for these figures.
+Full detail (job IDs and probe sets) lives in decision **#127**; it is
+authoritative for these figures.
+
+**Provenance — the superseded #94 figures.** The original v3 anchors were
+locked under decision **#94** at a uniform **15-minute** isochrone: Austin
+59,699.47, Dallas 120,318.47, Nashville 33,969.31. Those figures and their
+reasoning remain meaningful as historical record but are **no longer current**.
+Decision **#117** established the cause: PR #87 removed the 15-minute search
+floor, so the algorithm now refines downward whenever the coarse probe already
+clears the 18,600-household floor — exactly the condition all three anchors met
+at 15 minutes — landing the boundaries at 9–14 minutes rather than 15. #127
+records the re-run and supersedes #94. **Do not cite the 15-minute figures as
+current reference values.**
 
 **These are point-in-time reference values, NOT strict pass/fail regression
 targets.** This distinction is methodological, not merely operational, and a
@@ -218,7 +229,7 @@ future reader must not treat these anchors as infallible. The reason: unlike
 the §5 v2 anchors (which derive from static ZCTA/county geography), the v3
 isochrone polygon is fetched **live from Mapbox on every job** and is not
 frozen or cached at lock time. A future Mapbox road-graph change can move the
-15-minute boundary — and therefore the addressable figure — **without any
+drive-time boundary — and therefore the addressable figure — **without any
 change to this platform's code or formula**. Consequently, a deviation from
 these anchors **requires investigation before it may be treated as a code
 regression**: first rule out isochrone/road-graph drift, then look for a code

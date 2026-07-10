@@ -1,8 +1,9 @@
-# GHMD Sales Platform — Handoff v2.37
+# GHMD Sales Platform — Handoff v2.38
 
 Date: 2026-07-10 | Prepared by: Coder at session close (docs/AGENTS.md session-close rule),
-for Chat/Trace review | Purpose: capture the v3 floor clamp (#120), the #117 anchor re-run,
-and the full Nashville data-integrity incident arc (#100/#101/#123/#102). Supersedes v2.36.
+for Chat/Trace review | Purpose: capture the governed-row DB write guards (PR #104,
+decisions #124/#125/#126) and the resolution of the v3 anchor situation (decision #127
+supersedes #94, addresses #117). Supersedes v2.37.
 
 > **State facts are never read from this file.** Main HEAD, decision-log tip, open PRs, and
 > security-advisor status are derived live at every session start (git, `ops.decision_log`,
@@ -19,102 +20,105 @@ and the full Nashville data-integrity incident arc (#100/#101/#123/#102). Supers
 
 ## State as of this handoff (illustrative — verify live)
 
-- Main HEAD `8518527` (PR #102 squash-merge). Open PRs: 0. Decision-log tip: **#123**.
+- Main HEAD `8bdcc69` (PR #104 squash-merge). Decision-log tip: **#127**. Open PRs: the v2.38
+  handoff/methodology PR itself (this one); otherwise 0.
 
-## What shipped since v2.36
+## What shipped since v2.37
 
-### 1. v3 minimum drive-time floor — PR #99, decision #120 (ADOPTED), merged `a8e928d`
-`V3_MIN_DRIVE_MINUTES = 5` added to `/lib/addressable-market-constants.ts`; `sizeByExpansion`
-clamps the **returned** boundary up to 5 minutes when the smallest qualifying minute m* < 5,
-re-evaluating addressable at 5 (never the smaller technically-sufficient count). Additive clamp
-— 45-min ceiling, `UNRESOLVED_*`, the 18,600 household floor, and the `[15,25,35,45]` probe set
-all unchanged. Resolves TERRITORY-METHODOLOGY.md **§8.5** (now "Resolved Parameters"). Full
-suite 971 at merge; `tsc`/lint clean. Review SOP tier `review` (dedicated pass, clean).
+### 1. Governed-row DB write guards — PR #104, decisions #124/#125/#126, merged `8bdcc69`
 
-### 2. #117 anchor re-run — Part 2, decision #117 still OPEN
-The three decision-#94-locked anchors were re-sized under the current (post-#102, #120) engine,
-run through the **live** deployed `size-territory-background` worker (auth POST path isn't
-headlessly drivable; Trace approved driving the real worker via a service-role-enqueued job).
-New `territory_sizing_jobs` rows written; the six pre-#87 evidentiary rows preserved;
-`territories.*` untouched.
+The durable DB-level remediation of the RLS-bypass write pattern (the Nashville-incident root
+class, scoped in PR #102 / decision #123). The animating fact: **`service_role` bypasses RLS
+but not triggers**, so `BEFORE UPDATE`/`BEFORE DELETE` triggers are the only mechanism that
+catches every write path — service-role background jobs, authenticated sessions, and future
+call sites nobody has written yet. One migration, four pieces on `public.territories`:
 
-| Anchor | New job id | Result |
+- **qa_locked UPDATE immutability** (#124) — a locked row rejects every UPDATE except the
+  unlock-only transition (`qa_locked true→false`, no other column changed), via a
+  geometry-safe, schema-evolution-proof jsonb row-compare.
+- **qa_locked DELETE guard** (#126) — a locked row also rejects every DELETE, closing the
+  delete+recreate anchor-loss vector. No new escape hatch: unlock first (the #124 UPDATE
+  hatch), then delete the now-unlocked row.
+- **RLS UPDATE tightening** (#124) — a RESTRICTIVE `WITH CHECK (qa_locked=false)` policy
+  layered on the untouched permissive `internal_users_all`; makes row-locking service-role-only.
+- **`sold_boundary_geom` value-scoped freeze** (#125) — once set, the frozen sold boundary is
+  immutable regardless of status; sole escape hatch is a direct admin session
+  (`current_user='postgres'`) that has set the `app.sold_boundary_override` GUC.
+
+**The ultrareview arc is the story worth carrying.** The dedicated adversarial pass caught that
+the *original* status-scoped `sold_boundary_geom` design (freeze while `status IN
+('sold','reserved')`) was bypassable by an un-sell → edit → re-sell round-trip; escalated to
+Trace, hardened to value-scoped via **#125**. A second adversarial pass then caught the
+delete+recreate symmetry gap (UPDATE was guarded, DELETE was not); closed via **#126**. Both
+findings were closed *before* merge, in the same PR. All three trigger functions pin
+`search_path=''` (get_advisors clean). Verified against real UPDATE/DELETE attempts from
+`postgres`, `service_role`, and `authenticated` clients; reproducible battery lives at
+`supabase/tests/governed_row_write_guards.test.sql`.
+
+### 2. v3 anchor situation resolved — decision #127 (ADOPTED), supersedes #94
+
+v2.37 left the #94/#117 anchor re-run *done but unwritten* (job data verified, supersession and
+the §8.8 doc update outstanding). Both are now closed. Decision **#127** records the re-run
+under the current engine (post-#87 floor removal / post-#120 clamp) and **supersedes #94**;
+`ops.decision_log` #94 now carries `superseded_by = 127`. The current anchor figures:
+
+| Territory | Addressable (VIABLE) | Drive-time |
 |---|---|---|
-| Austin – Westlake (`ab23f4d6…`) | `14fb63ba…` | VIABLE **13 min / 27,978.39** |
-| Dallas – Preston Hollow (`806ac611…`) | `d6efac7b…` | VIABLE **9 min / 19,141.31** |
-| Nashville – Green Hills (`5a89e1c9…`) | `7caf4c20…` | VIABLE **14 min / 21,420.60** |
+| Austin – Westlake | 27,978.39 | 13 min |
+| Dallas – Preston Hollow | 19,141.31 | 9 min |
+| Nashville – Green Hills | 21,420.60 | 14 min |
 
-**Notable:** the #120 clamp was **inert** — all three m* landed at 9–14 min, well above the
-5-min floor, contrary to the "will clamp to 5" plausibility note in the brief. So #94 **is**
-invalidated (boundaries now 9–14 min, not the locked 15), but by the refine-down algorithm
-landing mid-range, not by pathologically small radii. The 15-min probe values are close to the
-old locked figures (small Mapbox drift) — the invalidation is algorithmic, consistent with #117.
+`TERRITORY-METHODOLOGY.md` **§8.8** is updated to these figures in *this same PR* (piece 2),
+citing #127, with the old 15-minute #94 figures (59,699.47 / 120,318.47 / 33,969.31) retained
+as clearly-marked superseded provenance. The point-in-time-reference caveat and the
+Mapbox-drift-before-code-regression discipline carry forward unchanged onto the new numbers.
+The anchor **rows themselves are untouched** — still `qa_locked=true`, `status='available'`,
+`updated_at` unchanged since 2026-07-09 (verified live this session), and now protected by the
+PR #104 triggers.
 
-**OUTSTANDING (unblocked, not done):** the #94 supersession and the §8.8 doc update are **still
-not written**. The job data exists and is verified; the `ops.decision_log` supersession entry
-(Chat's write) and the §8.8 anchor-table update are the remaining step. §8.8 still reads
-"established, decision #94."
+## Standing queue — reprioritized
 
-### 3. Nashville data-integrity incident — full arc (closed)
-- **Root cause:** the `territories/[id]` page render silently overwrote the Nashville
-  `qa_locked=true` anchor via an RLS-bypassing admin client during this session
-  (`addressable_patients_primary` 4,127 → 172,275, whole Davidson County), discovered by Chat
-  cross-checking against an earlier same-session query. Not caused by the v3 sizing jobs
-  (non-write boundary held) nor by any Coder `territories` write.
-- **Restore:** two data-only corrections (Chat-directed SQL, not a PR) returned all incident-
-  touched columns to their pre-incident/peer-consistent state; all three anchors now uniform.
-- **PR #100** — `shouldRefreshV2Census` guard (pure predicate, gates the render census write on
-  `!qa_locked` + cache-TTL + coords). Closes the render-write exposure. **No dedicated
-  #-numbered decision** (verified: no `ops.decision_log` row keyed to PR #100).
-- **PR #101** — `qa_locked` 409 guard on the approve route. Closes the second sibling, which was
-  **live-primed** by item 2's three succeeded VIABLE jobs against locked, `status='available'`
-  anchors (the status guard alone would not have blocked an exec approve).
-- **Decision #123 (ADOPTED)** — authorized a scoping-only investigation of the root pattern.
-- **PR #102** — `docs/RLS-BYPASS-WRITE-GUARD-SCOPING.md`: full inventory of every service-role/
-  admin write, three options (A per-site / B shared helper / C DB trigger), **recommends C**
-  (a `BEFORE UPDATE` trigger — the only mechanism that catches service-role + future write
-  sites; RLS can't, because `territories.internal_users_all` is unconditional and encodes no
-  `qa_locked` invariant), and six flags for Trace. Merged `8518527`. Build NOT authorized.
-
-## Standing queue — reprioritized (Trace, this session)
-
-**"Get everything tight and clean and secure before more building work."** The six flags from
-decision #123 (§5 of the scoping doc) are now the **top of the queue** — settle the durable
-governed-row protection before opening new build work.
+v2.37 items 1 (decision #123 six flags) and 2 (#94 supersession + §8.8) are **both done** — via
+PR #104 (#124/#125/#126) and decision #127 + this PR respectively. Remaining, renumbered:
 
 | Priority | Item | Owner | Status |
 |---|---|---|---|
-| **1** | **Decision #123 six flags** (RLS posture, locked-row escape-hatch, sold/reserved parity, #102-gate compat, scope beyond territories, proposals posture) | Trace decides, then Coder builds chosen option | New top of queue. Scoping done (PR #102); build unauthorized. |
-| **2** | **#94 supersession + §8.8 update** | Chat (decision-log) + doc | Unblocked by item 2 above, **not done**. Job data verified and ready. |
-| 3 | **Isochrone-freeze for v3 QA anchors** (#96) | Trace to prioritize, then Coder | Unchanged — proposed, not built. Closes #94's longstanding Mapbox-drift residual. |
-| 4 | **National territory status map** (#121 OPEN / #122 ADOPTED) | future Coder session | Confirmed a standalone nav item (not a Deal Territories expansion), rep-requested; not yet scoped. |
-| 5 | **Territory-creation / authoring flow** | future Coder session | Deferred, needs its own scoping brief. |
-| 6 | **390px / authenticated deploy-preview QA tooling gap** | Trace / future Coder | No fix path identified; still limits browser QA on auth'd surfaces. |
+| **1** | **Isochrone-freeze for v3 QA anchors** (#96) | Trace to prioritize, then Coder | Proposed, not built. Closes #94/#127's longstanding Mapbox-drift residual (would make the anchors hard regression targets). |
+| 2 | **National territory status map** (#121 OPEN / #122 ADOPTED) | future Coder session | Standalone nav item (not a Deal Territories expansion), rep-requested; not yet scoped. |
+| 3 | **Territory-creation / authoring flow** | future Coder session | Deferred, needs its own scoping brief. Likely the first *new* service-role `territories` writer — the PR #104 triggers now protect it by construction. |
+| 4 | **390px / authenticated deploy-preview QA tooling gap** | Trace / future Coder | No fix path identified; still limits browser QA on auth'd surfaces. |
 | — | `qualification_reviews`/`rep_call_grades` FK cascade behavior | Trace decision | Open, not urgent. |
 | — | Session E; Platform RBAC (raised 2026-07-08, no scoping doc) | Trace authorization | Unopened. |
 | — | monday.com board ID discrepancy | Trace | Unreconciled since 2026-07-07. |
 | — | Rick Dahlson copy review (#68/#71, `legal_flag`) | Trace / Rick | Still the real gate on any live prospect send. |
 | — | Box Sign / Territory License Agreement (#99-legal) | Bruce / counsel, then Coder | Paused, unchanged. |
-| — | Legacy public `/proposals/[prospectId]` retirement; `reserved_for` dead column; TopBar global search; repo-wide token-lint; PRD v1.2 embedded-signing staleness; prospect-page hydration (#418/#423/#425); Resend + Calendly provisioning | various | All unchanged from v2.36 — carry forward, do not re-litigate. |
+| — | Legacy public `/proposals/[prospectId]` retirement; `reserved_for` dead column; TopBar global search; repo-wide token-lint; PRD v1.2 embedded-signing staleness; prospect-page hydration (#418/#423/#425); Resend + Calendly provisioning; proposal revenue-model gap (§14 illustrative-only, #71/#76) | various | All unchanged from v2.36/v2.37 — carry forward, do not re-litigate. |
 
 ## Residual risks (stated plainly)
 
-- **RLS-bypass write pattern** — root cause of the Nashville incident. Both known instances are
-  fixed (PR #100/#101), but the durable fix (DB trigger, Option C) is scoped-only and unbuilt;
-  a future service-role `territories` write with no guard would re-open the class. This is item 1.
-- **v3 anchors invalidated (#117 OPEN)** — the re-run data exists but #94 is not yet superseded
-  and §8.8 is stale; do not cite the old 15-min figures (59,699 / 120,318 / 33,969) as current.
+- **RLS-bypass write pattern — now CLOSED at the DB layer** by PR #104. The qa_locked
+  UPDATE+DELETE triggers, the RLS UPDATE tightening, and the value-scoped `sold_boundary_geom`
+  freeze remove the "next unguarded service-role write corrupts a governed row" class. Two
+  documented residuals remain, both accepted: (a) the `sold_boundary_geom` escape hatch assumes
+  `current_user='postgres'` is the sole admin/redraw role — a dependency on Supabase's role
+  model (the app connects only as authenticated/service_role via PostgREST, never postgres);
+  (b) sold/reserved rows have no DB-level DELETE guard (out of scope — only the boundary is
+  frozen; qa_locked DELETE is covered).
+- **v3 anchors — now superseded (#127), no longer stale.** Do not cite the old 15-minute
+  figures (59,699 / 120,318 / 33,969) as current; use the §8.8 / #127 figures above. (If the
+  `ops.decision_log` #117 row still reads OPEN, that is Chat's bookkeeping to close — the
+  substance, supersession + doc, is done.)
 - **v3 QA anchors still drift with Mapbox** (longstanding) — isochrone fetched live per job,
-  never cached; isochrone-freeze (#96) not built.
-- **Authenticated deploy-preview QA has no automated path** — limited verification of PR
-  #100/#101 (guards proven by unit/source-scan tests, not browser); an exec-approve POST and a
-  qa_locked render are not headlessly drivable.
+  never cached; isochrone-freeze (#96) not built. This is queue item 1.
+- **Authenticated deploy-preview QA has no automated path** — limits browser QA on auth'd
+  surfaces; carried forward.
 
 ## Not This Session (escalate, don't creep)
 
-The #123 trigger build, the #94 supersession write, isochrone-freeze, the national status map,
-territory authoring, Session E, Platform RBAC, and Box Sign all remain unopened — each requires
-explicit Trace authorization (and, for #123, the six-flag decisions first).
+Isochrone-freeze (#96), the national status map, territory authoring, Session E, Platform RBAC,
+and Box Sign all remain unopened — each requires explicit Trace authorization. The #123 trigger
+build and the #94 supersession, both listed here in v2.37, are now **done** and removed from
+this list.
 
 ## Agent Roles
 
