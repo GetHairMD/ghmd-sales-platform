@@ -1,7 +1,9 @@
-# GHMD Sales Platform — Handoff v2.34
+# GHMD Sales Platform — Handoff v2.35
 
-Date: 2026-07-09 | Prepared by: Chat (drafted, Coder commits) | Purpose: Tight addendum to
-v2.33 — PR #90 and decision #107 shipped after v2.33 was written. Supersedes v2.33.
+Date: 2026-07-10 | Prepared by: Chat (drafted, Coder commits) | Purpose: Close the
+session-close-rule debt left open since PR #90/decision #107 — four merged PRs (#92–95) and
+six decision-log entries (#109, #110, #112–115) shipped with zero handoff narrative. This is
+that narrative. Supersedes v2.34.
 
 > **State facts are never read from this file.** Main HEAD, decision-log tip, open PRs, and
 > security-advisor status are derived live at every session start (git, `ops.decision_log`,
@@ -16,116 +18,105 @@ v2.33 — PR #90 and decision #107 shipped after v2.33 was written. Supersedes v
 | Supabase project | `cprltmwwldbxcsunsafl` (ghmd-sales-platform) — NIP `kjweckggegifjmmqccul` is a separate production system, **never touch** |
 | Netlify | `ghmdsalesplatform.netlify.app` (main auto-deploys) |
 
-## What shipped since v2.32
+## What shipped since v2.34 — the Qualification Gate & Territory-Authoring Precondition build
 
-- **PR #86** (`92960b0`) — Hard Rule 10 RLS remediation: `internal_users` allow-list table,
-  swapped the 7 blanket `authenticated_all`/`authenticated_full_access` policies for
-  allow-list-gated policies on the 4 rep-facing tables, dropped policies outright on the 3
-  server-only tables (fail-closed). Second-Opinion Gate BLOCK, manually accepted, logged as
-  decision #101 — **but the migration was merged to git and never actually applied to the
-  live database.** See the correction note below; this is the most important governance
-  event of this stretch.
-- **PR #87** (`e733326`) — removed the 15-minute search floor from v3 sizing; territories
-  now size to the smallest drive-time radius that clears the 18,600-household floor, rather
-  than starting the search at a fixed 15 minutes.
-- **PR #88** (`d270bbb`) — v3 UI wiring session 1: executive-gated sizing/approve controls
-  on `territories/[id]` (role gate via `internal_users`), addressable-vs-18,600 headline +
-  single-ring boundary map for approved v3 (zero drive-time-minute values anywhere on a v3
-  surface, AC2), `POST /api/territories/[id]/approve` persisting the boundary as EWKT, and a
-  read-only Lead-profile Territory artifact on `prospects/[id]`. Closes #102 items 2–3.
-  Logged as decision #106.
+Authorized as a 4-PR shape under decisions **#109** (build authorization) and **#110**
+(amendment adding the stage-advancement gate, `skipped_triage` deprecation, and a partial
+revision of decision #53). Both logged `PLANNED`, not `ADOPTED` — they authorized the shape;
+each PR was adopted individually as it merged. **3 of 4 PRs are complete; PR4 is unbriefed
+and unstarted.**
 
-## What shipped since v2.33 (this addendum)
+- **PR1 (#92, decision #112, ADOPTED)** — Retired the 0-row `operators` /
+  `operator_scores` / `operator_score_records` / `operator_enrichment` cluster. Created
+  `qualification_scores` (14 dimensions), `qualification_enrichment` (incl. `practice_npi`),
+  `qualification_reviews` (the gate signal: `recommendation` ∈ proceed/conditional/
+  not_qualified), `rep_call_grades`. `prospects.assigned_rep_id` added as a real FK. RLS per
+  scoping §5: exec-only on scores/enrichment/grades; exec-all + rep-SELECT-only on
+  prospects/reviews — **after a pre-merge security fix closed a rep-cascade-delete
+  exposure** caught before merge, not after.
+- **PR2 (#93, decision #113, ADOPTED)** — Inserted Qualification Review as pipeline stage 5
+  (11→12 stages, `pipeline-stages.ts` remains single source of truth). Deprecated
+  `prospects.skipped_triage` in place — a partial revision of decision #53;
+  `skipped_funding_prequal` / `call_scores` untouched. This PR's reseed triggered the
+  incident resolved by the next entry.
+- **Pre-PR3 hardening (#94, decision #114, ADOPTED — addendum to locked decision #94)** —
+  PR2's reseed exposed that `seed-demo.ts` named its churnable demo territories identically
+  to the three decision-#94-**locked** v3 QA anchor territories (Austin – Westlake / Dallas
+  – Preston Hollow / Nashville – Green Hills). A non-transactional delete sequence both
+  crashed (FK+CHECK collision) and, after recovery, silently deleted-and-recreated the
+  anchors under new UUIDs, severing 6 decision-#94-cited job IDs' provenance link. **The
+  locked figures themselves were never altered — only the row-level link.** Fixed via
+  `territories.qa_locked`, which makes the anchors structurally unreachable by the seed's
+  delete path (not just unlikely to collide by name). The 6 jobs were re-pointed.
+  Two-reseed idempotency was proven both by Coder and independently verified via a real
+  third reseed during PR3's post-merge check. **Closed, holding.**
+- **PR3 (#95, decision #115, ADOPTED)** — The enforcement layer. A hard, server-side,
+  non-overridable gate in `moveProspectStage` blocks advancing past Qualification Review
+  without a `proceed` recommendation (boundary-crossing semantics only — already-past legacy
+  fixtures like Petrov are correctly not retroactively trapped). Qualification Review UI:
+  exec issues/edits the recommendation; rep reads the outcome and writes their own note via
+  a **separate** `qualification_review_notes` table (chosen over column-level GRANT because
+  reps and execs share one Postgres role). Minimal exec-only `rep_call_grades` entry
+  surface. Two new demo prospects seeded and independently confirmed live: Dr. Osei
+  (`proceed`), Dr. Zeller (`conditional`). **Territory-creation entry point confirmed not to
+  exist anywhere in `src/`** — no placeholder was built; today's stage gate is the
+  enforcement, and it will apply automatically whenever territory-creation UI is eventually
+  built (separate future brief — see decision queue).
 
-- **PR #90** (`4133d07`) — `docs/AGENTS.md` now codifies, in repo canon rather than only
-  session convention and Chat memory: a Coder "Capability Stack (standing assumption)"
-  section (browser automation via `chrome-devtools-mcp` + `playwright`, replacing Pilot for
-  deploy-preview QA, plus platform/security/docs/process skills — explicitly scoped as a
-  Claude-Code **user-level** install under Trace's profile, since only `netlify-skills` and
-  `typescript-lsp` are Project-scoped to this repo); Pilot tightened to GitHub-UI-fallback
-  only, with deploy-preview QA formally reassigned to Coder; a new top-level **Review SOP**
-  section defining three tiers — standard, review, ultrareview — with trigger tables and a
-  self-escalate-on-uncertainty rule; and an updated Handoff Protocol diagram line reflecting
-  Pilot's narrowed role. Logged as decision #107. Draft PR, Trace personally reviewed the
-  SOP text before merging (not a Chat-side rubber stamp).
+**Verification discipline held throughout this arc:** every PR was merged only after
+independent live-state verification — diffs read directly via GitHub MCP, CI checked
+directly, RLS/schema/policies queried live against Supabase, adversarial RLS tests run
+fresh rather than trusting Coder's reported ones, `get_advisors` diffed before/after.
+`ops.decision_log` entries were written only after merge confirmation and independent
+re-verification against the live database, never from Coder's self-report alone.
 
-## The Hard Rule 10 gap — what happened and why it matters going forward
+## What's next — PR4
 
-Decision #101 (2026-07-08) logged the RLS remediation as `ADOPTED` on the strength of PR #86
-merging to main. That was correct about the code, wrong about the database: the migration
-file was committed but never pushed to `cprltmwwldbxcsunsafl`. Chat caught this independently
-during PR #88 QA prep (2026-07-09) — not from Coder's report, from checking
-`list_migrations`, `to_regclass('public.internal_users')`, and `pg_policies` directly — and
-it's also exactly why PR #88's exec gate initially came back BLOCKED in QA: `internal_users`
-didn't exist, so `getViewerDesignation()` correctly failed closed to the rep view for
-everyone, including the signed-in executive.
-
-Coder applied the already-merged, already-reviewed migration file as a deploy action (no new
-migration, no re-review needed), and Chat independently re-verified every claim before
-logging the correction as decision #105: `internal_users` exists and is seeded, all 4
-rep-facing tables carry `internal_users_all`, the 3 server-only tables carry zero policies,
-and a fresh `get_advisors` scan shows zero `rls_policy_always_true` findings. **Hard Rule 10
-is now genuinely remediated, not just logged as remediated.**
-
-**The lesson, stated plainly for future sessions:** a merged migration file is not the same
-claim as an applied migration. Decision-log entries about database state should be written
-from `list_migrations`/live-schema verification, not from PR-merge status alone. This
-distinction wasn't sloppy — the design was correct and the gate process worked as intended —
-but the gap between "code merged" and "deployed" sat undetected in the decision log for a
-full day. Treat any future RLS/schema-remediation decision the same way: verify against the
-database, not the git history, before logging `ADOPTED`.
-
-## What shipped in PR #88, QA-verified
-
-Live QA against a Chat-seeded fixture territory (`2f89fe9e-eedf-49b0-bd5a-2e866a4651e4`,
-"Metairie, LA — QA Fixture (v3 UI)") confirmed the full exec-gated flow works end to end:
-exec sees the sizing panel (not the rep fallback), live sizing returned VIABLE at 19,038
-addressable households / 9-minute boundary, the preview and approved states both render with
-zero drive-time-minute values anywhere, `sold_boundary_geom` is untouched by approve, and v2
-territories (spot-checked on Austin–Westlake) are pixel-unchanged. The fixture and its QA
-sizing job were deleted after PR #88 merged (PR #89) — 3 anchor territories untouched.
-
-One accepted, non-blocking behavior change from #88: a `formula_version=2` territory with no
-addressable number now shows "Pending internal review" for reps instead of auto-recomputing
-the county census figure on load. No live impact today (all production territories have
-numbers); aligns with the v3-forward direction.
-
-One accepted, non-blocking pre-existing finding surfaced during #88 QA: React hydration
-errors (#418/#423/#425, locale date/time SSR mismatch) on the prospect page. Confirmed
-pre-existing, not a #88 regression — production running pre-#88 code throws the identical
-error set. Not yet ticketed; do so on next touch of that page.
-
-## Box Sign / Territory License Agreement scoping (decision #99 — LOCKED, legal-flagged, unchanged)
-
-No change since v2.32. Architecture locked, build paused pending the hub-and-spoke
-instrument redraft (Bruce/counsel). Reference decision #99 for the full legal analysis.
+**Nav split** ("Territories" → "Deal Territories", new exec-only "Territory Scouting") is
+the last PR in the 4-PR shape. **Unblocked, not yet briefed or started.** No Coder session
+has received a PR4 brief as of this handoff.
 
 ## Residual risks (stated plainly)
 
-- **v3 QA anchors drift with Mapbox (from #94).** Unchanged from v2.32 — the isochrone
+- **v3 QA anchors still drift with Mapbox** (unchanged from v2.32/v2.33) — the isochrone
   polygon is fetched live from Mapbox on every job, never persisted/cached, so the three
-  locked anchor territories are point-in-time reference values, not strict regression
-  targets. Isochrone-freeze fix proposed (#96), not built.
-- **390px mobile QA on authenticated pages has a real tooling gap, discovered during #88
-  QA.** Coder's chrome-devtools-mcp session (attached to Trace's authenticated Chrome via
-  extension) cannot perform CDP viewport emulation — `resize_window` does not reflow the
-  rendered viewport for an extension-attached tab. The browsers that can emulate
-  (chrome-devtools/playwright standalone) cannot authenticate to a deploy-preview host.
-  Net effect: **390px QA on any page that requires sign-in currently has no working
-  automated path.** This needs either a manual DevTools device-mode pass by Trace, or a way
-  to hand an authenticated session to a CDP-capable browser — genuinely unsolved, not just
-  undone. PR #88 merged with this item open (item 7 of its QA checklist), tracked as a
-  standing gap, not a regression.
-- **Hard Rule 10 is now genuinely remediated** (see above) — this is no longer a residual
-  risk, but is stated here so a future session doesn't need to re-derive the story from the
-  decision log alone.
-- Rick Dahlson copy review (#68/#71) continues to be the real remaining gate on any live
-  prospect send — unrelated to #88, unchanged.
+  locked anchor territories remain point-in-time reference values, not strict regression
+  targets. Isochrone-freeze fix proposed (#96), not built. **Note:** `TERRITORY-METHODOLOGY.md`
+  §8.8 anchors are documented at a 15-minute isochrone; PR #87 (pre-existing this arc, merged
+  2026-07-08) removed the 15-minute search floor from v3 sizing so territories now size to
+  the smallest radius clearing the 18,600-household floor rather than starting at a fixed 15
+  minutes. Whether/how this affects the §8.8 anchor values has not been re-verified this
+  session — flagging as a documentation-methodology consistency check for a future session,
+  not asserting a discrepancy exists.
+- **390px mobile QA on authenticated pages still has no working automated path** (unchanged
+  from v2.34) — chrome-devtools-mcp attached to Trace's authenticated Chrome cannot perform
+  CDP viewport emulation; standalone CDP-capable browsers cannot authenticate to a
+  deploy-preview host. Needs either a manual DevTools device-mode pass or a way to hand an
+  authenticated session to a CDP-capable browser.
+- **`qualification_reviews` / `rep_call_grades` FK cascade behavior on prospect hard-delete**
+  (RESTRICT vs CASCADE) — flagged during PR1/decision #94-addendum work, still open, Trace
+  call, not urgent.
+- **monday.com board ID discrepancy** — `18391502210` per older Chat memory vs
+  `18419216445` in `CLAUDE.md` / `docs/AGENTS.md`. Flagged 2026-07-07, still unreconciled.
+- Rick Dahlson copy review (#68/#71, both `legal_flag: true`) continues to be the real gate
+  on any live prospect send, independent of Hard Rule 10 build-progress status.
+- Hard Rule 10 remains genuinely remediated as of decision #105 — reconfirmed via
+  `get_advisors` this session, zero `rls_policy_always_true` findings. Stated here only so a
+  future session doesn't need to re-derive the story from the decision log alone.
+
+## Box Sign / Territory License Agreement scoping (decision #99 — LOCKED, legal-flagged, unchanged)
+
+No change since v2.34. Architecture locked, build paused pending the hub-and-spoke
+instrument redraft (Bruce/counsel). Reference decision #99 for the full legal analysis.
 
 ## Standing deferrals
 
 | Item | Owner | Status |
 |---|---|---|
+| **PR4 — nav split** | Trace to greenlight, then Coder | Unblocked, unbriefed. |
+| **Territory-creation screen mechanics** (location input, sizing-job kickoff UI) | future Coder session | Deferred, needs its own scoping brief; PR3 confirmed no placeholder exists yet. |
+| **Deal Economics & Margin Tracking** | future Coder session | Deferred, needs its own scoping document. |
+| **`qualification_reviews`/`rep_call_grades` FK cascade behavior** | Trace decision | Open, not urgent. |
 | **390px QA tooling gap on authenticated pages** | Trace / future Coder session | No fix path identified yet. |
 | **Isochrone-freeze for v3 QA anchors** | Trace to prioritize, then Coder | Unchanged — proposed (#96), not built. |
 | **Box Sign / Territory License Agreement** | Bruce / counsel, then Coder | Unchanged — paused per #99. |
@@ -133,28 +124,31 @@ instrument redraft (Bruce/counsel). Reference decision #99 for the full legal an
 | **Repo-wide token-lint broadening** | future Coder session | Unchanged. |
 | **PRD v1.2 embedded-signing reference** | next PRD touch | Unchanged — still says "Box spike → embedded signing," stale vs #99. |
 | **Prospect-page hydration errors** (#418/#423/#425) | future Coder session | Pre-existing, confirmed not a #88 regression, not yet ticketed. |
+| **monday.com board ID discrepancy** | Trace | Unreconciled since 2026-07-07. |
 | Resend provisioning | Trace, manual, off-transcript | Unchanged. |
 | Calendly Phase 1 provisioning | Trace, manual, off-transcript | Unchanged. |
 | Proposal generator send-copy claims review | Trace / Rick Dahlson | Unchanged — blocks any real prospect send. |
 | `hausauerghmd` clone retirement | Trace | Unchanged. |
 | `reserved_for` dead column retirement | future Coder session | NULL on all rows, superseded by `deals.territory_id`. |
-| Re-size-panel cosmetic follow-up (approved v3 territory) | future Coder session | Re-size panel auto-resumes into a live second Approve control instead of sitting idle. Idempotent, not a data defect. |
+| Re-size-panel cosmetic follow-up (approved v3 territory) | future Coder session | Idempotent, not a data defect. |
 
 ## Decision needed next session
 
-1. **Isochrone-freeze follow-up** — closes the #94 residual risk. Still Chat's recommendation; still not picked.
-2. **390px tooling gap** — needs a decision on approach (manual pass vs. new automation path), separate from any specific PR.
-3. **Territory authoring/creation flow** — queued (referenced as "Brief 3" in recent session notes), not started.
-4. **Provisioning punch-list** — Resend, Calendly still outstanding.
-5. **Session E** — still unopened, still needs explicit Trace authorization.
-6. **Platform RBAC** — raised 2026-07-08, still no scoping doc.
+1. **PR4 greenlight** — nav split, unblocked, unbriefed.
+2. **Isochrone-freeze follow-up** — closes the #94 residual risk. Still not picked.
+3. **390px tooling gap** — needs a decision on approach, separate from any specific PR.
+4. **Territory authoring/creation flow** — queued, not started.
+5. **Provisioning punch-list** — Resend, Calendly still outstanding.
+6. **Session E** — still unopened, still needs explicit Trace authorization.
+7. **Platform RBAC** — raised 2026-07-08, still no scoping doc.
+8. **FK cascade behavior** on `qualification_reviews`/`rep_call_grades` hard-delete.
 
 **Do not assume — ask or wait for direction**, same as every prior handoff.
 
 ## Not This Session (escalate, don't creep)
 
-Session E, isochrone-freeze, Box Sign build, Platform RBAC, and territory authoring all
-remain unopened — each requires explicit Trace authorization.
+Session E, isochrone-freeze, Box Sign build, Platform RBAC, territory authoring, and PR4
+all remain unopened — each requires explicit Trace authorization.
 
 ## Agent Roles
 
