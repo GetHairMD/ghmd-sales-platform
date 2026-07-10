@@ -10,7 +10,7 @@ import { apportionB19001, type BlockGroupRecord } from '../polygon-apportionment
 import { flatB19001 } from '../__fixtures__/v3-geo'
 import type { IsochroneContour } from '../isochrone'
 import { creditShareForState } from '../credit-share'
-import { V3_MIN_ADDRESSABLE_FLOOR } from '../../../lib/addressable-market-constants'
+import { V3_MIN_ADDRESSABLE_FLOOR, V3_MIN_DRIVE_MINUTES } from '../../../lib/addressable-market-constants'
 import creditTable from '../../../data/experian-credit-share-by-state.json'
 import { isoSquare, soldUnion, bgTexasLeft, bgOklahomaStraddle } from '../__fixtures__/v3-geo'
 
@@ -83,11 +83,14 @@ describe('sizeByExpansion (§3.1 coarse-to-fine, §5 UNRESOLVED)', () => {
     }
   })
 
-  it('returns minute 1 when the floor is cleared even at a 1-minute drive-time', async () => {
+  it('clamps to the 5-minute floor when the addressable floor clears even at 1 minute', async () => {
+    // Pre-#120 this returned minute 1; decision #120 sets V3_MIN_DRIVE_MINUTES = 5 as the
+    // hard minimum boundary, so an m* of 1 is clamped up to 5 (see the dedicated clamp
+    // suite below for the addressable/provenance assertions).
     const { evaluate } = makeEvaluator(() => 50_000) // clears everywhere, including m = 1
     const r = await sizeByExpansion({ evaluate })
     expect(r.status).toBe(V3SizingStatus.VIABLE)
-    if (r.status === 'VIABLE') expect(r.minutes).toBe(1)
+    if (r.status === 'VIABLE') expect(r.minutes).toBe(V3_MIN_DRIVE_MINUTES)
   })
 
   it('keeps downward refinement batched ≤4 and strictly below the smallest probe', async () => {
@@ -146,6 +149,47 @@ describe('sizeByExpansion (§3.1 coarse-to-fine, §5 UNRESOLVED)', () => {
   })
 })
 
+describe('sizeByExpansion — V3_MIN_DRIVE_MINUTES floor clamp (§8.5, decision #120)', () => {
+  it('clamps a sub-floor m* (=2) up to 5 minutes with the 5-minute addressable', async () => {
+    // Monotonic curve clearing 18,600 at m ≥ 2 (m=1 → 10k fails, m=2 → 20k passes).
+    const { evaluate } = makeEvaluator((m) => m * 10_000)
+    const r = await sizeByExpansion({ evaluate })
+    expect(r.status).toBe(V3SizingStatus.VIABLE)
+    if (r.status === 'VIABLE') {
+      // Returned boundary is the 5-min floor, not the technically-sufficient 2 minutes.
+      expect(r.minutes).toBe(V3_MIN_DRIVE_MINUTES)
+      // Addressable reflects the 5-minute evaluation (50k), not the 2-minute one (20k).
+      expect(r.addressable).toBe(50_000)
+      expect(r.addressable).not.toBe(20_000)
+      // Provenance: the floor-driven 5-minute evaluation appears in the probes.
+      expect(r.probes.some((p) => p.minutes === V3_MIN_DRIVE_MINUTES)).toBe(true)
+    }
+  })
+
+  it('returns 5 with no duplicate evaluation when m* is exactly 5', async () => {
+    // Clears at m ≥ 5 (m=4 → 16k fails, m=5 → 20k passes); the refine loop lands on 5.
+    const { evaluate, calls } = makeEvaluator((m) => m * 4_000)
+    const r = await sizeByExpansion({ evaluate })
+    expect(r.status).toBe(V3SizingStatus.VIABLE)
+    if (r.status === 'VIABLE') {
+      expect(r.minutes).toBe(5)
+      expect(r.addressable).toBe(20_000)
+    }
+    // 5 was already in `seen` from the refine loop — the clamp must not re-evaluate it.
+    expect(calls.flat().filter((m) => m === 5)).toHaveLength(1)
+  })
+
+  it('leaves an m* at or above the floor (=8) unaffected', async () => {
+    // Clears at m ≥ 8 (m=7 → 16.8k fails, m=8 → 19.2k passes). No clamp.
+    const { evaluate, calls } = makeEvaluator((m) => m * 2_400)
+    const r = await sizeByExpansion({ evaluate })
+    expect(r.status).toBe(V3SizingStatus.VIABLE)
+    if (r.status === 'VIABLE') expect(r.minutes).toBe(8)
+    // The clamp is inert: 5 minutes is never evaluated.
+    expect(calls.flat()).not.toContain(5)
+  })
+})
+
 // ── End-to-end orchestrator (fake isochrone + fake census, no live calls) ────────
 //
 // Fake isochrone: a square [0,0]–[s,s] with side s = minute/5, so a larger minute
@@ -192,6 +236,32 @@ describe('sizeDriveTimeTerritory (isochrone → clip → apportion → addressab
       expect(result.addressable).toBeGreaterThanOrEqual(18_600)
     }
     expect(sizedContour?.minutes).toBe(30)
+  })
+
+  it('clamps to the 5-minute floor AND returns the 5-minute contour (boundary persistence)', async () => {
+    // Dense metro: a single block with enough households to clear the floor inside even the
+    // smallest isochrone (block at [0.1,0.1] sits inside squareContour(1), side 0.2). So
+    // m* would be 1; the clamp must both report minutes = 5 and fetch the 5-min contour so
+    // boundary persistence has a real polygon (not the sub-floor one, not null).
+    const denseBG: BlockGroupRecord = {
+      geoid: '480010001002',
+      stateFips: '48',
+      b19001: flatB19001(40_000), // all households in the $200k+ open bracket → income share 1
+      blocks: [{ households: 40_000, point: [0.1, 0.1] }],
+    }
+    const denseDeps = {
+      fetchContours: async (_c: { lat: number; lng: number }, minutes: number[]) =>
+        minutes.map(squareContour),
+      apportionment: { fetchIntersectingBlockGroups: async () => [denseBG] },
+      creditTable: { states: { TX: CREDIT_TX } },
+    }
+    const { result, sizedContour } = await sizeDriveTimeTerritory({ lat: 30, lng: -97 }, denseDeps)
+    expect(result.status).toBe(V3SizingStatus.VIABLE)
+    if (result.status === 'VIABLE') {
+      expect(result.minutes).toBe(V3_MIN_DRIVE_MINUTES)
+      expect(result.addressable).toBeGreaterThanOrEqual(V3_MIN_ADDRESSABLE_FLOOR)
+    }
+    expect(sizedContour?.minutes).toBe(V3_MIN_DRIVE_MINUTES) // the clamp fetched the 5-min contour
   })
 
   it('sold clipping can push a candidate to UNRESOLVED at the ceiling', async () => {

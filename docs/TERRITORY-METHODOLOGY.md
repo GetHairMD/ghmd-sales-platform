@@ -161,17 +161,23 @@ subtract any area already inside a sold territory's boundary before checking
 against the viability threshold. Exact GIS/geometry approach is a Coder
 scoping question, not a methodology ambiguity.
 
-### 8.5 Remaining Open Parameters
+### 8.5 Resolved Parameters
 
-**One item, non-blocking:**
-- **Minimum radius floor** — explicitly deferred; not required to begin v3
-  scoping or implementation.
+**Minimum radius floor — RESOLVED (decision #120).** Previously the one open,
+non-blocking parameter. Now set: `V3_MIN_DRIVE_MINUTES = 5`
+(`/lib/addressable-market-constants.ts`). Removing the old 15-minute search floor
+(decision #102) lets the engine refine down to the smallest integer minute that
+clears the addressable floor; #120 clamps the **returned boundary** up to 5
+minutes whenever that minute would fall below it, re-evaluating addressable at 5
+minutes (never emitting the smaller technically-sufficient count). This is a
+minute-count minimum, distinct from `V3_MIN_ADDRESSABLE_FLOOR` (a household
+count) — the two are never conflated. The clamp guards against a
+commercially-thin exclusivity radius (a licensee paying full price for a 2–4
+minute drive-time), not a legal exposure — see #120's reasoning.
 
 Mechanism, sizing-rule structure, buffer multiplier, penetration-rate anchor,
-maximum radius, and overlap resolution are all decided. **This methodology is
-now complete enough to support a Coder scoping session for v3, pending
-Trace's explicit go-ahead to open that work** — separate from this docs-only
-PR.
+maximum radius, minimum radius, and overlap resolution are now all decided. No
+open v3 methodology parameters remain.
 
 ### 8.6 Implementation Notes (non-binding)
 `NEXT_PUBLIC_MAPBOX_TOKEN` is already provisioned and live on Netlify;

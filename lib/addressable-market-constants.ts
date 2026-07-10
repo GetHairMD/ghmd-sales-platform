@@ -296,6 +296,19 @@ export const V3_MIN_ADDRESSABLE_FLOOR = 18_600;
  */
 export const V3_MAX_DRIVE_MINUTES = 45;
 
+/**
+ * Hard MINIMUM drive-time (minutes) for any v3 territory boundary (§8.5, decision #120).
+ * Removing the old 15-minute search floor (#102) made single-digit-minute radii reachable
+ * in dense metros; this clamps the *returned boundary* up to 5 minutes when the smallest
+ * qualifying drive-time m* falls below it — the territory is re-evaluated at 5 minutes and
+ * carries that (larger) addressable count, never the smaller technically-sufficient one.
+ *
+ * Distinct from V3_MIN_ADDRESSABLE_FLOOR: that is a household COUNT the isochrone must
+ * clear; this is a MINUTE count the returned radius may not fall below. They are not
+ * interchangeable and are never conflated in the search logic.
+ */
+export const V3_MIN_DRIVE_MINUTES = 5;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Sprint 1 Validation Targets
 // ─────────────────────────────────────────────────────────────────────────────
