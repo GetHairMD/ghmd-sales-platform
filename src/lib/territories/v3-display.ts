@@ -15,9 +15,48 @@
  *     (reserved_for is a dead column today — kept only to flag a data disagreement).
  */
 
-import { V3_MIN_ADDRESSABLE_FLOOR } from '../../../lib/addressable-market-constants'
+import { V3_MIN_ADDRESSABLE_FLOOR, CENSUS_CACHE_TTL_DAYS } from '../../../lib/addressable-market-constants'
 
 export type ViewerDesignation = 'executive' | 'rep' | null
+
+// ─────────────────────────────────────────────────────────────────────────────
+// V2 census-refresh guard (protects qa_locked anchors from render-time overwrite)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Minimal territory shape the V2_LEGACY census-refresh decision depends on. */
+export interface CensusRefreshInput {
+  /** Protected QA/reference fixture flag. When true, the row must never be recomputed/overwritten. */
+  qa_locked: boolean | null
+  /** Last census fetch timestamp (ISO); null means never fetched (treated as stale). */
+  census_fetched_at: string | null
+  center_lat: number | string | null
+  center_lng: number | string | null
+}
+
+/**
+ * Whether the V2_LEGACY territory detail render should recompute + PERSIST county census
+ * data for this territory (an admin-client write to `territories`). Returns FALSE — i.e. the
+ * render leaves the row untouched — when:
+ *   • `qa_locked` is true — protected #94 reference anchors must never be overwritten by a
+ *     render side-effect (the 2026-07-10 Nashville incident: a stale-cache render clobbered
+ *     the locked 4,127 figure with a whole-county 172,275 recompute). This is the guard.
+ *   • the census cache is still fresh (< CENSUS_CACHE_TTL_DAYS old, Rule 5), or
+ *   • the territory has no usable center coordinates to size around.
+ *
+ * Pure + clock-injectable so the guard is unit-testable without a live render.
+ */
+export function shouldRefreshV2Census(
+  t: CensusRefreshInput,
+  now: number = Date.now(),
+  ttlDays: number = CENSUS_CACHE_TTL_DAYS,
+): boolean {
+  if (t.qa_locked) return false
+  if (t.center_lat == null || t.center_lng == null) return false
+  const cacheExpiresAt = t.census_fetched_at
+    ? new Date(t.census_fetched_at).getTime() + ttlDays * 86_400_000
+    : 0
+  return now > cacheExpiresAt
+}
 
 /** Minimal territory shape the display kind depends on. */
 export interface TerritoryDisplayInput {
