@@ -79,11 +79,20 @@ export async function POST(
   // Refuse to re-size a sold/reserved territory — that is a business act, not a UI decision.
   const { data: territory, error: tErr } = await service
     .from('territories')
-    .select('id, status')
+    .select('id, status, qa_locked')
     .eq('id', territoryId)
     .maybeSingle()
   if (tErr || !territory) {
     return NextResponse.json({ error: 'Territory not found' }, { status: 404 })
+  }
+  // qa_locked anchors are protected #94 reference fixtures — approving a v3 boundary would
+  // overwrite their locked formula_version + boundary data (same incident class as the
+  // territories/[id] render-write fixed in PR #100). Refuse, same 409 shape as sold/reserved.
+  if (territory.qa_locked) {
+    return NextResponse.json(
+      { error: 'Cannot approve a locked reference territory' },
+      { status: 409 },
+    )
   }
   if (territory.status === 'sold' || territory.status === 'reserved') {
     return NextResponse.json(
