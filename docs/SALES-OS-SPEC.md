@@ -42,8 +42,9 @@ Adopt the NIP internal-app shell as the Sales Platform shell. Port the *patterns
 2. **Pipeline** — 11-stage view; default table using NIP's by-location rollup table pattern (sortable columns, status/grade chips); kanban is P1.
 3. **Prospects** — list → `/prospects/[id]` detail (existing route).
 4. **Proposals** — every live proposal page with engagement stats (visits, total dwell, last seen, hottest section) + link out to `/p/[slug]`.
-5. **Territories** — map-first view; reuse NIP Network Map pattern incl. the existing `marker-animate` treatment; click territory → simplified summary (full sales detail lives on the proposal page, per Trace).
-6. **Insights** — nav item present, badged "Coming Soon" (NIP does this with Insights/Q3; sets roadmap expectations cheaply).
+5. **Deal Territories** — map-first view of sold/assigned territories; reuse NIP Network Map pattern incl. the existing `marker-animate` treatment; click territory → simplified summary (full sales detail lives on the proposal page, per Trace). Route `/territories` (renamed from "Territories" — label-only, PR4).
+6. **Territory Scouting** *(executive-only)* — the territory-authoring surface (locate → size → create a new territory). **Coming Soon** placeholder today; the creation flow is a separately-scoped future build, and the stage-advancement gate (PR3) already enforces the qualification precondition when it lands. Gated on `getViewerDesignation() === 'executive'` (reused PR3 pattern) — reps and unauthenticated viewers never see it in nav.
+7. **Insights** — nav item present, badged "Coming Soon" (NIP does this with Insights/Q3; sets roadmap expectations cheaply).
 
 **Primitives this adds to Session A:** Sidebar, BottomTabBar, TopBar w/ search, GreetingHeader, StatCardDelta, PriorityFeedItem, DataTable w/ chip cells, SlideOverDetailPanel (the NIP click-through detail drawer — reuse for prospect quick-view from Pipeline/Dashboard without leaving the page).
 

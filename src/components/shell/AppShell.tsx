@@ -1,5 +1,6 @@
 'use client'
 import { usePathname } from 'next/navigation'
+import type { Designation } from '@/lib/auth/internal-role'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import BottomTabBar from './BottomTabBar'
@@ -12,6 +13,9 @@ import BottomTabBar from './BottomTabBar'
  * its access wrapper (`/proposals`), and `/login` must NOT be wrapped in the
  * internal shell. This guard is the only coupling to those routes; their page
  * files are untouched.
+ *
+ * `designation` is resolved server-side in the root layout (getViewerDesignation)
+ * and threaded to the Sidebar so exec-only nav items never reach a rep's markup.
  */
 const CHROMELESS_PREFIXES = ['/login', '/p/', '/proposals']
 
@@ -21,14 +25,20 @@ function isChromeless(pathname: string): boolean {
   )
 }
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell({
+  children,
+  designation,
+}: {
+  children: React.ReactNode
+  designation: Designation | null
+}) {
   const pathname = usePathname()
 
   if (isChromeless(pathname)) return <>{children}</>
 
   return (
     <div className="flex min-h-screen bg-bg">
-      <Sidebar />
+      <Sidebar designation={designation} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
         {/* pb-16 clears the mobile BottomTabBar; removed at md+. */}
