@@ -20,6 +20,7 @@
 import {
   INCOME_QUALIFY_THRESHOLD_ANNUAL,
   V3_MIN_ADDRESSABLE_FLOOR,
+  V3_MIN_DRIVE_MINUTES,
   V3_MAX_DRIVE_MINUTES,
 } from '../../lib/addressable-market-constants'
 import { incomeQualifiedShare } from './income-screen'
@@ -215,10 +216,23 @@ export async function sizeByExpansion(config: ExpansionConfig): Promise<V3Sizing
     hi = newHi
   }
 
+  // 3. Minimum drive-time clamp (§8.5, ops.decision_log #120). The refine loop can now
+  // return an m* below V3_MIN_DRIVE_MINUTES (5) since the old 15-min search floor was
+  // removed (#102). A boundary that small is a commercially-thin exclusivity radius, not a
+  // legal one — so the RETURNED boundary is clamped up to the minute floor, with addressable
+  // re-evaluated there (monotonicity ⇒ the 5-min number is ≥ m*'s, and still ≥ the floor).
+  // This is a distinct bound from V3_MIN_ADDRESSABLE_FLOOR (a household count) — a minute
+  // count, never conflated. The extra evaluate records full provenance in `probes`.
+  let boundary = hi
+  if (boundary < V3_MIN_DRIVE_MINUTES) {
+    await evaluateMinutes([V3_MIN_DRIVE_MINUTES]) // no-op if already in `seen`; adds a probe otherwise
+    boundary = V3_MIN_DRIVE_MINUTES
+  }
+
   return {
     status: V3SizingStatus.VIABLE,
-    minutes: hi,
-    addressable: seen.get(hi) ?? floor,
+    minutes: boundary,
+    addressable: seen.get(boundary) ?? floor,
     probes,
   }
 }
