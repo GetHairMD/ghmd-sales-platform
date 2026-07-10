@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { PIPELINE_STAGES } from '@/lib/pipeline-stages'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
-import { moveProspectStage } from '@/app/pipeline/actions'
+import { moveProspectStage } from '@/app/(app)/pipeline/actions'
 
 interface PendingGate {
   targetStage: number

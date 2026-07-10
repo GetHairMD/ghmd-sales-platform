@@ -1,5 +1,3 @@
-'use client'
-import { usePathname } from 'next/navigation'
 import type { Designation } from '@/lib/auth/internal-role'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
@@ -9,22 +7,16 @@ import BottomTabBar from './BottomTabBar'
  * Internal app shell (spec §4B): persistent Sidebar + TopBar on desktop,
  * BottomTabBar on mobile, wrapping the rep-facing pages.
  *
- * Chromeless paths render bare — the public proposal surface (`/p/[slug]`),
- * its access wrapper (`/proposals`), and `/login` must NOT be wrapped in the
- * internal shell. This guard is the only coupling to those routes; their page
- * files are untouched.
+ * Rendered ONLY by the (app) route group's layout, which wraps internal pages
+ * exclusively — so the shell always applies here and needs no per-path chromeless
+ * guard. Public, prospect-facing routes (`/p/[slug]`, `/login`,
+ * `/proposals/[prospectId]`) live outside the group under the minimal root layout
+ * and never reach this component. (This replaces the old CHROMELESS_PREFIXES check,
+ * which also mis-stripped the chrome from the internal `/proposals` index.)
  *
- * `designation` is resolved server-side in the root layout (getViewerDesignation)
+ * `designation` is resolved server-side in the (app) layout (getViewerDesignation)
  * and threaded to the Sidebar so exec-only nav items never reach a rep's markup.
  */
-const CHROMELESS_PREFIXES = ['/login', '/p/', '/proposals']
-
-function isChromeless(pathname: string): boolean {
-  return CHROMELESS_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(p) || pathname === p.replace(/\/$/, ''),
-  )
-}
-
 export default function AppShell({
   children,
   designation,
@@ -32,10 +24,6 @@ export default function AppShell({
   children: React.ReactNode
   designation: Designation | null
 }) {
-  const pathname = usePathname()
-
-  if (isChromeless(pathname)) return <>{children}</>
-
   return (
     <div className="flex min-h-screen bg-bg">
       <Sidebar designation={designation} />

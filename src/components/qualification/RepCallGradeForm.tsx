@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Button from '@/components/ui/Button'
-import { addRepCallGrade } from '@/app/prospects/[id]/qualification-actions'
+import { addRepCallGrade } from '@/app/(app)/prospects/[id]/qualification-actions'
 
 /** Compact, structured criteria bundled into rep_call_grades.grade_data (jsonb). */
 const CRITERIA = ['Rapport', 'Discovery', 'Objection handling', 'Next steps'] as const

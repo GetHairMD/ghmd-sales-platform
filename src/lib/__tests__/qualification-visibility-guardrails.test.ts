@@ -45,10 +45,10 @@ const EXEC_ONLY_SURFACES = [
 // exec-only table. (qualification_reviews / qualification_review_notes ARE rep-safe and
 // intentionally not in the forbidden list.)
 const REP_FACING = [
-  'src/app/prospects/[id]/page.tsx',
-  'src/app/prospects/[id]/DealRoom.tsx',
+  'src/app/(app)/prospects/[id]/page.tsx',
+  'src/app/(app)/prospects/[id]/DealRoom.tsx',
   'src/components/qualification/QualificationReviewPanel.tsx',
-  'src/app/pipeline/PipelineBoard.tsx',
+  'src/app/(app)/pipeline/PipelineBoard.tsx',
   // Every qualification component EXCEPT the exec-only ones.
   ...collect('src/components/qualification').filter((f) => !EXEC_ONLY_SURFACES.includes(f)),
 ]
@@ -74,7 +74,7 @@ describe('the exec-only detail surface self-gates (defense in depth under RLS)',
   })
 
   it('the prospect page renders QualificationExecDetail ONLY inside an executive branch', () => {
-    const src = read('src/app/prospects/[id]/page.tsx')
+    const src = read('src/app/(app)/prospects/[id]/page.tsx')
     // The exec node is constructed only when isExecutive is true.
     expect(src).toMatch(/isExecutive\s*\?\s*<QualificationExecDetail/)
     // And the page itself never queries an exec-only table.
@@ -86,7 +86,7 @@ describe('the exec-only detail surface self-gates (defense in depth under RLS)',
 
 describe('exec-only WRITE paths are gated on viewerIsExecutive', () => {
   it('the qualification actions gate the recommendation + rep-grade writes on executive', () => {
-    const src = read('src/app/prospects/[id]/qualification-actions.ts')
+    const src = read('src/app/(app)/prospects/[id]/qualification-actions.ts')
     expect(src).toContain('viewerIsExecutive')
   })
 })

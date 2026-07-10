@@ -8,7 +8,7 @@ import { cn } from '@/design/cn'
 import {
   generateProposalAction,
   type GenerateProposalResult,
-} from '@/app/prospects/[id]/proposal-actions'
+} from '@/app/(app)/prospects/[id]/proposal-actions'
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false)
