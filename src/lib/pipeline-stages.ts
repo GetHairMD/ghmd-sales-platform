@@ -126,23 +126,54 @@ export function showPrequalSkippedBadge(stage: number, skippedFundingPrequal: bo
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Soft triage gate (5 -> 6, Proposal Sent) — same shape as the funding gate.
+// Hard qualification gate (advancing PAST Qualification Review, stage 5 -> 6+)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Advancing a prospect to Proposal Sent (or beyond) without a completed triage is
- * ALLOWED but prompts a confirm and flags the record (skipped_triage). Soft by
- * design — never a hard block. Protects the uniformly-applied-criteria record by
- * turning every deviation into a logged, deliberate act (PRD §2.3).
+ * The first stage that is "past" Qualification Review. A prospect may not advance
+ * to this stage (or beyond) unless a `qualification_reviews.recommendation = 'proceed'`
+ * exists for it (decision #110, scoping §7). This is a HARD block — not a confirm —
+ * enforced server-side in `moveProspectStage`.
+ *
+ * It sits at the SAME boundary the soft triage confirm used to occupy and SUPERSEDES
+ * it: scoping §2.1 — once the hard gate is real the triage soft-skip is "redundant,
+ * not additional protection." The triage badge helpers below are kept dormant
+ * (skipped_triage deprecated-in-place, PR2/#110) for the existing read-paths; the
+ * soft triage *confirm* is gone from the move action.
  */
+export const QUALIFICATION_GATE_STAGE = STAGE.PROPOSAL_SENT
+
+/**
+ * True when a stage move CROSSES the Qualification Review boundary from below — i.e.
+ * the move would carry a prospect from at-or-before Qualification Review to past it.
+ * Only these moves require a cleared `proceed` review. A prospect already past the
+ * boundary (e.g. a legacy fixture seeded at Proposal Sent before the review table
+ * existed) does NOT re-trigger the gate on a further forward move — the plain reading
+ * of "cannot advance PAST Qualification Review," and it avoids trapping already-past
+ * records with no review row (brief §3). Mirrors the crossing semantics of the
+ * funding gate exactly.
+ */
+export function crossesQualificationGate(currentStage: number, targetStage: number): boolean {
+  return currentStage < QUALIFICATION_GATE_STAGE && targetStage >= QUALIFICATION_GATE_STAGE
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Triage badge (DORMANT — skipped_triage deprecated-in-place, PR2/#110). The soft
+// triage *confirm* was replaced by the hard qualification gate above; these
+// read-path helpers remain only so existing badge consumers keep compiling until a
+// future cleanup drops the column. `requiresTriageConfirm` is retained for the same
+// reason and is no longer called by the move action.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** @deprecated Boundary of the retired soft triage confirm (== QUALIFICATION_GATE_STAGE). */
 export const TRIAGE_GATE_STAGE = STAGE.PROPOSAL_SENT
 
-/** True when advancing to `targetStage` without a complete triage should prompt "advance anyway?". */
+/** @deprecated The hard qualification gate replaced the triage confirm; unused by the move action. */
 export function requiresTriageConfirm(targetStage: number, triageComplete: boolean): boolean {
   return targetStage >= TRIAGE_GATE_STAGE && !triageComplete
 }
 
-/** True when the amber "TRIAGE SKIPPED" badge should render for a record. */
+/** @deprecated Dormant — skipped_triage is never set (PR2/#110). Kept for existing badge reads. */
 export function showTriageSkippedBadge(stage: number, skippedTriage: boolean): boolean {
   return skippedTriage && stage >= TRIAGE_GATE_STAGE
 }

@@ -71,6 +71,20 @@ interface ProspectSeed extends SeedProspectInput {
   stageUpdatedDaysAgo: number
   territory?: string // territory name to attach a deal
   activities: { activity_type: 'note' | 'call_log'; body: string; daysAgo: number }[]
+  /**
+   * Optional seeded qualification data (scores/enrichment/review). Present only for
+   * Qualification Review (stage 5) prospects. These rows key to prospects.id and
+   * cascade with the prospect on reseed — they involve NO territory, so they add zero
+   * territory-churn risk (the whole point of the gate is that territory creation is
+   * unreachable until a review clears). `reviewed_by` is left null (seed has no real
+   * auth.users exec id; the gate keys off `recommendation`, not the reviewer).
+   */
+  qualification?: {
+    recommendation: 'proceed' | 'conditional' | 'not_qualified'
+    reviewNotes?: string
+    scores?: Record<string, unknown>
+    enrichment?: Record<string, unknown>
+  }
 }
 
 const PROSPECTS: ProspectSeed[] = [
@@ -97,6 +111,60 @@ const PROSPECTS: ProspectSeed[] = [
     email: 'dkim@kimhairskin.com', phone: '469-555-0143',
     stage: STAGE.DISCOVERY_CALL_MET, stageUpdatedDaysAgo: 4, icp_score: 88,
     activities: [{ activity_type: 'call_log', body: 'Discovery met. Strong interest, asked about financing.', daysAgo: 4 }],
+  },
+  {
+    // Qualification Review — cleared 'proceed'. Exercises the exec review + the hard
+    // gate's pass path (this prospect CAN advance to Proposal Sent). No territory yet:
+    // territory creation is gated behind clearing this review.
+    full_name: 'Dr. Maya Osei', practice_name: 'Osei Dermatology', specialty: 'Dermatology',
+    email: 'mosei@oseiderm.com', phone: '512-555-0231',
+    stage: STAGE.QUALIFICATION_REVIEW, stageUpdatedDaysAgo: 1, icp_score: 86,
+    activities: [{ activity_type: 'call_log', body: 'First meeting held; strong fit. Qualification review recorded.', daysAgo: 1 }],
+    qualification: {
+      recommendation: 'proceed',
+      reviewNotes: 'Clear intent, financeable, engaged throughout. Cleared to proceed to proposal.',
+      scores: {
+        affect_energy_value: 'High', affect_energy_confidence: 0.8,
+        coachability_value: 'Strong', coachability_confidence: 0.75,
+        motivation_authenticity_value: 'Authentic', motivation_authenticity_confidence: 0.85,
+        engagement_value: 'High', engagement_confidence: 0.9,
+        chemistry_fit_value: 'Strong', chemistry_fit_confidence: 0.8,
+        objections_raised_value: 'Minor pricing questions only',
+        questions_asked_value: 'Several substantive questions about onboarding',
+      },
+      enrichment: {
+        years_in_practice: 12,
+        existing_aesthetic_services: 'Botox, fillers, laser',
+        digital_footprint_present: true,
+        prior_financing_relationship: true,
+      },
+    },
+  },
+  {
+    // Qualification Review — 'conditional'. Exercises the edit-in-place re-score case
+    // and the hard gate's BLOCK path (cannot advance to Proposal Sent until 'proceed').
+    full_name: 'Dr. Noah Zeller', practice_name: 'Zeller Skin Clinic', specialty: 'Plastic Surgery',
+    email: 'nzeller@zellerskin.com', phone: '214-555-0242',
+    stage: STAGE.QUALIFICATION_REVIEW, stageUpdatedDaysAgo: 3, icp_score: 71,
+    activities: [{ activity_type: 'call_log', body: 'First meeting held; interested but financing unclear. Conditional pending follow-up.', daysAgo: 3 }],
+    qualification: {
+      recommendation: 'conditional',
+      reviewNotes: 'Good clinical fit but financing readiness unconfirmed. Re-score after the follow-up call.',
+      scores: {
+        affect_energy_value: 'Moderate', affect_energy_confidence: 0.6,
+        coachability_value: 'Moderate', coachability_confidence: 0.6,
+        motivation_authenticity_value: 'Genuine but hedged', motivation_authenticity_confidence: 0.55,
+        engagement_value: 'Moderate', engagement_confidence: 0.65,
+        chemistry_fit_value: 'Good', chemistry_fit_confidence: 0.7,
+        objections_raised_value: 'Timing and capital availability',
+      },
+      enrichment: {
+        years_in_practice: 6,
+        existing_aesthetic_services: 'CoolSculpting',
+        digital_footprint_present: true,
+        prior_financing_relationship: false,
+      },
+    },
   },
   {
     full_name: 'Dr. Elena Petrov', practice_name: 'Petrov Aesthetic Group', specialty: 'Dermatology',
@@ -251,6 +319,7 @@ async function main() {
   let prospectCount = 0
   let dealCount = 0
   let activityCount = 0
+  let qualificationCount = 0
   const prospectNameToId = new Map<string, string>()
   for (const p of PROSPECTS) {
     const row = buildSeedProspectInsert(p)
@@ -289,6 +358,33 @@ async function main() {
       })
       if (aErr) fail(`insert activity for ${p.full_name}: ${aErr.message}`)
       activityCount++
+    }
+
+    // Qualification data (Qualification Review prospects only). Keyed to prospects.id,
+    // cascades on reseed — no territory involved, so no territory-churn risk (§6).
+    if (p.qualification) {
+      const q = p.qualification
+      if (q.scores) {
+        const { error: sErr } = await db
+          .from('qualification_scores')
+          .insert({ prospect_id: prospectId, ...q.scores })
+        if (sErr) fail(`insert qualification_scores for ${p.full_name}: ${sErr.message}`)
+      }
+      if (q.enrichment) {
+        const { error: eErr } = await db
+          .from('qualification_enrichment')
+          .insert({ prospect_id: prospectId, ...q.enrichment })
+        if (eErr) fail(`insert qualification_enrichment for ${p.full_name}: ${eErr.message}`)
+      }
+      const { error: rErr } = await db.from('qualification_reviews').insert({
+        prospect_id: prospectId,
+        recommendation: q.recommendation,
+        notes: q.reviewNotes ?? null,
+        reviewed_at: daysAgo(p.stageUpdatedDaysAgo),
+        // reviewed_by intentionally null — seed has no real auth.users exec id.
+      })
+      if (rErr) fail(`insert qualification_reviews for ${p.full_name}: ${rErr.message}`)
+      qualificationCount++
     }
   }
 
@@ -334,7 +430,7 @@ async function main() {
   if (pErr) fail(`insert proposal for Dr. Elena Petrov: ${pErr.message}`)
 
   console.log(
-    `[seed-demo] Done: ${TERRITORIES.length} territories, ${prospectCount} prospects, ${dealCount} deals, ${activityCount} activities.`,
+    `[seed-demo] Done: ${TERRITORIES.length} territories, ${prospectCount} prospects, ${dealCount} deals, ${activityCount} activities, ${qualificationCount} qualification reviews.`,
   )
   console.log(`[seed-demo] Proposal seeded: /p/${DEMO_PROPOSAL_SLUG}  (access code: ${DEMO_ACCESS_CODE})`)
 }

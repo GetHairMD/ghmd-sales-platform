@@ -2,9 +2,13 @@ import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import { isDealStatus } from '@/lib/pipeline-stages';
 import { getProspectTimelineSources } from '@/lib/dashboard/data';
+import { getViewerDesignation } from '@/lib/auth/internal-role';
 import { buildTimeline } from '@/lib/proposal/timeline';
 import { resolveProspectTerritory } from '@/lib/territories/v3-display';
+import { isQualificationRecommendation } from '@/lib/qualification/recommendation';
 import LeadTerritoryArtifact from '@/components/territory/LeadTerritoryArtifact';
+import QualificationExecDetail from '@/components/qualification/QualificationExecDetail';
+import type { QualificationReviewView } from '@/components/qualification/QualificationReviewPanel';
 import DealRoom, { type DealRoomProspect } from './DealRoom';
 
 /** Territory shape fetched via the prospect's most-recent deal (the authoritative link). */
@@ -30,6 +34,13 @@ export default async function ProspectDetailPage({ params }: { params: { id: str
     { data: deal },
     { data: reservedTerritory },
     timelineSources,
+    designation,
+    // Rep-SAFE qualification reads only: the review record (rep_read_own) + the rep's
+    // own note (rep_select_own). The exec-only scores, enrichment, and rep-call-grade
+    // tables are NEVER queried here — they live solely in QualificationExecDetail,
+    // rendered below only for executives (brief §1/§5).
+    { data: review },
+    { data: repNote },
   ] = await Promise.all([
     supabase.from('prospects').select('*').eq('id', params.id).single(),
     supabase
@@ -51,9 +62,30 @@ export default async function ProspectDetailPage({ params }: { params: { id: str
     supabase.from('territories').select('id').eq('reserved_for', params.id).limit(1).maybeSingle(),
     // proposal_* tables are service-role-only (RLS) — read via the service client.
     getProspectTimelineSources(params.id),
+    getViewerDesignation(),
+    supabase
+      .from('qualification_reviews')
+      .select('recommendation, ai_summary, notes, reviewed_at')
+      .eq('prospect_id', params.id)
+      .maybeSingle(),
+    supabase
+      .from('qualification_review_notes')
+      .select('note')
+      .eq('prospect_id', params.id)
+      .maybeSingle(),
   ]);
 
   if (error || !prospect) notFound();
+
+  const isExecutive = designation === 'executive';
+  const recRaw = review?.recommendation;
+  const qualificationReview: QualificationReviewView = {
+    recommendation: isQualificationRecommendation(recRaw) ? recRaw : null,
+    ai_summary: review?.ai_summary ?? null,
+    exec_notes: review?.notes ?? null,
+    reviewed_at: review?.reviewed_at ?? null,
+    rep_note: repNote?.note ?? null,
+  };
 
   // Merge manual notes + proposal sessions/events (incl. Calendly) into one
   // chronological timeline (spec §11). Pure merge — see lib/proposal/timeline.ts.
@@ -132,6 +164,11 @@ export default async function ProspectDetailPage({ params }: { params: { id: str
       territory={territory}
       timeline={timeline}
       territoryArtifact={territoryArtifact}
+      isExecutive={isExecutive}
+      qualificationReview={qualificationReview}
+      // Exec-only detail (scores / enrichment / rep-call grades). Rendered ONLY inside
+      // this executive branch — never constructed for a rep session.
+      qualificationExecDetail={isExecutive ? <QualificationExecDetail prospectId={params.id} /> : null}
     />
   );
 }

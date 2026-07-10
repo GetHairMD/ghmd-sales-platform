@@ -7,19 +7,24 @@ import { join } from 'node:path'
  *
  * The Deal Room StageSelector previously wrote `prospects.stage` directly from the
  * browser, checked only the funding pre-qual gate via a raw window.confirm(), and had
- * NO triage-gate check — so a prospect could be advanced past either soft gate from the
- * Deal Room with no skipped_triage / skipped_funding_prequal flag recorded (residual
- * risk on ops.decision_log id 60).
+ * NO triage-gate check — so a prospect could be advanced past a gate from the Deal Room
+ * with no flag recorded (residual risk on ops.decision_log id 60).
  *
- * Both stage-change surfaces must now funnel through the ONE sanctioned server action
- * (`moveProspectStage`), which records skips SERVER-SIDE, and use the ONE confirm UI
+ * Both stage-change surfaces must funnel through the ONE sanctioned server action
+ * (`moveProspectStage`), which enforces the gates SERVER-SIDE, and use the ONE dialog UI
  * (ConfirmDialog). This source-scan pins that invariant so the direct-write /
  * window.confirm / single-gate regression can't return.
+ *
+ * PR3 (#110): the soft triage confirm was REPLACED by the HARD qualification gate at the
+ * same boundary (advancing past Qualification Review requires a cleared 'proceed'
+ * review; scoping §2.1). This test now pins the hard gate + prequal soft gate, and that
+ * skipped_triage is never written.
  */
 
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8')
 
 const STAGE_SELECTOR = 'src/components/StageSelector.tsx'
+const PIPELINE_BOARD = 'src/app/pipeline/PipelineBoard.tsx'
 const ACTIONS = 'src/app/pipeline/actions.ts'
 
 describe('Deal Room StageSelector routes through the sanctioned gate path', () => {
@@ -44,21 +49,36 @@ describe('Deal Room StageSelector routes through the sanctioned gate path', () =
     expect(src, 'StageSelector must not reintroduce window.confirm').not.toContain('window.confirm')
   })
 
-  it('handles BOTH soft gates (triage and prequal), not just funding', () => {
+  it('handles the hard qualification block AND the prequal soft gate', () => {
     const src = read(STAGE_SELECTOR)
-    expect(src).toContain("'triage'")
-    expect(src).toContain("'prequal'")
+    expect(src, 'must handle the hard qualification block').toContain("'qualification'")
+    expect(src, 'must still handle the prequal soft gate').toContain("'prequal'")
   })
 })
 
-describe('the triage confirm is enforced SERVER-SIDE; skipped_triage is deprecated (#110)', () => {
-  it('moveProspectStage still requires the triage confirm but no longer records skipped_triage', () => {
+describe('Pipeline Board handles the same gates through the same action', () => {
+  it('routes through moveProspectStage and handles the qualification hard block', () => {
+    const src = read(PIPELINE_BOARD)
+    expect(src).toContain('moveProspectStage')
+    expect(src, 'board must handle the hard qualification block').toContain("'qualification'")
+    expect(src).toContain('ConfirmDialog')
+  })
+})
+
+describe('the hard qualification gate is enforced SERVER-SIDE; skipped_triage stays deprecated (#110)', () => {
+  it('moveProspectStage hard-blocks crossing the qualification boundary and never records skipped_triage', () => {
     const src = read(ACTIONS)
-    expect(src).toContain('TRIAGE_GATE_STAGE')
-    // Crossing the gate without confirmation still returns requiresConfirm: 'triage' ...
-    expect(src).toContain("requiresConfirm: 'triage'")
-    // ... but skipped_triage is deprecated in place (#110) — the flag must NOT be written
-    // (a deprecation *comment* naming the column is fine; only an assignment is forbidden).
+    // The hard gate is evaluated on the move itself (not a UI-only guard).
+    expect(src, 'must evaluate the qualification boundary crossing').toContain('crossesQualificationGate')
+    expect(src, 'must return the non-overridable hard block').toContain("blocked: 'qualification'")
+    // The proceed review is the gate signal.
+    expect(src).toContain("'proceed'")
+    // The soft triage confirm was replaced by the hard gate — it must be gone.
+    expect(src, 'the soft triage confirm was replaced by the hard gate').not.toContain("requiresConfirm: 'triage'")
+    // skipped_triage remains deprecated (#110) — the flag must NOT be written
+    // (a deprecation *comment* naming the column would be fine; only an assignment is forbidden).
     expect(src, 'skipped_triage is deprecated (#110) — actions.ts must not write it').not.toMatch(/skipped_triage\s*[:=]/)
+    // The prequal soft gate is retained.
+    expect(src).toContain("requiresConfirm: 'prequal'")
   })
 })

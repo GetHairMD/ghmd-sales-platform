@@ -23,6 +23,9 @@ import StageSelector from '@/components/StageSelector';
 import DealStatusSelector from '@/components/DealStatusSelector';
 import FundingPrequalToggle from '@/components/FundingPrequalToggle';
 import GenerateProposalPanel from '@/components/proposal/GenerateProposalPanel';
+import QualificationReviewPanel, {
+  type QualificationReviewView,
+} from '@/components/qualification/QualificationReviewPanel';
 import type { TimelineEntry } from '@/lib/proposal/timeline';
 
 export interface DealRoomProspect {
@@ -76,12 +79,19 @@ export default function DealRoom({
   territory,
   timeline,
   territoryArtifact = null,
+  isExecutive = false,
+  qualificationReview,
+  qualificationExecDetail = null,
 }: {
   prospect: DealRoomProspect;
   territory: { name: string; addressable_patients_primary: number | null } | null;
   timeline: TimelineEntry[];
   /** Read-only §D artifact, present only when the linked territory has an approved v3 boundary. */
   territoryArtifact?: React.ReactNode;
+  isExecutive?: boolean;
+  qualificationReview: QualificationReviewView;
+  /** Exec-only qualification detail node (scores/enrichment/grades); null for reps. */
+  qualificationExecDetail?: React.ReactNode;
 }) {
   const [tab, setTab] = useState('action');
 
@@ -195,6 +205,16 @@ export default function DealRoom({
                     />
                   </div>
                 </div>
+                {prospect.stage >= STAGE.DISCOVERY_CALL_MET && (
+                  <>
+                    <QualificationReviewPanel
+                      prospectId={prospect.id}
+                      isExecutive={isExecutive}
+                      initial={qualificationReview}
+                    />
+                    {qualificationExecDetail}
+                  </>
+                )}
                 <GenerateProposalPanel prospectId={prospect.id} />
                 {prospect.notes && (
                   <div className="rounded-lg border border-mist bg-bg p-4">
