@@ -1,0 +1,145 @@
+name: Handoff Reminder
+
+# Non-blocking reminder (Trace decision, 2026-07-10) that surfaces on every PR
+# to main when the session likely forgot the docs/AGENTS.md session-close
+# handoff step. It never fails the check and never blocks merge — Trace is the
+# sole merger and wants visibility, not a gate.
+#
+# The reminder fires only when BOTH are true:
+#   1. The PR does NOT modify handoffs/LATEST.md, AND
+#   2. The PR body has no opt-out line matching /Handoff:\s*not needed/i
+#      (e.g. "Handoff: not needed — pure CI tooling change").
+# If either is satisfied (handoff touched, or opt-out stated), it passes
+# silently with no warning.
+#
+# SECURITY: uses `pull_request` (not pull_request_target) and never checks out
+# or executes PR-controlled code. It reads the PR file list and body via the
+# GitHub API as data and posts one sticky comment. All PRs in this repo are
+# same-repo branches (feature/*, chore/handoff-*), so the GITHUB_TOKEN is
+# read/write and comment posting works without the elevated target trigger.
+#
+# This is additive: it does not touch the Second-Opinion Gate (`gate`) or any
+# other existing CI step.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: handoff-reminder-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for handoff update or opt-out
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Wrapped so NO error can ever fail this check — it is warning-only,
+            // never a merge gate. On any unexpected error we pass without a
+            // warning; the next PR event re-runs the check.
+            try {
+              const pr = context.payload.pull_request;
+              if (!pr) {
+                core.info('No pull_request in payload; skipping.');
+                return;
+              }
+
+              const HANDOFF_PATH = 'handoffs/LATEST.md';
+              const OPT_OUT = /handoff:\s*not needed/i;
+              const MARKER = '<!-- handoff-reminder -->';
+
+              // 1. Did the PR touch handoffs/LATEST.md?
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                per_page: 100,
+              });
+              const touchedHandoff = files.some((f) => f.filename === HANDOFF_PATH);
+
+              // 2. Does the PR body state the opt-out?
+              const optedOut = OPT_OUT.test(pr.body || '');
+
+              const needsWarning = !touchedHandoff && !optedOut;
+
+              // Locate any prior sticky comment from this check (idempotent re-runs).
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                per_page: 100,
+              });
+              const existing = comments.find((c) => (c.body || '').includes(MARKER));
+
+              if (!needsWarning) {
+                core.info(
+                  touchedHandoff
+                    ? 'handoffs/LATEST.md is modified in this PR — no reminder needed.'
+                    : 'PR body states "Handoff: not needed" — no reminder needed.'
+                );
+                // Resolve a prior reminder in place rather than leaving a stale warning.
+                if (existing && !existing.body.includes('✅')) {
+                  await github.rest.issues.updateComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: existing.id,
+                    body:
+                      `${MARKER}\n### ✅ Handoff reminder resolved\n\n` +
+                      (touchedHandoff
+                        ? 'This PR updates `handoffs/LATEST.md`.'
+                        : 'This PR states `Handoff: not needed`.'),
+                  });
+                }
+                return;
+              }
+
+              // Warning annotation — surfaces in the PR "Checks" tab. Does NOT
+              // fail the step (only core.setFailed would, and we never call it).
+              core.warning(
+                'This PR does not update handoffs/LATEST.md and has no ' +
+                  '"Handoff: not needed" opt-out in its description. ' +
+                  'Non-blocking reminder — see docs/AGENTS.md Handoff Protocol.'
+              );
+
+              // Sticky comment — surfaces on the PR conversation/merge page.
+              const body =
+                `${MARKER}\n### ⚠️ Handoff reminder\n\n` +
+                'This PR does **not** update `handoffs/LATEST.md`, and its description ' +
+                'does not contain an opt-out line.\n\n' +
+                'Per `docs/AGENTS.md` (Handoff Protocol), any session that merges a PR ' +
+                'to main or writes to `ops.decision_log` should end with either a ' +
+                'handoff update or an explicit statement that none is needed.\n\n' +
+                '**To clear this reminder**, either:\n' +
+                '- update `handoffs/LATEST.md` in this PR, or\n' +
+                '- add a line to the PR description: `Handoff: not needed — <reason>`\n\n' +
+                '_This is a non-blocking reminder. It does not prevent merge._';
+
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body,
+                });
+              }
+            } catch (err) {
+              core.info(
+                `Handoff reminder check hit an error; passing without blocking: ${err.message}`
+              );
+            }
