@@ -15,6 +15,18 @@ pattern — **PR #100** (`territories/[id]` render write) and **PR #101**
 to the #120/#117 v3 sizing work. Every option below is a *proposal* for Trace to choose
 among; nothing here is a Coder decision.
 
+> **RESOLVED — 2026-07-10.** All six flags in §5 were decided by Trace and built in
+> PR #104, authorized by decisions **#124** (flags 1–4), **#125** (addendum — hardened
+> flag 3 / piece 3 to value-scoped after an ultrareview adversarial finding), and
+> **#126** (addendum — added the qa_locked DELETE guard). See `ops.decision_log`
+> #124/#125/#126 and PR #104 for the as-built design; it differs in some particulars
+> from the options sketched below (notably: piece 3 shipped **value-scoped**, not
+> status-scoped as recommended in §4.2, and a symmetric **DELETE** guard was added
+> beyond the UPDATE-only sketch in §4.C). This document is retained as the historical
+> scoping record; it is **no longer a statement of current system behavior** — the
+> "Status" line above describes the doc as written under PR #102, not the system today.
+> Current behavior lives in `supabase/migrations/20260710140000_governed_row_write_guards.sql`.
+
 ---
 
 ## 0. Current-state findings (verified this session)
