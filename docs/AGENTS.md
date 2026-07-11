@@ -41,6 +41,7 @@ Does NOT:
 
 ### Gate & Governance
 - Second-Opinion Gate on category-2+ PRs. gpt-unavailable = infrastructure failure, not a code finding — retry once, then manual accept is legitimate, but every manual clear must be logged to ops.decision_log (precedent: decision #48).
+- **Binding a decision-log row to a future PR:** When Chat logs a decision that a not-yet-created Coder PR will reference (via a `decision_log_id` in its Second-Opinion Gate block), `related_pr`/`related_repo` are correctly `NULL` at write time — the PR doesn't exist yet. Once the PR is opened and its number is known, that row's `related_pr`/`related_repo` must be back-filled via `UPDATE`, **not** a new `INSERT`. `gate_decision_for_pr` requires the bound row's `id` to exactly equal the PR body's declared `decision_log_id`, and a unique index allows only one bound row per PR — so inserting a new row to "complete the binding" will fail a *different* gate check (`verify-id-mismatch`) instead of fixing anything. This is a deliberate exception to the general append-only/supersede-never-delete rule: filling in a previously-unknowable linking field is not the same as revising a decision's substance, and is the only way the check can pass. (Precedent: decision #137 back-filled to PR #112, 2026-07-11.)
 - Decisions #46–49 locked: prevalence removal, 16-state target correction, gate override precedent, grandfathering retirement.
 
 ## Coder (this agent)
