@@ -140,6 +140,16 @@ before acting, do not assume this wording is still current:**
   (`territory_status_map()` normalizes to a bare, properties-stripped geometry); independently
   re-verified; the gate passed clean on the corrected commit. Decision **#133** (ADOPTED) has the
   full record; #121 itself flipped OPEN → ADOPTED.
+- **Demo data on `/national-map`:** 63 seeded territories rendering **21 sold / 21
+  in_pipeline / 21 available** for visual QA of the status-color rendering (plus the 3
+  original QA-anchor territories = 66 total). `in_pipeline` is *derived, not stored*: the 21
+  sold + 21 in_pipeline are backed by 42 demo prospects (`prospects.lead_source =
+  'demo_data'`); the 21 available demo territories have no linked prospect. All demo
+  territories are tagged `territories.name LIKE 'Demo — %'`. Cleanup is **two ordered
+  deletes** (the `prospect_id` FK is RESTRICT, not cascade): the demo **territories** first
+  (`name LIKE 'Demo — %'`, 63 rows), then the demo **prospects** (`lead_source = 'demo_data'`,
+  42 rows) — verified to have no other dependents. Not yet cleaned up as of this handoff;
+  covered by decision **#128**'s go-live wipe precondition (no new decision needed).
 
 ## Residual risks (stated plainly)
 
@@ -166,7 +176,7 @@ before acting, do not assume this wording is still current:**
 
 ## Not This Session (escalate, don't creep)
 
-The national status map (#121), the territory-authoring flow, the v3 polling UI, Session E /
+The territory-authoring flow, the v3 polling UI, Session E /
 Platform RBAC, Box Sign, and the **#96 anchor-classification promotion** all remain
 unopened/unauthorized — each requires explicit Trace authorization before a future session works
 it. The #96 freeze **build** and decisions **#128 / #129**, done this session, are removed from
