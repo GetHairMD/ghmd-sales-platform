@@ -1,7 +1,8 @@
 /**
  * App-shell navigation model (spec §4B) — single source for Sidebar + BottomTabBar
- * so the two never drift. Order matches §4B nav (Dashboard, Pipeline, Prospects,
- * Proposals, Deal Territories, Territory Scouting, Insights).
+ * so the two never drift. Order follows §4B nav (Dashboard, Pipeline, Prospects,
+ * Proposals, Deal Territories, Territory Scouting, Insights), with National Map
+ * (decision #121/#122/#132) inserted after Deal Territories as a standalone item.
  *
  * `href` items are live routes. `comingSoon` items render disabled with a badge
  * (spec §4B: "Insights — nav item present, badged 'Coming Soon'") — used here for
@@ -13,7 +14,7 @@
  * `navItemsFor()` before rendering, never the raw array.
  */
 import type { LucideIcon } from 'lucide-react'
-import { LayoutDashboard, GitBranch, Users, FileText, Map, Compass, Sparkles } from 'lucide-react'
+import { LayoutDashboard, GitBranch, Users, FileText, Map, Globe, Compass, Sparkles } from 'lucide-react'
 import type { Designation } from '@/lib/auth/internal-role'
 
 export interface NavItem {
@@ -33,6 +34,9 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Prospects', icon: Users, href: '/prospects' },
   { label: 'Proposals', icon: FileText, href: '/proposals' },
   { label: 'Deal Territories', icon: Map, href: '/territories' },
+  // National status map (decision #121/#122/#132): standalone, visible to ALL reps
+  // and executives (no execOnly). Distinct route from Deal Territories.
+  { label: 'National Map', icon: Globe, href: '/national-map' },
   { label: 'Territory Scouting', icon: Compass, comingSoon: true, execOnly: true },
   { label: 'Insights', icon: Sparkles, comingSoon: true },
 ]
