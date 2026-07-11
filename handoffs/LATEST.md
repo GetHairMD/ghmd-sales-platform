@@ -1,10 +1,11 @@
-# GHMD Sales Platform — Handoff v2.39
+# GHMD Sales Platform — Handoff v2.40
 
-Date: 2026-07-10 | Prepared by: Coder at session close (docs/AGENTS.md session-close rule),
-for Chat/Trace review | Purpose: capture the isochrone-freeze for the v3 QA anchors (PR #107,
-decision #129 implementing #96 as Option B), and two newly-adopted decisions that change the
-standing picture — #128 (a go-live data-wipe precondition, new) and the still-open anchor
-**classification** question (#96). Supersedes v2.38.
+Date: 2026-07-11 | Prepared by: Coder at session close (docs/AGENTS.md session-close rule),
+for Chat/Trace review | Purpose: capture the infra/governance session of 2026-07-11 — the
+**GPT-5.6 Sol** Second-Opinion-Gate model swap (#135/#139), the **temporary, fail-closed
+`AUTH_GATE_DISABLED` auth bypass** (#136/#137, PR #112, merged), the manual gate clear (#140),
+and a newly-surfaced **decision-log → PR binding** governance note (now documented in
+`docs/AGENTS.md`). Supersedes v2.39. No application feature or methodology change this session.
 
 > **State facts are never read from this file.** Main HEAD, decision-log tip, open PRs, and
 > security-advisor status are derived live at every session start (git, `ops.decision_log`,
@@ -17,170 +18,152 @@ standing picture — #128 (a go-live data-wipe precondition, new) and the still-
 |------|-------|
 | Repo | `GetHairMD/ghmd-sales-platform` |
 | Supabase project | `cprltmwwldbxcsunsafl` (ghmd-sales-platform) — NIP `kjweckggegifjmmqccul` is a separate production system, **never touch** |
-| Netlify | `ghmdsalesplatform.netlify.app` (main auto-deploys) |
+| Netlify | `ghmdsalesplatform.netlify.app` (main auto-deploys); site id `0a339783-…` |
 | monday.com Sprint Board | `18419216445` ("GHMD Sales Platform — Sprint Board", per `docs/AGENTS.md`) |
 
 ## State as of this handoff (illustrative — verify live)
 
-- Main HEAD `7a7e597` (PR #107 squash-merge). Decision-log tip: **#129**. Open PRs: the v2.39
-  handoff PR itself (this one); otherwise 0.
-- `ops.decision_log` OPEN entries (the authoritative open-decision queue): exactly **two —
-  #96 and #121** (see Standing queue). Everything else is either ADOPTED/SUPERSEDED in the log
-  or narrative backlog with no decision entry.
-- `get_advisors`: **no new advisories introduced this session** (no DDL — the PR is
-  fixture/test/doc only). Standing items only, all pre-existing and previously adjudicated or
-  accepted: `public.spatial_ref_sys` RLS-disabled ERROR (adjudicated accepted/standing via
-  decision **#92** — PostGIS artifact, SRID data only); `postgis` extension-in-public WARN;
-  several service-role-only tables (incl. `census_block_group_cache`, `territory_sizing_jobs`,
-  `proposals`) showing `rls_enabled_no_policy` INFO **by design** (deny-all + service_role
-  bypass); PostGIS/infra `SECURITY DEFINER` function WARNs; assorted performance INFO/WARN
-  (unindexed FKs, unused indexes, RLS-initplan). Do not re-open these on a future advisor run
-  without a fresh Trace decision.
+- Main HEAD `fc2554b` (PR #112 squash-merge; parent `3dd3332`). Decision-log tip: **#140**.
+  Open PRs: the v2.40 handoff PR itself (this one); otherwise 0.
+- **Decision-log sequence note:** rows #135–#140 landed this session, **with no #138** — that id
+  is a gap from a rolled-back insert. This is normal append-only behavior (ids are not reused),
+  **not** a data-integrity problem. Do not "reconcile" the gap.
+- `get_advisors` (security, re-run post-merge): **no new advisory introduced this session** — this
+  was an auth-env-var + middleware + CI-variable + docs session with **zero DDL**, so the advisor
+  set is byte-for-byte the standing set. Standing items only, all previously adjudicated/accepted:
+  `public.spatial_ref_sys` RLS-disabled **ERROR** (accepted/standing via decision **#92** —
+  PostGIS SRID artifact); `postgis` extension-in-public **WARN**; several service-role-only tables
+  (`call_scores`, `census_block_group_cache`, `outreach_touches`, `proposal_events`,
+  `proposal_sessions`, `proposals`, `spoke_candidates`, `territory_sizing_jobs`) at
+  `rls_enabled_no_policy` **INFO** **by design** (deny-all + service_role bypass); and
+  `SECURITY DEFINER` function WARNs (PostGIS `st_estimatedextent`, plus `gate_decision_for_pr`,
+  `rls_auto_enable`, `territory_status_map` — all pre-existing from prior sessions). Do not re-open
+  these on a future advisor run without a fresh Trace decision.
 
-## What shipped since v2.38
+## What shipped since v2.39
 
-### 1. Isochrone-freeze for the v3 QA anchors — PR #107, decision #129 (ADOPTED), implements #96 (Option B), merged `7a7e597`
+### 1. Second-Opinion Gate model → GPT-5.6 Sol — decisions #135 (ADOPTED) / #139 (ADOPTED)
 
-The v3 §8.8 QA anchors (Austin / Dallas / Nashville; figures per decision #127) were
-*point-in-time references, not regression targets*, because the v3 engine fetches its isochrone
-**live from Mapbox on every job** — a road-graph change can move the figure with no code change.
-This PR freezes them as **real-derived offline fixtures + a CI regression test** so the
-addressable figures reproduce **exactly, with no live Mapbox/Census call**.
+The `OPENAI_MODEL` **GitHub Actions repository variable** was created and set to `gpt-5.6-sol`.
+It **did not previously exist** — `run-gate.ts` had been silently falling back to plain `gpt-5`
+via its code-level default. Pinned to the explicit model id (`gpt-5.6-sol`), **not** the
+`gpt-5.6` alias, so a future OpenAI default-routing change cannot silently swap the model
+(#135; `residual_risk = unresolved` on the row until confirmed). **Confirmed live** via the actual
+gate job console output — the line `run-gate.ts` logs for auditability read
+`GPT-5 raw response (model gpt-5.6-sol)` — which closed the loop as **#139** (`residual_risk =
+none`). #135's own row is left unmodified per append-only discipline; #139 confirms it in effect.
 
-**Option B, as Trace directed.** The #127 addressable is a function of three inputs — isochrone
-geometry, census households inside it, and the credit table — not the isochrone alone; and the
-`territory_sizing_jobs` rows store only `{result, provenance, sizedContour}` (no census). So the
-freeze sources:
-- the **winning isochrone contour** from each anchor's job row (`sizedContour`; job IDs
-  `14fb63ba…` Austin / `d6efac7b…` Dallas / `7caf4c20…` Nashville);
-- the **contributing census block groups** from `public.census_block_group_cache`, under an
-  **upper-bound integrity filter** `fetched_at <= 2026-07-10T14:59:35.001Z` (the last #127 job
-  finish). This is an *upper* bound, not a run-window, because the #127 runs were
-  warm-cache-dominated (only ~17 rows written during the run; the rest reused from earlier), so
-  a lower-bounded window would have reproduced nothing. It includes the warm rows the run
-  genuinely used and excludes any post-#127 refresh (of which there are none). Completeness is
-  proven by *exact reproduction*, not by the timestamp.
-- the already-committed credit table (`data/experian-credit-share-by-state.json`).
+### 2. Temporary fail-closed `AUTH_GATE_DISABLED` bypass — decisions #136/#137 (ADOPTED), PR #112, merged `fc2554b`
 
-Deliverables: `src/lib/__fixtures__/qa-anchors/*.json` (each with a provenance header),
-`src/lib/__fixtures__/v3-qa-anchors.ts` (typed loader),
-`src/lib/__tests__/v3-qa-anchors.regression.test.ts` (regression test, part of the CI suite —
-passes with `MAPBOX_SERVER_TOKEN`/`CENSUS_API_KEY` unset), and a one-time generator
-`scripts/freeze-qa-anchor-fixtures.ts` (not CI-run; self-verifies before emitting).
-`TERRITORY-METHODOLOGY.md` §8.7/§8.8 updated. Full suite: 993 tests passing.
+`src/middleware.ts` previously redirected any unauthenticated request on a non-public path to
+`/login`. This session added an **explicit, fail-closed** bypass: the redirect is skipped **only**
+when the env var `AUTH_GATE_DISABLED` equals the exact string `'true'`. The decision logic was
+extracted to `src/lib/auth-gate.ts` (`isAuthGateDisabled` / `isPublicPath` /
+`shouldRedirectToLogin`) so the fail-closed truth table is exhaustively unit-testable
+(`src/lib/__tests__/auth-gate.test.ts`, 47 cases incl. the adversarial near-miss battery —
+`'True'`, `'TRUE'`, `'1'`, `' true'`, `''`, unset, whitespace, etc. all keep auth **required**).
+The public-path set and the middleware `matcher` are byte-identical to before. Full suite: **1059
+tests passing**; `next lint` clean; `next build` bundles the middleware (alias resolves in the Edge
+bundle).
 
-**Scope limitation — state it plainly, do not oversell.** The freeze validates the
-**addressable-arithmetic path (`apportionB19001 → computeAddressableForPolygon`) at each
-anchor's already-locked winning minute** — it does **NOT** exercise the drive-time
-expansion / minute-selection search (that needs every probed contour; only the *winning* contour
-is persisted per job). The minute-selection search remains covered only by the synthetic-curve
-unit tests in `territory-sizing-v3.test.ts`. A green freeze test is **not** whole-engine
-end-to-end certification. Production sizing is **unchanged** — a real territory is still sized
-against a *live* Mapbox isochrone. **Zero writes** to `public.territories` /
-`public.territory_sizing_jobs`; no migrations (confirmed via PR diff). The three `qa_locked`
-anchor rows are untouched.
+**Mechanism & scope (deliberate):** an env var was chosen over a code deletion specifically so
+re-enabling auth is a one-step var removal, not a revert PR that could be missed (#136). Per
+Trace's explicit direction in **#137** (addendum to #136), the var was set on **all** Netlify
+contexts — **production + deploy-preview + branch-deploy** — **not** the narrower preview/branch
+scoping a bypass like this would normally get. Chat set it via the Netlify MCP on site
+`ghmdsalesplatform`; **confirmed live** with `AUTH_GATE_DISABLED=true`, context `all`. Risk
+accepted (#136/#137, `residual_risk = accepted`) on the basis that all current data is
+test/validation (#128) and no link is shared/known outside Trace.
 
-### 2. Decision #128 (ADOPTED) — go-live data-wipe precondition (NEW standing gate)
+**Live QA (PR #112 deploy preview, no session):** with the var effective, `/dashboard` and the
+other gated routes (`/pipeline`, `/prospects`, `/territories`, bare `/proposals`, `/national-map`)
+render 200 with no redirect; public paths unaffected; zero console errors. An early preview built
+*before* the var was set redirected `/dashboard → /login`, giving a clean two-state demonstration
+of the fail-closed default on the same code.
 
-**This is a new go-live precondition that did not exist in any prior handoff — treat it as a
-standing precondition, not a backlog nice-to-have.** All current platform data — territories,
-prospects, proposals, `territory_sizing_jobs` — is **test/validation data**. Before go-live with
-real prospects/territories, a **full data wipe is required, including removal from
-front-end/dashboard surfaces** (not just backend cleanup). Explicitly **NOT** in scope for the
-wipe: formula code, methodology, and any code-level QA fixtures — including the #96 freeze
-fixtures shipped this session — which are **product, not data**. **Open within #128**
-(`residual_risk = unresolved`): the disposition of the three `qa_locked` territories rows at wipe
-time is not yet decided.
+### 3. Manual Second-Opinion Gate clear on PR #112 — decision #140 (ADOPTED)
 
-### 3. Decision #129 (ADOPTED) — logs the freeze build (related_pr 107)
+PR #112's gate block declared `category: 1`, `coder_residual_risk: accepted`. GPT-5.6 Sol returned
+**`NO_ISSUE`**; the gate escalated **solely** because `accepted` residual risk always forces
+conscious human review by design (asymmetric-agreement rule) — **not** a defect finding. Trace
+manually cleared it (logged as #140 per the Hard-Rule-7 / #48 manual-clear precedent). The
+underlying risk acceptance and reversal condition remain governed by #136/#137, unchanged.
 
-Records item 1 above. **Open item carried in #129, must stay visible:** whether the three
-anchors are **promoted from point-in-time reference values to hard pass/fail regression
-targets** is still an **open Trace decision** — not resolved by #129 or #96, which is precisely
-why **#96 remains OPEN**. Chat's recommendation *(on record, not a decision)*: keep point-in-time
-for now. The build did **not** self-promote the classification; the doc keeps the point-in-time
-framing.
+### 4. Governance gap found & fixed — decision-log → PR binding (now in `docs/AGENTS.md`)
 
-## Standing queue — reprioritized (re-derived live, not hand-renumbered)
+#136/#137 were correctly logged with `related_pr = NULL` **before PR #112 existed**. Once the PR
+opened and declared `decision_log_id: 137` in its gate block, the gate's declaration-integrity
+check (`verify-no-row-nonzero`) failed because no row was yet bound to PR #112. The fix was to
+**`UPDATE`** row #137's `related_pr`/`related_repo` to `112` / `GetHairMD/ghmd-sales-platform`
+(**not** insert a new row: `gate_decision_for_pr` requires the bound row's `id` to equal the PR's
+declared `decision_log_id`, and a unique index allows only one bound row per PR, so a new row would
+fail a *different* check, `verify-id-mismatch`). Verified by calling
+`gate_decision_for_pr('GetHairMD/ghmd-sales-platform', 112)` directly, then by the re-run's job log
+and PR comment. **Row #137 now shows `related_pr = 112`.** The reusable process note is now
+captured in `docs/AGENTS.md` (Gate & Governance) so future sessions don't re-derive it under time
+pressure. This is a Chat-only decision-log operation; Coder did not write the log.
 
-**Open decisions in `ops.decision_log` (authoritative — re-derive the live set; #121 adopted
-post-v2.39, moved to "Removed from the open queue" below):**
+## Standing queue — carry-forward (re-derive the live set; do not hand-renumber)
+
+**Open classification question (carried from v2.39, unchanged this session):**
 
 | Decision | Item | Owner | Status |
 |---|---|---|---|
-| **#96** (OPEN) | **Anchor classification** — promote the three v3 QA anchors from point-in-time references to hard pass/fail regression targets? The freeze **build** is done (#129); this is the residual open sub-question. | Trace | Open. Chat recommends keeping point-in-time. |
+| **#96** (anchor classification) | Promote the three v3 QA anchors from point-in-time references to hard pass/fail regression targets? The freeze **build** is done (#129, PR #107); this is the residual sub-question. | Trace | Untouched this session; not resolved; not urgent. Chat recommends keeping point-in-time. **See data-integrity flag below re: this row's `status`.** |
 
-**Narrative backlog (no decision entry, or externally owned) — carried from v2.38; verify each
-before acting, do not assume this wording is still current:**
+**Narrative backlog (no decision entry, or externally owned) — carried forward; verify each before
+acting, do not assume this wording is still current:**
 
 | Item | Owner | Status |
 |---|---|---|
-| Territory-creation / authoring flow scoping (likely the first *new* service-role `territories` writer — PR #104 triggers protect it by construction) | future Coder | Deferred; needs its own scoping brief |
-| v3 authoring-flow **polling UI** (frontend wiring to enqueue/poll `territory_sizing_jobs`) | future Coder | Unopened |
-| 390px / authenticated deploy-preview QA tooling gap | Trace / future Coder | No fix path identified; still limits browser QA on auth'd surfaces |
-| `qualification_reviews` / `rep_call_grades` FK cascade behavior | Trace decision | Open, not urgent (no decision entry) |
-| Session E; Platform RBAC (raised 2026-07-08) | Trace authorization | Unopened |
-| Rick Dahlson copy review (#68/#71, `legal_flag`) | Trace / Rick | Still the real gate on any live prospect send |
+| Demo/test data cleanup (see #128) — e.g. ~66 territories / ~42 demo prospects; two ordered deletes (territories `LIKE 'Demo — %'` then prospects `lead_source='demo_data'`) | future Coder | Untouched; **no rush**, folded into #128's go-live wipe |
+| `docs/SALES-OS-SPEC.md` §4B / National Map spec-amendment question (#122) | Trace | Untouched; not resolved; not urgent |
+| Territory-creation / authoring flow scoping | future Coder | Deferred; needs its own scoping brief |
+| v3 authoring-flow **polling UI** (enqueue/poll `territory_sizing_jobs`) | future Coder | Unopened |
+| Session E; Platform RBAC | Trace authorization | Unopened |
 | Box Sign / Territory License Agreement (#99-legal) | Bruce / counsel, then Coder | Paused externally, unchanged |
-| Legacy public `/proposals/[prospectId]` retirement; `reserved_for` dead column; TopBar global search; repo-wide token-lint; PRD v1.2 embedded-signing staleness; prospect-page hydration (#418/#423/#425); Resend + Calendly provisioning; proposal revenue-model gap (§14 illustrative-only, #71/#76) | various | All unchanged from v2.36–v2.38 — carry forward, do not re-litigate |
-
-**Removed from the open queue this session:**
-- **Isochrone-freeze (#96 build)** — v2.38 listed it priority 1 "Proposed, not built." **Done**
-  this session (PR #107 / #129); moved to "What shipped." (The #96 *classification* sub-question
-  remains, above.)
-- **monday.com board ID "discrepancy"** — v2.38 listed it "Unreconciled since 2026-07-07." It was
-  **never a real conflict**: two distinct real boards were conflated in Chat's memory —
-  `18419216445` "GHMD Sales Platform — Sprint Board" (the correct one per `docs/AGENTS.md`) and
-  `18391502210` "Trace To-Do Items" (a separate personal board). No repo or decision-log action
-  was needed or taken. Removed from open items; recorded here for context only.
-- **National Map (#121)** — v2.39 listed it OPEN/unscoped. **Built and merged post-v2.39
-  (2026-07-11)**, PR #110, squash `c782653`. Full arc: the Second-Opinion Gate correctly BLOCKED
-  the first revision on a `boundary_geojson` properties leak (GeoJSON `Feature` /
-  `FeatureCollection` `properties` crossing the wire regardless of status); fixed server-side
-  (`territory_status_map()` normalizes to a bare, properties-stripped geometry); independently
-  re-verified; the gate passed clean on the corrected commit. Decision **#133** (ADOPTED) has the
-  full record; #121 itself flipped OPEN → ADOPTED.
-- **Demo data on `/national-map`:** 63 seeded territories rendering **21 sold / 21
-  in_pipeline / 21 available** for visual QA of the status-color rendering (plus the 3
-  original QA-anchor territories = 66 total). `in_pipeline` is *derived, not stored*: the 21
-  sold + 21 in_pipeline are backed by 42 demo prospects (`prospects.lead_source =
-  'demo_data'`); the 21 available demo territories have no linked prospect. All demo
-  territories are tagged `territories.name LIKE 'Demo — %'`. Cleanup is **two ordered
-  deletes** (the `prospect_id` FK is RESTRICT, not cascade): the demo **territories** first
-  (`name LIKE 'Demo — %'`, 63 rows), then the demo **prospects** (`lead_source = 'demo_data'`,
-  42 rows) — verified to have no other dependents. Not yet cleaned up as of this handoff;
-  covered by decision **#128**'s go-live wipe precondition (no new decision needed).
+| Authenticated deploy-preview QA automation gap | Trace / future Coder | Longstanding; note the `AUTH_GATE_DISABLED` bypass now *incidentally* unblocks authed-route browser QA while it is set — but that is temporary and must not become the assumed QA path |
+| Rick Dahlson copy review (#68/#71, `legal_flag`); proposal revenue-model gap (§14 illustrative-only, #71/#76); legacy public `/proposals/[prospectId]` retirement; `reserved_for` dead column; repo-wide token-lint; Resend + Calendly provisioning | various | All unchanged from v2.36–v2.39 — carry forward, do not re-litigate |
 
 ## Residual risks (stated plainly)
 
-- **Go-live data-wipe precondition — NEW standing gate (#128).** All platform data is test data;
-  a full wipe (including front-end/dashboard surfaces) is required before real-prospect go-live.
-  `qa_locked` territories-row disposition at wipe time is **unresolved**. Formula/methodology and
-  code-level QA fixtures (incl. the #96 freeze) are explicitly out of wipe scope.
-- **#96 freeze scope limitation — accepted.** The offline regression fixture reproduces the
-  addressable arithmetic at each anchor's locked winning minute only, **not** the full
-  expansion / minute-selection search (only the winning contour is persisted per job). The
-  minute-selection search stays covered by synthetic-curve unit tests. A green freeze test ≠
-  whole-engine certification.
-- **v3 anchors still drift with live Mapbox in production** (longstanding) — the freeze is
-  test/CI-layer only; production still fetches the isochrone live per job. Whether a deviation is
-  drift vs. a code regression is now *mechanically* discriminable for the addressable arithmetic
-  (frozen input → frozen output), but the anchor classification remains open (#96).
-- **RLS-bypass write pattern — CLOSED at the DB layer** by PR #104 (v2.38), unchanged this
-  session. Two documented residuals remain, both accepted and **not re-litigated here**: (a) the
-  `sold_boundary_geom` escape hatch assumes `current_user='postgres'` is the sole admin/redraw
-  role; (b) sold/reserved rows have no DB-level DELETE guard (only the boundary is frozen;
-  `qa_locked` DELETE is covered).
-- **Authenticated deploy-preview QA has no automated path** — limits browser QA on auth'd
-  surfaces; carried forward.
+- **`AUTH_GATE_DISABLED` is LIVE in production — NEW standing gate (#136/#137).** The whole app is
+  currently publicly reachable across all Netlify contexts. Per #136/#137's **explicit reversal
+  condition**, the var **must be removed from every Netlify context, confirmed live**, before (a)
+  go-live and (b) any real prospect/rep data enters the system. **Treat "is `AUTH_GATE_DISABLED`
+  still set?" as a required check in every future session touching go-live readiness — do not
+  assume cleanup happened.** This is intertwined with #128 (any real data ⇒ both the data wipe and
+  the auth re-enable must precede it).
+- **Go-live data-wipe precondition — standing gate (#128).** All platform data is test data; a full
+  wipe (including front-end/dashboard surfaces) is required before real-prospect go-live. `qa_locked`
+  territories-row disposition at wipe time is **unresolved**. Formula/methodology and code-level QA
+  fixtures (incl. the #96 freeze) are explicitly out of wipe scope.
+- **#135 model pin — `residual_risk: unresolved` at the row, confirmed in effect by #139.** The gate
+  now runs GPT-5.6 Sol, verified from live console output. No further action expected; flagged only
+  so a future reader doesn't mistake #135's standalone `unresolved` for an open task.
+- **#96 freeze scope limitation — accepted (unchanged).** The offline regression fixture reproduces
+  the addressable arithmetic at each anchor's locked winning minute only, not the full
+  expansion/minute-selection search. A green freeze test ≠ whole-engine certification.
+- **RLS-bypass write pattern — CLOSED at the DB layer** (PR #104), unchanged this session; two
+  accepted residuals remain (postgres-as-sole-admin `sold_boundary_geom` escape hatch; no DB-level
+  DELETE guard on sold/reserved rows beyond the frozen boundary).
+
+## Data-integrity flag for Chat (not actioned — Coder does not write `ops.decision_log`)
+
+While pulling rows for this handoff, `ops.decision_log` **#96** shows `status = 'SUPERSEDED'` but
+`superseded_by = NULL`. Per CLAUDE.md ("Supersede-never-delete: superseded entries set
+`superseded_by`"), a SUPERSEDED row should carry its pointer. This predates this session and was
+not touched. **Flagging for Chat to reconcile** (either restore the intended `status`/`OPEN`
+framing for the still-open #96 classification question, or set the correct `superseded_by`). Until
+reconciled, treat the **narrative** above as the intended state: #96's classification sub-question
+is open and owned by Trace.
 
 ## Not This Session (escalate, don't creep)
 
-The territory-authoring flow, the v3 polling UI, Session E /
-Platform RBAC, Box Sign, and the **#96 anchor-classification promotion** all remain
-unopened/unauthorized — each requires explicit Trace authorization before a future session works
-it. The #96 freeze **build** and decisions **#128 / #129**, done this session, are removed from
-this list.
+The territory-authoring flow, the v3 polling UI, Session E / Platform RBAC, Box Sign, and the **#96
+anchor-classification promotion** all remain unopened/unauthorized — each requires explicit Trace
+authorization before a future session works it. This session was infra/auth-posture + governance
+docs only.
 
 ## Agent Roles
 
