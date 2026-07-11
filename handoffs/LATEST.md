@@ -103,12 +103,12 @@ framing.
 
 ## Standing queue — reprioritized (re-derived live, not hand-renumbered)
 
-**Open decisions in `ops.decision_log` (authoritative — only two):**
+**Open decisions in `ops.decision_log` (authoritative — re-derive the live set; #121 adopted
+post-v2.39, moved to "Removed from the open queue" below):**
 
 | Decision | Item | Owner | Status |
 |---|---|---|---|
 | **#96** (OPEN) | **Anchor classification** — promote the three v3 QA anchors from point-in-time references to hard pass/fail regression targets? The freeze **build** is done (#129); this is the residual open sub-question. | Trace | Open. Chat recommends keeping point-in-time. |
-| **#121** (OPEN) | **National territory status map** scoping (#122 ADOPTED = build it as a standalone nav item, rep-requested; not a Deal-Territories expansion). | Trace to scope → future Coder | Open, unscoped. |
 
 **Narrative backlog (no decision entry, or externally owned) — carried from v2.38; verify each
 before acting, do not assume this wording is still current:**
@@ -133,6 +133,23 @@ before acting, do not assume this wording is still current:**
   `18419216445` "GHMD Sales Platform — Sprint Board" (the correct one per `docs/AGENTS.md`) and
   `18391502210` "Trace To-Do Items" (a separate personal board). No repo or decision-log action
   was needed or taken. Removed from open items; recorded here for context only.
+- **National Map (#121)** — v2.39 listed it OPEN/unscoped. **Built and merged post-v2.39
+  (2026-07-11)**, PR #110, squash `c782653`. Full arc: the Second-Opinion Gate correctly BLOCKED
+  the first revision on a `boundary_geojson` properties leak (GeoJSON `Feature` /
+  `FeatureCollection` `properties` crossing the wire regardless of status); fixed server-side
+  (`territory_status_map()` normalizes to a bare, properties-stripped geometry); independently
+  re-verified; the gate passed clean on the corrected commit. Decision **#133** (ADOPTED) has the
+  full record; #121 itself flipped OPEN → ADOPTED.
+- **Demo data on `/national-map`:** 63 seeded territories rendering **21 sold / 21
+  in_pipeline / 21 available** for visual QA of the status-color rendering (plus the 3
+  original QA-anchor territories = 66 total). `in_pipeline` is *derived, not stored*: the 21
+  sold + 21 in_pipeline are backed by 42 demo prospects (`prospects.lead_source =
+  'demo_data'`); the 21 available demo territories have no linked prospect. All demo
+  territories are tagged `territories.name LIKE 'Demo — %'`. Cleanup is **two ordered
+  deletes** (the `prospect_id` FK is RESTRICT, not cascade): the demo **territories** first
+  (`name LIKE 'Demo — %'`, 63 rows), then the demo **prospects** (`lead_source = 'demo_data'`,
+  42 rows) — verified to have no other dependents. Not yet cleaned up as of this handoff;
+  covered by decision **#128**'s go-live wipe precondition (no new decision needed).
 
 ## Residual risks (stated plainly)
 
@@ -159,7 +176,7 @@ before acting, do not assume this wording is still current:**
 
 ## Not This Session (escalate, don't creep)
 
-The national status map (#121), the territory-authoring flow, the v3 polling UI, Session E /
+The territory-authoring flow, the v3 polling UI, Session E /
 Platform RBAC, Box Sign, and the **#96 anchor-classification promotion** all remain
 unopened/unauthorized — each requires explicit Trace authorization before a future session works
 it. The #96 freeze **build** and decisions **#128 / #129**, done this session, are removed from
