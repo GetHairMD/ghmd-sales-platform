@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { shouldRedirectToLogin } from '@/lib/auth-gate'
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -27,18 +28,25 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Prospect-facing pages are publicly accessible — no auth required.
-  // Trailing slashes are load-bearing:
-  //   • '/p/'          → the gated /p/[slug] render (never matches /pipeline etc).
-  //   • '/proposals/'  → the legacy public buyer page /proposals/[prospectId].
-  // The BARE '/proposals' index is REP-facing (engagement stats) and must stay
-  // auth-gated like /dashboard — 'startsWith('/proposals/')' excludes it exactly.
-  const isPublicPath =
-    request.nextUrl.pathname.startsWith('/login') ||
-    request.nextUrl.pathname.startsWith('/proposals/') ||
-    request.nextUrl.pathname.startsWith('/p/')
-
-  if (!user && !isPublicPath) {
+  // TEMPORARY, decisions #136/#137 (2026-07-11): AUTH_GATE_DISABLED lets the
+  // whole app run unauthenticated — deliberately across ALL Netlify contexts
+  // including production (#137) — while only test/validation data exists
+  // (decision #128) and to unblock Coder browser-automation QA. Trace has
+  // explicitly accepted full public reachability (Netlify site password is
+  // already off) on the basis that no link is shared/known outside Trace
+  // himself. This env var MUST be removed from every context before go-live /
+  // before any real prospect or rep data enters the system — see #136/#137
+  // for the explicit reversal condition.
+  // Fail-closed: unset/missing/malformed = auth required (unchanged default).
+  // (Decision truth-table lives in @/lib/auth-gate, unit-tested in auth-gate.test.ts;
+  //  isPublicPath / the exact `=== 'true'` bypass check are documented there.)
+  if (
+    shouldRedirectToLogin({
+      hasUser: Boolean(user),
+      pathname: request.nextUrl.pathname,
+      authGateDisabledEnv: process.env.AUTH_GATE_DISABLED,
+    })
+  ) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
