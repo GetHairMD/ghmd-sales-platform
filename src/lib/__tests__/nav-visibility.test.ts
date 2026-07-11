@@ -66,3 +66,25 @@ describe('Territories → Deal Territories (label-only rename, PR4)', () => {
     expect(labels(BOTTOM_TABS)).not.toContain('Territory Scouting')
   })
 })
+
+describe('National Map is visible to every role (decision #121/#122/#132)', () => {
+  it('reps AND executives AND unauthenticated viewers all see National Map', () => {
+    // No execOnly flag → visible to everyone via navItemsFor, same as the other
+    // live routes. The route itself is gated server-side (territory_status_map()
+    // returns nothing to a non-internal caller), so nav visibility is intentionally open.
+    for (const d of ['executive', 'rep', null] as const) {
+      const item = navItemsFor(d).find((i) => i.label === 'National Map')
+      expect(item, `National Map must be visible for ${d}`).toBeDefined()
+      expect(item?.href, 'National Map is a live route').toBe('/national-map')
+      expect(item?.execOnly, 'National Map is not executive-only').toBeFalsy()
+    }
+  })
+
+  it('is a distinct route from Deal Territories', () => {
+    const deal = NAV_ITEMS.find((i) => i.label === 'Deal Territories')
+    const national = NAV_ITEMS.find((i) => i.label === 'National Map')
+    expect(deal?.href).toBe('/territories')
+    expect(national?.href).toBe('/national-map')
+    expect(national?.href).not.toBe(deal?.href)
+  })
+})
