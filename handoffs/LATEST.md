@@ -105,11 +105,10 @@ pressure. This is a Chat-only decision-log operation; Coder did not write the lo
 
 ## Standing queue — carry-forward (re-derive the live set; do not hand-renumber)
 
-**Open classification question (carried from v2.39, unchanged this session):**
-
-| Decision | Item | Owner | Status |
-|---|---|---|---|
-| **#96** (anchor classification) | Promote the three v3 QA anchors from point-in-time references to hard pass/fail regression targets? The freeze **build** is done (#129, PR #107); this is the residual sub-question. | Trace | Untouched this session; not resolved; not urgent. Chat recommends keeping point-in-time. **See data-integrity flag below re: this row's `status`.** |
+**Open decisions in `ops.decision_log`: none tracked for this cycle.** The v2.39-era #96
+anchor-classification question is now **resolved** — decision **#131** (ADOPTED, 2026-07-11,
+predating this session) kept the three v3 QA anchors as **point-in-time references, not promoted**
+to hard regression targets; #96 is SUPERSEDED by #131. (See the reconciliation note near the end.)
 
 **Narrative backlog (no decision entry, or externally owned) — carried forward; verify each before
 acting, do not assume this wording is still current:**
@@ -148,22 +147,21 @@ acting, do not assume this wording is still current:**
   accepted residuals remain (postgres-as-sole-admin `sold_boundary_geom` escape hatch; no DB-level
   DELETE guard on sold/reserved rows beyond the frozen boundary).
 
-## Data-integrity flag for Chat (not actioned — Coder does not write `ops.decision_log`)
+## Note: #96 supersession reconciled (a transient data-integrity flag, now resolved)
 
-While pulling rows for this handoff, `ops.decision_log` **#96** shows `status = 'SUPERSEDED'` but
-`superseded_by = NULL`. Per CLAUDE.md ("Supersede-never-delete: superseded entries set
-`superseded_by`"), a SUPERSEDED row should carry its pointer. This predates this session and was
-not touched. **Flagging for Chat to reconcile** (either restore the intended `status`/`OPEN`
-framing for the still-open #96 classification question, or set the correct `superseded_by`). Until
-reconciled, treat the **narrative** above as the intended state: #96's classification sub-question
-is open and owned by Trace.
+An earlier draft of this handoff flagged `ops.decision_log` **#96** as `status = 'SUPERSEDED'` with
+`superseded_by = NULL` (an invariant gap under CLAUDE.md's supersede-never-delete rule). **Chat has
+reconciled it:** #96's `superseded_by` is now set to **131**, and #131's own reasoning text states
+it supersedes #96 (ADOPTED 2026-07-11, predating this session). The #96 anchor-classification
+question is therefore **resolved, not open** — #131 kept the three v3 QA anchors as point-in-time
+references, **not** promoted to hard regression targets. No further action; recorded here only so
+the earlier flag isn't mistaken for still-live.
 
 ## Not This Session (escalate, don't creep)
 
-The territory-authoring flow, the v3 polling UI, Session E / Platform RBAC, Box Sign, and the **#96
-anchor-classification promotion** all remain unopened/unauthorized — each requires explicit Trace
-authorization before a future session works it. This session was infra/auth-posture + governance
-docs only.
+The territory-authoring flow, the v3 polling UI, Session E / Platform RBAC, and Box Sign all remain
+unopened/unauthorized — each requires explicit Trace authorization before a future session works it.
+This session was infra/auth-posture + governance docs only.
 
 ## Agent Roles
 
