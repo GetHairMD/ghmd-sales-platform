@@ -110,3 +110,31 @@ describe('national map — territory_status_map() is a locked-down SECURITY DEFI
     expect(code).toMatch(/case\s+when\s+t\.status\s*=\s*'sold'\s+then\s+p\.full_name\s+else\s+null\s+end/i)
   })
 })
+
+describe('national map — boundary_geojson is normalized to bare geometry (leak fix)', () => {
+  const code = codeOnly(read(migrationPath()))
+
+  it('strips GeoJSON properties: a Feature yields only its geometry', () => {
+    expect(code).toMatch(/when\s+t\.boundary_geojson->>'type'\s*=\s*'Feature'\s+then\s+t\.boundary_geojson->'geometry'/i)
+  })
+
+  it('a FeatureCollection becomes a GeometryCollection of EVERY feature (no ->0 truncation)', () => {
+    expect(code).toMatch(/jsonb_agg\(feat->'geometry'\)/i)
+    expect(code).toMatch(/jsonb_array_elements\(t\.boundary_geojson->'features'\)/i)
+    // Must NOT cherry-pick the first feature only.
+    expect(code, 'must not truncate a FeatureCollection to its first feature').not.toMatch(
+      /boundary_geojson->'features'->0/i,
+    )
+  })
+
+  it('validates the geometry type on the fallback branch and defaults to null', () => {
+    expect(code).toMatch(/when\s+t\.boundary_geojson->>'type'\s+in\s*\(/i)
+    expect(code).toMatch(/else\s+null\s+end\s+as\s+boundary_geojson/i)
+  })
+
+  it('never selects a properties key anywhere in the function body', () => {
+    // Belt-and-braces: the whole point is that no `properties` blob crosses the wire.
+    expect(code).not.toMatch(/->\s*'properties'/i)
+    expect(code).not.toMatch(/->>\s*'properties'/i)
+  })
+})

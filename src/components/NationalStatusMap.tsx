@@ -58,24 +58,26 @@ function popupText(row: TerritoryStatusRow): string {
   return 'Available'
 }
 
-/** Extract a bare GeoJSON geometry from an unknown stored boundary value, or null. */
-function toGeometry(value: unknown): GeoJSON.Geometry | null {
-  if (typeof value !== 'object' || value === null) return null
+/**
+ * Renderable geometries for a boundary value: `[]` when there is nothing to draw
+ * (→ marker fallback). territory_status_map() already normalizes to a bare geometry
+ * (or null) and strips GeoJSON `properties` server-side, so no Feature/FeatureCollection
+ * unwrapping is needed here. A GeometryCollection is expanded into its parts because
+ * mapbox-gl does not reliably render a GeometryCollection as a fill/line source
+ * geometry — each part is added as its own Feature instead.
+ */
+function toRenderGeometries(value: unknown): GeoJSON.Geometry[] {
+  if (typeof value !== 'object' || value === null) return []
   const v = value as Record<string, unknown>
-  if (typeof v.type !== 'string') return null
-  if (v.type === 'Feature') return toGeometry(v.geometry)
-  if (v.type === 'FeatureCollection') {
-    const feats = v.features
-    if (Array.isArray(feats) && feats.length > 0) {
-      return toGeometry((feats[0] as Record<string, unknown>)?.geometry)
-    }
-    return null
+  if (typeof v.type !== 'string') return []
+  if (v.type === 'GeometryCollection') {
+    const geoms = Array.isArray(v.geometries) ? v.geometries : []
+    return geoms.flatMap((g) => toRenderGeometries(g))
   }
-  const GEOMETRY_TYPES = [
-    'Point', 'MultiPoint', 'LineString', 'MultiLineString',
-    'Polygon', 'MultiPolygon', 'GeometryCollection',
+  const RENDERABLE_TYPES = [
+    'Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon',
   ]
-  return GEOMETRY_TYPES.includes(v.type) ? (value as GeoJSON.Geometry) : null
+  return RENDERABLE_TYPES.includes(v.type) ? [value as GeoJSON.Geometry] : []
 }
 
 export default function NationalStatusMap() {
@@ -115,21 +117,20 @@ export default function NationalStatusMap() {
     const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: true })
 
     map.on('load', () => {
+      // Resolve each row's renderable geometries once (a GeometryCollection boundary
+      // expands into several). Rows with none fall back to a marker below.
+      const rowGeometries = rows.map((r) => ({ row: r, geoms: toRenderGeometries(r.boundary_geojson) }))
+
       // Territories WITH a boundary → one source, data-driven paint by status.
       // The hexes still originate from `palette` (tokens) — mapbox paint just can't
       // consume Tailwind classes, which is the only reason a value appears here.
-      const features = rows
-        .map((r) => {
-          const geometry = toGeometry(r.boundary_geojson)
-          return geometry
-            ? {
-                type: 'Feature' as const,
-                geometry,
-                properties: { label: popupText(r), status: r.status },
-              }
-            : null
-        })
-        .filter((f): f is NonNullable<typeof f> => f !== null)
+      const features = rowGeometries.flatMap(({ row, geoms }) =>
+        geoms.map((geometry) => ({
+          type: 'Feature' as const,
+          geometry,
+          properties: { label: popupText(row), status: row.status },
+        })),
+      )
 
       if (features.length > 0) {
         map.addSource('territories', {
@@ -177,14 +178,14 @@ export default function NationalStatusMap() {
         })
       }
 
-      // Territories WITHOUT a boundary (expected for most current data) → colored
-      // point markers at their center, same status color, popup with the same text.
-      for (const r of rows) {
-        if (toGeometry(r.boundary_geojson)) continue
-        if (r.center_lat == null || r.center_lng == null) continue
-        new mapboxgl.Marker({ color: MARKER_COLOR[r.status] })
-          .setLngLat([Number(r.center_lng), Number(r.center_lat)])
-          .setPopup(new mapboxgl.Popup({ closeButton: false }).setText(popupText(r)))
+      // Territories WITHOUT a renderable boundary (expected for most current data) →
+      // colored point markers at their center, same status color, same popup text.
+      for (const { row, geoms } of rowGeometries) {
+        if (geoms.length > 0) continue
+        if (row.center_lat == null || row.center_lng == null) continue
+        new mapboxgl.Marker({ color: MARKER_COLOR[row.status] })
+          .setLngLat([Number(row.center_lng), Number(row.center_lat)])
+          .setPopup(new mapboxgl.Popup({ closeButton: false }).setText(popupText(row)))
           .addTo(map)
       }
     })

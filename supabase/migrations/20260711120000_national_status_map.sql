@@ -11,6 +11,9 @@
 -- DEFINER function evaluates status from the privileged owner's perspective and
 -- returns ONLY the derived status label (+ sold_to_name for sold) — never a
 -- prospect column — so no rep/prospect identity leaks for in_pipeline territories.
+-- boundary_geojson is additionally normalized to a bare geometry with all GeoJSON
+-- `properties` stripped (see the column expression) — the RPC payload is
+-- Network-tab-visible, so property blobs must never cross the wire.
 --
 -- Design assumption (brief §2): introduces NO new RLS surface. territories already
 -- has internal_users_all (full read to any internal user); prospects RLS is
@@ -65,7 +68,31 @@ as $$
     t.name,
     t.center_lat,
     t.center_lng,
-    t.boundary_geojson,
+    -- Normalize boundary_geojson to a BARE GEOMETRY (or null), stripping any GeoJSON
+    -- `properties` BEFORE they cross the wire. This is a leak fix, not cosmetics: the
+    -- RPC response is visible in the browser Network tab, so a stored Feature /
+    -- FeatureCollection carrying `properties` (Mapbox isochrone features do) would
+    -- expose them regardless of what the client draws. No branch selects a `properties`
+    -- key. FeatureCollection -> GeometryCollection preserves EVERY feature (no
+    -- first-feature truncation); the fallback validates the geometry type (allow-list
+    -- mirrors the client) so malformed input becomes null and the client shows a marker.
+    case
+      when t.boundary_geojson->>'type' = 'Feature'
+        then t.boundary_geojson->'geometry'
+      when t.boundary_geojson->>'type' = 'FeatureCollection'
+        then (
+          select jsonb_build_object(
+            'type', 'GeometryCollection',
+            'geometries', jsonb_agg(feat->'geometry')
+          )
+          from jsonb_array_elements(t.boundary_geojson->'features') as feat
+        )
+      when t.boundary_geojson->>'type' in (
+        'Point','MultiPoint','LineString','MultiLineString',
+        'Polygon','MultiPolygon','GeometryCollection'
+      ) then t.boundary_geojson
+      else null
+    end as boundary_geojson,
     case
       when t.status = 'sold' then 'sold'
       when p.stage >= 6 then 'in_pipeline'  -- 6 == STAGE.PROPOSAL_SENT (pipeline-stages.ts; pinned by test)
@@ -89,4 +116,6 @@ comment on function public.territory_status_map() is
   'DEFINER with pinned search_path=public: derives sold | in_pipeline | available '
   'across ALL reps'' prospects without exposing any prospects row. Gated on '
   'internal_users membership (any internal user, rep or executive); EXECUTE granted '
-  'to authenticated only, never anon. sold_to_name is non-null only for sold rows.';
+  'to authenticated only, never anon. sold_to_name is non-null only for sold rows. '
+  'boundary_geojson is normalized to a bare geometry with all GeoJSON properties '
+  'stripped, so no property blob crosses the (Network-tab-visible) wire.';
