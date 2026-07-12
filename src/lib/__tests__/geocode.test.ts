@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildMapboxGeocodeUrl, parseGeocodeResponse, parseManualCenter } from '../geocode'
+import {
+  buildMapboxGeocodeUrl,
+  parseGeocodeResponse,
+  parseManualCenter,
+  parseApiCoordinate,
+} from '../geocode'
 
 describe('buildMapboxGeocodeUrl', () => {
   it('targets the Mapbox v6 forward endpoint with the token and query', () => {
@@ -90,5 +95,36 @@ describe('parseManualCenter', () => {
 
   it('accepts an explicitly typed zero coordinate', () => {
     expect(parseManualCenter('0', '0')).toEqual({ lat: 0, lng: 0 })
+  })
+})
+
+describe('parseApiCoordinate', () => {
+  it('accepts a finite number in range', () => {
+    expect(parseApiCoordinate(30.5, -90, 90)).toBe(30.5)
+  })
+
+  it('accepts a non-empty numeric string', () => {
+    expect(parseApiCoordinate('-97.74', -180, 180)).toBe(-97.74)
+  })
+
+  it('rejects the falsy-coercion traps that Number() turns into 0', () => {
+    // Number(null) / Number(false) / Number([]) / Number('') all === 0 — must NOT pass.
+    expect(parseApiCoordinate(null, -90, 90)).toBeNull()
+    expect(parseApiCoordinate(undefined, -90, 90)).toBeNull()
+    expect(parseApiCoordinate(false, -90, 90)).toBeNull()
+    expect(parseApiCoordinate([], -90, 90)).toBeNull()
+    expect(parseApiCoordinate('', -90, 90)).toBeNull()
+    expect(parseApiCoordinate('   ', -90, 90)).toBeNull()
+  })
+
+  it('rejects out-of-range and non-numeric values', () => {
+    expect(parseApiCoordinate(91, -90, 90)).toBeNull()
+    expect(parseApiCoordinate(181, -180, 180)).toBeNull()
+    expect(parseApiCoordinate('abc', -90, 90)).toBeNull()
+    expect(parseApiCoordinate(NaN, -90, 90)).toBeNull()
+  })
+
+  it('accepts an explicit zero (a real coordinate, unlike a blank field)', () => {
+    expect(parseApiCoordinate(0, -90, 90)).toBe(0)
   })
 })

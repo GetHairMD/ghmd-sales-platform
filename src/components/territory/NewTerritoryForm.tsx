@@ -42,6 +42,9 @@ export default function NewTerritoryForm() {
     setSearching(true)
     setError(null)
     setCandidates([])
+    // Invalidate any prior selection (candidate or manual) when a new search begins, so a stale
+    // center from a previous address can't be submitted against the newly-typed query.
+    setCenter(null)
     try {
       const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`)
       if (!res.ok) {

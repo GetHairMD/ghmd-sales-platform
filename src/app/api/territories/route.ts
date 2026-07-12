@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { viewerIsExecutive } from '@/lib/auth/internal-role'
+import { parseApiCoordinate } from '@/lib/geocode'
 
 // Reads cookies (auth gate) + writes a row — never static.
 export const runtime = 'nodejs'
@@ -39,13 +40,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Territory name is too long' }, { status: 400 })
   }
 
-  const lat = Number(body.center_lat)
-  const lng = Number(body.center_lng)
-  if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
-    return NextResponse.json({ error: 'center_lat must be between -90 and 90' }, { status: 400 })
+  // parseApiCoordinate guards the Number() coercion trap: null/false/[]/'' all coerce to 0 and
+  // would otherwise pass the range check, silently creating a territory at (0,0).
+  const lat = parseApiCoordinate(body.center_lat, -90, 90)
+  const lng = parseApiCoordinate(body.center_lng, -180, 180)
+  if (lat === null) {
+    return NextResponse.json({ error: 'center_lat must be a number between -90 and 90' }, { status: 400 })
   }
-  if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
-    return NextResponse.json({ error: 'center_lng must be between -180 and 180' }, { status: 400 })
+  if (lng === null) {
+    return NextResponse.json({ error: 'center_lng must be a number between -180 and 180' }, { status: 400 })
   }
 
   const service = createServiceClient()

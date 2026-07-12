@@ -31,6 +31,12 @@ describe('territory create route', () => {
   it('does not enqueue sizing itself (no ad-hoc center path)', () => {
     expect(code).not.toContain('/api/territories/size')
   })
+
+  it('validates coordinates via parseApiCoordinate, not raw Number() (empty!=0 guard)', () => {
+    expect(code).toContain('parseApiCoordinate')
+    // the raw Number(body.center...) coercion that accepted null/''/false as 0 must be gone
+    expect(code).not.toMatch(/Number\(\s*body\.center_l/)
+  })
 })
 
 describe('new territory page', () => {
@@ -53,6 +59,12 @@ describe('new territory form', () => {
 
   it('never sizes with an ad-hoc center (that path only belongs to /territories/[id])', () => {
     expect(code).not.toContain('/api/territories/size')
+  })
+
+  it('clears any prior resolved center when a new address search begins (no stale-center submit)', () => {
+    // handleSearch must reset center so a re-search cannot submit a previous address coordinate.
+    const searchBody = code.slice(code.indexOf('handleSearch'), code.indexOf('function pickCandidate'))
+    expect(searchBody).toContain('setCenter(null)')
   })
 })
 

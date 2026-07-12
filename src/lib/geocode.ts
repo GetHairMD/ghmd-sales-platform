@@ -47,6 +47,21 @@ export function parseManualCenter(
   return { lat, lng }
 }
 
+/**
+ * Validate an untrusted API coordinate value (server-side, from a JSON body typed `unknown`).
+ * Same `Number('') === 0` trap as parseManualCenter, but for arbitrary input types: `Number(null)`,
+ * `Number(false)`, `Number([])`, and `Number('')` all coerce to 0, which would pass a naive
+ * range check and silently create a territory at (0,0). Accepts a finite number OR a non-empty
+ * numeric string in range; rejects everything else. An explicit 0 is a valid coordinate.
+ */
+export function parseApiCoordinate(value: unknown, min: number, max: number): number | null {
+  if (typeof value !== 'number' && typeof value !== 'string') return null
+  if (typeof value === 'string' && value.trim() === '') return null
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < min || n > max) return null
+  return n
+}
+
 /** Map a Mapbox v6 GeoJSON response to {label, lat, lng}; drops malformed features. */
 export function parseGeocodeResponse(json: unknown): GeocodeCandidate[] {
   const features = (json as { features?: unknown })?.features
