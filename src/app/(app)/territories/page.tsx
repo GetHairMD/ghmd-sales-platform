@@ -1,8 +1,11 @@
 import Link from 'next/link'
+import { Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
+import { getViewerDesignation } from '@/lib/auth/internal-role'
 
 export default async function TerritoriesPage() {
   const supabase = createClient()
+  const isExec = (await getViewerDesignation()) === 'executive'
   const { data: territories } = await supabase
     .from('territories')
     .select('id, name, status, addressable_patients_primary, center_lat, center_lng, census_fetched_at')
@@ -18,7 +21,18 @@ export default async function TerritoriesPage() {
     <main className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Territories</h1>
-        <span className="text-sm text-gray-400">{territories?.length ?? 0} territories</span>
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-400">{territories?.length ?? 0} territories</span>
+          {isExec && (
+            <Link
+              href="/territories/new"
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 font-heading text-sm font-medium uppercase tracking-caps text-text-inverse transition-colors hover:bg-primary/90"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              New Territory
+            </Link>
+          )}
+        </div>
       </div>
 
       {!territories || territories.length === 0 ? (
