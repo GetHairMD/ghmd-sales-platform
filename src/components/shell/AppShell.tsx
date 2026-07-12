@@ -15,7 +15,8 @@ import BottomTabBar from './BottomTabBar'
  * which also mis-stripped the chrome from the internal `/proposals` index.)
  *
  * `designation` is resolved server-side in the (app) layout (getViewerDesignation)
- * and threaded to the Sidebar so exec-only nav items never reach a rep's markup.
+ * and threaded to the Sidebar (exec-only nav items) and the TopBar (exec-only
+ * "New Territory" quick-add) so exec-only affordances never reach a rep's markup.
  */
 export default function AppShell({
   children,
@@ -28,7 +29,7 @@ export default function AppShell({
     <div className="flex min-h-screen bg-bg">
       <Sidebar designation={designation} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar />
+        <TopBar designation={designation} />
         {/* pb-16 clears the mobile BottomTabBar; removed at md+. */}
         <div className="flex-1 pb-16 md:pb-0">{children}</div>
       </div>

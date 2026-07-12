@@ -122,15 +122,32 @@ export async function POST(
     timing: job.timing ?? null,
   }
 
+  // A first-time approval of a freshly-created territory must move it OUT of 'draft', or it
+  // stays permanently hidden from the national map (territory_status_map excludes drafts,
+  // migration 20260711160000). Flip ONLY draft -> available; never overwrite any other status
+  // (a V2_LEGACY territory sized under v3, or a re-approval of an already-available one, keeps
+  // its current status). territory.status was loaded above for the sold/reserved guard — reuse it.
+  const boundaryUpdate: {
+    formula_version: number
+    boundary_geom: string
+    boundary_geojson: typeof parsed.boundaryFeature
+    boundary_minutes: number
+    boundary_source: typeof boundary_source
+    status?: string
+  } = {
+    formula_version: 3,
+    boundary_geom: ewkt,
+    boundary_geojson: parsed.boundaryFeature,
+    boundary_minutes: parsed.minutes,
+    boundary_source,
+  }
+  if (territory.status === 'draft') {
+    boundaryUpdate.status = 'available'
+  }
+
   const { error: upErr } = await service
     .from('territories')
-    .update({
-      formula_version: 3,
-      boundary_geom: ewkt,
-      boundary_geojson: parsed.boundaryFeature,
-      boundary_minutes: parsed.minutes,
-      boundary_source,
-    })
+    .update(boundaryUpdate)
     .eq('id', territoryId)
 
   if (upErr) {
