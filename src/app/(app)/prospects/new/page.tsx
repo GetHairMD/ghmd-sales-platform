@@ -3,6 +3,9 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { buildProspectInsert } from '@/lib/prospect-insert'
+import Card from '@/components/ui/Card'
+import Input from '@/components/ui/Input'
+import Button from '@/components/ui/Button'
 
 export default function NewProspectPage() {
   const router = useRouter()
@@ -32,40 +35,41 @@ export default function NewProspectPage() {
   }
 
   return (
-    <main className="max-w-lg mx-auto p-8">
-      <h1 className="text-2xl font-bold mb-6">Add Prospect</h1>
-      {error && <p className="text-red-600 mb-4">{error}</p>}
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-1">Full Name *</label>
-          <input name="full_name" required className="w-full border rounded px-3 py-2" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Email</label>
-          <input name="email" type="email" className="w-full border rounded px-3 py-2" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Phone</label>
-          <input name="phone" className="w-full border rounded px-3 py-2" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Source Channel</label>
-          <select name="source_channel" className="w-full border rounded px-3 py-2">
-            <option value="inbound_web">Inbound Web</option>
-            <option value="outbound_cold">Outbound Cold</option>
-            <option value="referral">Referral</option>
-            <option value="salon_partner">Salon Partner</option>
-            <option value="event">Event</option>
-          </select>
-        </div>
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-        >
-          {loading ? 'Saving...' : 'Add Prospect'}
-        </button>
-      </form>
+    <main className="mx-auto max-w-lg p-6 sm:p-8">
+      <h1 className="mb-6 font-heading text-2xl font-bold text-text">Add Prospect</h1>
+      <Card padding="lg">
+        {error && <p className="mb-4 text-sm text-error">{error}</p>}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text mb-1">Full Name *</label>
+            <Input name="full_name" required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text mb-1">Email</label>
+            <Input name="email" type="email" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text mb-1">Phone</label>
+            <Input name="phone" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text mb-1">Source Channel</label>
+            <select
+              name="source_channel"
+              className="w-full rounded-md border border-mist bg-bg px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+            >
+              <option value="inbound_web">Inbound Web</option>
+              <option value="outbound_cold">Outbound Cold</option>
+              <option value="referral">Referral</option>
+              <option value="salon_partner">Salon Partner</option>
+              <option value="event">Event</option>
+            </select>
+          </div>
+          <Button type="submit" variant="primary" block loading={loading}>
+            Add Prospect
+          </Button>
+        </form>
+      </Card>
     </main>
   )
 }
