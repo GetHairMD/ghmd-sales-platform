@@ -164,6 +164,7 @@ export async function GET(): Promise<NextResponse> {
     .from('territory_scouting_reports')
     .select('id, label, center_lat, center_lng, location_label, sizing_job_id, created_at')
     .order('created_at', { ascending: false })
+    .limit(200)
   if (error) {
     return NextResponse.json({ error: 'Failed to load scouting reports', detail: error.message }, { status: 500 })
   }

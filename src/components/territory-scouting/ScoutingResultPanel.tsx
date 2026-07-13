@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import AddressableVsFloor from '@/components/territory/AddressableVsFloor'
 import TerritoryBoundaryMap from '@/components/territory/TerritoryBoundaryMap'
 import {
@@ -13,18 +13,24 @@ import {
  * Territory Scouting result panel (decision #146). Polls GET
  * /api/territory-scouting/reports/{reportId} while the sizing job is queued/running, then
  * renders the addressable-vs-floor headline + boundary map for a VIABLE result, or a
- * non-viable / failed state otherwise.
+ * non-viable / failed / stalled state otherwise.
  *
  * Composes the SAME display primitives as the exec territory-sizing surface
  * (AddressableVsFloor + TerritoryBoundaryMap) but deliberately does NOT reuse V3SizingPanel:
  * that component POSTs to /api/territories/size* and renders an "Approve this territory"
  * action, neither of which exists in the deal-independent scouting flow. There is no
  * territory-promotion concept in v1.
+ *
+ * The poll lives inside the reportId effect with a `cancelled` guard so switching reports
+ * (which remounts this panel via a `key`) or unmounting can never leave an in-flight fetch
+ * rescheduling a timer on a dead instance. A wall-clock ceiling stops a never-triggered job
+ * from polling forever (Netlify Background Functions run up to ~15 min).
  */
 
 const POLL_MS = 2500
+const MAX_POLL_MS = 12 * 60 * 1000 // ceiling: stop polling a stuck/queued job after ~12 min
 
-type Phase = 'loading' | 'sizing' | 'preview' | 'nonviable' | 'failed'
+type Phase = 'loading' | 'sizing' | 'preview' | 'nonviable' | 'failed' | 'stalled'
 
 interface Props {
   reportId: string
@@ -34,77 +40,93 @@ interface Props {
   onResolved?: () => void
 }
 
-function deriveFromJob(
-  status: string,
-  result: unknown,
-): { phase: Phase; parsed: ParsedSizingResult | null } {
-  if (status === 'succeeded') {
-    const parsed = parseSizingJobResult(result)
-    if (parsed && parsed.status === 'VIABLE' && parsed.boundaryFeature) return { phase: 'preview', parsed }
-    return { phase: 'nonviable', parsed }
-  }
-  if (status === 'failed') return { phase: 'failed', parsed: null }
-  return { phase: 'sizing', parsed: null } // queued | running
-}
-
 export default function ScoutingResultPanel({ reportId, center, onResolved }: Props) {
   const [phase, setPhase] = useState<Phase>('loading')
   const [parsed, setParsed] = useState<ParsedSizingResult | null>(null)
   const [message, setMessage] = useState<string | null>(null)
-  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Hold the latest onResolved without making it a poll() dependency (keeps poll stable).
+  // Hold the latest onResolved without making it an effect dependency (keeps the poll from
+  // restarting when the parent re-renders and passes a new callback identity).
   const onResolvedRef = useRef(onResolved)
   onResolvedRef.current = onResolved
 
-  const clearPoll = () => {
-    if (pollRef.current) {
-      clearTimeout(pollRef.current)
-      pollRef.current = null
-    }
-  }
-
-  const poll = useCallback(async (id: string) => {
-    try {
-      const res = await fetch(`/api/territory-scouting/reports/${id}`)
-      const data = await res.json()
-      if (!res.ok) {
-        setPhase('failed')
-        setMessage(data.error ?? 'Failed to read scouting report')
-        return
-      }
-      const job = data.job as { status: string; result: unknown; error?: { message?: string } | null } | null
-      if (!job) {
-        // Report exists but its job row is gone (job delete cascades sizing_job_id → null).
-        setPhase('failed')
-        setMessage('This scouting run is no longer available.')
-        return
-      }
-      if (job.status === 'succeeded' || job.status === 'failed') {
-        const d = deriveFromJob(job.status, job.result)
-        setParsed(d.parsed)
-        setPhase(d.phase)
-        if (job.status === 'failed') setMessage(job.error?.message ?? 'Sizing failed')
-        onResolvedRef.current?.() // terminal — let the parent list refresh its chip
-        return
-      }
-      setPhase('sizing')
-      pollRef.current = setTimeout(() => poll(id), POLL_MS) // still queued/running
-    } catch (err) {
-      setPhase('failed')
-      setMessage(err instanceof Error ? err.message : 'Network error while polling')
-    }
-  }, [])
-
-  // Restart the poll whenever the selected report changes.
   useEffect(() => {
-    clearPoll()
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const startedAt = Date.now()
+
     setParsed(null)
     setMessage(null)
     setPhase('loading')
-    void poll(reportId)
-    return clearPoll
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/territory-scouting/reports/${reportId}`)
+        if (cancelled) return
+        const data = await res.json()
+        if (cancelled) return
+
+        if (!res.ok) {
+          setPhase('failed')
+          setMessage(data.error ?? 'Failed to read scouting report')
+          return
+        }
+
+        const job = data.job as
+          | { status: string; result: unknown; error?: { message?: string } | null }
+          | null
+        if (!job) {
+          // Report exists but its job row is gone (job delete cascades sizing_job_id → null).
+          setPhase('failed')
+          setMessage('This scouting run is no longer available.')
+          return
+        }
+
+        if (job.status === 'succeeded') {
+          const p = parseSizingJobResult(job.result)
+          if (p && p.status === 'VIABLE' && p.boundaryFeature) {
+            setParsed(p)
+            setPhase('preview')
+          } else if (p && p.status === 'UNRESOLVED_BELOW_THRESHOLD_AT_CEILING') {
+            setParsed(p)
+            setPhase('nonviable')
+          } else {
+            // Terminal success but an unrecognizable payload — surface as an error rather than
+            // asserting the definitive "Not viable" business conclusion on garbage.
+            setPhase('failed')
+            setMessage('The sizing result could not be read.')
+          }
+          onResolvedRef.current?.()
+          return
+        }
+
+        if (job.status === 'failed') {
+          setPhase('failed')
+          setMessage(job.error?.message ?? 'Sizing failed')
+          onResolvedRef.current?.()
+          return
+        }
+
+        // Still queued/running. Stop if we've been polling past the ceiling (e.g. the
+        // background trigger never fired) so we never loop indefinitely.
+        if (Date.now() - startedAt > MAX_POLL_MS) {
+          setPhase('stalled')
+          return
+        }
+        setPhase('sizing')
+        timer = setTimeout(poll, POLL_MS)
+      } catch (err) {
+        if (cancelled) return
+        setPhase('failed')
+        setMessage(err instanceof Error ? err.message : 'Network error while polling')
+      }
+    }
+
+    void poll()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
   }, [reportId])
 
   const floor = addressableFloorStatus(parsed?.addressable ?? 0).floor
@@ -123,6 +145,16 @@ export default function ScoutingResultPanel({ reportId, center, onResolved }: Pr
             ? 'Loading result…'
             : 'Sizing in progress — this can take up to a couple of minutes for dense metros.'}
         </p>
+      )}
+
+      {phase === 'stalled' && (
+        <div className="rounded-md border border-warning/40 bg-warning/10 p-4">
+          <p className="font-heading text-sm font-semibold text-warning">Still sizing</p>
+          <p className="mt-1 text-sm text-text-muted">
+            This run is taking longer than expected. It may need to be re-run — reopen this report
+            later to check on it.
+          </p>
+        </div>
       )}
 
       {phase === 'nonviable' && (

@@ -36,13 +36,18 @@ function StatusChip({ report }: { report: ReportSummary }) {
     return <span className={cn(base, 'bg-error/10 text-error')}>Failed</span>
   }
   if (report.jobStatus === 'succeeded') {
-    return report.viable ? (
-      <span className={cn(base, 'bg-success/10 text-success')}>
-        {report.addressable?.toLocaleString()} addressable
-      </span>
-    ) : (
-      <span className={cn(base, 'bg-error/10 text-error')}>Not viable</span>
-    )
+    if (report.viable === true) {
+      return (
+        <span className={cn(base, 'bg-success/10 text-success')}>
+          {report.addressable?.toLocaleString()} addressable
+        </span>
+      )
+    }
+    // Genuine UNRESOLVED result → "Not viable"; an unparseable payload (viable === null) is
+    // not a business conclusion, so it stays neutral rather than mislabeling it.
+    if (report.viable === false) {
+      return <span className={cn(base, 'bg-error/10 text-error')}>Not viable</span>
+    }
   }
   return <span className={cn(base, 'bg-mist/60 text-text-muted')}>—</span>
 }
