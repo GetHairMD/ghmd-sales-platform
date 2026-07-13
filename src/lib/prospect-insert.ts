@@ -37,9 +37,11 @@ export interface NewProspectInput {
   lead_source?: string | null
   assigned_rep?: string
   /**
-   * The creating user's auth.uid() (E-0a rep attribution). Real FK to auth.users.
-   * Null when there is no session — a legitimate "unattributed" lead; execs see it
-   * regardless via the `exec_all` policy. Never fabricate a value.
+   * The explicitly-selected rep's user_id (E-0a rep attribution). Real FK to auth.users.
+   * MUST be the assigned rep, never the creating exec's own uid — the new-prospect UI
+   * requires an explicit "Assign to" selection. Pure passthrough here: null only for a
+   * non-UI caller (e.g. a future webhook import) that legitimately has no rep to name.
+   * Never fabricated / never inferred from the caller's identity.
    */
   assigned_rep_id?: string | null
 }

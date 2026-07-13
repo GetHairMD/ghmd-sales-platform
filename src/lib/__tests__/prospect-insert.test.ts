@@ -40,17 +40,19 @@ describe('buildProspectInsert (P0 insert-shape guard)', () => {
     expect(payload.assigned_rep).toBe('trace')
   })
 
-  it('sets assigned_rep_id to the creating user id when provided (E-0a rep attribution)', () => {
-    const uid = '11111111-2222-3333-4444-555555555555'
-    const payload = buildProspectInsert({ full_name: 'Jane', assigned_rep_id: uid })
-    expect(payload.assigned_rep_id).toBe(uid)
+  it('passes through the explicitly-selected rep id (E-0a rep attribution)', () => {
+    // The value is the assigned rep's user_id from the UI selector — NOT the creating
+    // exec's uid. Pure passthrough: the builder never infers it from a caller identity.
+    const repId = '11111111-2222-3333-4444-555555555555'
+    const payload = buildProspectInsert({ full_name: 'Jane', assigned_rep_id: repId })
+    expect(payload.assigned_rep_id).toBe(repId)
     // assigned_rep_id is a real FK column and must survive the column guard.
     expect(PROSPECT_INSERT_COLUMNS).toContain('assigned_rep_id')
   })
 
-  it('defaults assigned_rep_id to null when the creator is unknown (no session)', () => {
-    // Nullable FK: never fabricate an id. A null assigned_rep_id is a legitimate
-    // "unattributed" lead (exec sees it regardless via exec_all).
+  it('defaults assigned_rep_id to null only when none is provided (non-UI caller)', () => {
+    // Nullable FK: never fabricate an id. The new-prospect UI requires a selection, so
+    // null only arises for a non-UI caller (e.g. a future webhook import).
     expect(buildProspectInsert({ full_name: 'Jane' }).assigned_rep_id).toBeNull()
     expect(buildProspectInsert({ full_name: 'Jane', assigned_rep_id: null }).assigned_rep_id).toBeNull()
   })
