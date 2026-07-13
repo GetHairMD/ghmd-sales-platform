@@ -189,6 +189,28 @@ Never committed to git.
 | `BOX_WEBHOOK_SECRET` | Server only | Verify Box Sign webhook signatures. **Not yet set in Netlify** — pending |
 | `GHL_WEBHOOK_SECRET` | Server only | Verify AesthetiX webhook signatures |
 | `ANTHROPIC_API_KEY` | Server only | Phase 2: call scoring engine |
+| `QA_EXEC_EMAIL` | Local (QA only) | QA-exec sign-in for deploy-preview QA. Read by `scripts/qa/preview-login.ts`. Trace holds locally — never in Netlify, never in a session |
+| `QA_EXEC_PASSWORD` | Local (QA only) | QA-exec password. Same helper. **Never** hardcoded, echoed, committed, or pasted into an agent session |
+
+## QA / Deploy-Preview Capability Stack
+
+**QA-executive account.** A second executive identity exists solely for deploy-preview QA:
+`internal_users.designation = 'executive'`, auth UUID `fc262e14-6080-4187-9aa9-84092a556f5c`
+(provisioned 2026-07-13 — production now has two executives, where prior work assumed exactly
+one; see decision #146 framing). It lets an agent walk exec-gated pages during a deploy-preview
+QA pass without borrowing Trace's own credential.
+
+**Preview-only is enforced by a script guard, NOT by the database.** There is a single Supabase
+project (`cprltmwwldbxcsunsafl`) behind BOTH production (`ghmdsalesplatform.netlify.app`) and
+every `deploy-preview-<PR#>--ghmdsalesplatform.netlify.app`. The QA-exec is therefore a *real*
+executive on production too — nothing at the DB layer stops it signing into prod. The only thing
+that does is the hostname guard in **`scripts/qa/preview-login.ts`**: `preparePreviewLogin(url)`
+asserts the target hostname matches `deploy-preview-<PR#>--ghmdsalesplatform.netlify.app` and
+**throws** otherwise, and credential retrieval is sequenced *after* that assertion so there is no
+path to the password that skips it. Credentials come from `QA_EXEC_EMAIL` / `QA_EXEC_PASSWORD`
+(above). **This guard is load-bearing — treat any change to it as security-sensitive.** Deploy-
+preview QA automation must route sign-in through this helper; never read `QA_EXEC_*` directly and
+never point QA-exec sign-in at a non-preview host.
 
 ## Key Reference Values
 
