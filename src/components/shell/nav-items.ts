@@ -37,7 +37,7 @@ export const NAV_ITEMS: NavItem[] = [
   // National status map (decision #121/#122/#132): standalone, visible to ALL reps
   // and executives (no execOnly). Distinct route from Deal Territories.
   { label: 'National Map', icon: Globe, href: '/national-map' },
-  { label: 'Territory Scouting', icon: Compass, comingSoon: true, execOnly: true },
+  { label: 'Territory Scouting', icon: Compass, href: '/territory-scouting', execOnly: true },
   { label: 'Insights', icon: Sparkles, comingSoon: true },
 ]
 
@@ -50,9 +50,15 @@ export function navItemsFor(designation: Designation | null): NavItem[] {
   return NAV_ITEMS.filter((item) => !item.execOnly || designation === 'executive')
 }
 
-/** Bottom tab bar (mobile) — the four highest-traffic live destinations (spec §4B). */
+/**
+ * Bottom tab bar (mobile) — live, non-exec destinations (spec §4B). Filters on `href`
+ * presence AND `!execOnly`: the mobile bar has no per-viewer role filtering of its own, so an
+ * exec-only route with an href (e.g. Territory Scouting) must be excluded HERE or it would
+ * surface to every viewer, reps included. Every other current `href` item has `execOnly`
+ * unset, so this is additive-safe — no non-exec tab changes.
+ */
 export const BOTTOM_TABS: NavItem[] = NAV_ITEMS.filter(
-  (i): i is NavItem & { href: string } => Boolean(i.href),
+  (i): i is NavItem & { href: string } => Boolean(i.href) && !i.execOnly,
 )
 
 /** True when `pathname` is within `href` (exact or nested route). */

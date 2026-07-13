@@ -34,12 +34,12 @@ describe('Territory Scouting is executive-only (PR4 exec gate)', () => {
     expect(labels(navItemsFor(null))).not.toContain('Territory Scouting')
   })
 
-  it('is a coming-soon placeholder, not a live route', () => {
+  it('is a live executive-only route (decision #146 — no longer coming-soon)', () => {
     const scouting = NAV_ITEMS.find((i) => i.label === 'Territory Scouting')
     expect(scouting, 'Territory Scouting must exist in the nav model').toBeDefined()
-    expect(scouting?.comingSoon).toBe(true)
+    expect(scouting?.comingSoon, 'Territory Scouting is now a live route').toBeFalsy()
     expect(scouting?.execOnly).toBe(true)
-    expect(scouting?.href, 'coming-soon item must not link to a route').toBeUndefined()
+    expect(scouting?.href, 'links to the live scouting route').toBe('/territory-scouting')
   })
 
   it('the Sidebar renders the role-filtered nav, not the raw list', () => {
@@ -64,6 +64,19 @@ describe('Territories → Deal Territories (label-only rename, PR4)', () => {
 
   it('the mobile bottom tabs never include the exec-only scouting item', () => {
     expect(labels(BOTTOM_TABS)).not.toContain('Territory Scouting')
+  })
+
+  it('the mobile bottom tabs never include ANY exec-only item (leak-class guard)', () => {
+    // BottomTabBar renders BOTTOM_TABS with no per-viewer role filter, so the exclusion must
+    // live in the BOTTOM_TABS derivation itself. Pinning the general rule (not just the one
+    // item by name) keeps a future exec-only nav addition from silently leaking to reps'
+    // mobile bar. Precondition: an exec-only item WITH an href actually exists, so this is a
+    // live guard, not a vacuous one.
+    expect(
+      NAV_ITEMS.some((i) => i.execOnly && i.href),
+      'expected at least one exec-only route to make this guard meaningful',
+    ).toBe(true)
+    expect(BOTTOM_TABS.every((i) => !i.execOnly)).toBe(true)
   })
 })
 
