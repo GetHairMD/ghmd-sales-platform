@@ -35,10 +35,12 @@ describe('territories list draft filter', () => {
   })
 
   it('filters drafts with NULL-preserving semantics (IS DISTINCT FROM), not a bare neq', () => {
-    // status is `text default 'available'` (nullable) and most existing territories carry a
-    // legacy NULL status. A bare .neq('status','draft') compiles to `status <> 'draft'`, which
-    // is NULL (not true) for NULL-status rows and would silently hide the bulk of the table from
-    // reps. The fix must express `status IS DISTINCT FROM 'draft'` via an OR that keeps NULLs.
+    // NULL-preserving on purpose: `status` is nullable (`text default 'available'`), so a bare
+    // .neq('status','draft') would compile to `status <> 'draft'` and silently drop any null-status
+    // row too (the predicate is NULL, not true, for NULLs). No null-status rows exist in the live DB
+    // today (confirmed 2026-07-12: 67 total, 0 null), so this is defensive/future-proofing and
+    // matches the same IS DISTINCT FROM choice already made in the National Map migration
+    // (20260711160000) — not a fix for a live leak. The fix must express that via an OR that keeps NULLs.
     expect(code).toMatch(/\.or\(\s*['"]status\.is\.null,status\.neq\.draft['"]\s*\)/)
     expect(code).not.toMatch(/query\s*=\s*query\.neq\(\s*['"]status['"]\s*,\s*['"]draft['"]\s*\)/)
   })
