@@ -36,6 +36,30 @@
  *   npx tsx scripts/qa/preview-login.ts https://deploy-preview-123--ghmdsalesplatform.netlify.app
  */
 
+import { loadEnvConfig } from '@next/env'
+
+/**
+ * Load `.env.local` (and the other standard Next env files) at MODULE LOAD time — outside
+ * every function, so BOTH entry points pick up the QA-exec credentials:
+ *   • the CLI preflight (`npx tsx scripts/qa/preview-login.ts <url>`), and
+ *   • direct imports by QA automation drivers
+ *     (`import { preparePreviewLogin } from '../../scripts/qa/preview-login'`) — which bypass
+ *     the CLI entirely, so a CLI-branch-only loader would never reach them.
+ *
+ * `loadEnvConfig` is the exact loader Next.js uses for `next dev`/`next build`. Two properties
+ * were confirmed against @next/env's `processEnv` implementation, not assumed:
+ *   1. NON-OVERRIDING — a var already present in `process.env` (OS-level, CI) is left
+ *      untouched; `.env.local` only fills gaps. It never silently clobbers an already-set value.
+ *   2. In test mode (`NODE_ENV === 'test'`, vitest's default) it skips `.env.local` altogether,
+ *      so this module-load side effect is inert during the test suite (which passes explicit
+ *      `env` objects anyway).
+ *
+ * The logger is fully silenced so neither entry point emits stray output: the CLI preflight
+ * keeps reporting only credential-var PRESENCE as booleans, and importing drivers get no
+ * unexpected stdio to parse. Genuinely-missing vars are still surfaced by getQaExecCredentials().
+ */
+loadEnvConfig(process.cwd(), true, { info: () => {}, error: () => {} })
+
 /**
  * The confirmed deploy-preview hostname pattern for the ghmd-sales-platform Netlify site.
  * Anchored end-to-end so suffix-decoy hosts (…netlify.app.evil.com) and label-decoy hosts
