@@ -6,10 +6,23 @@ import { getViewerDesignation } from '@/lib/auth/internal-role'
 export default async function TerritoriesPage() {
   const supabase = createClient()
   const isExec = (await getViewerDesignation()) === 'executive'
-  const { data: territories } = await supabase
+  let query = supabase
     .from('territories')
     .select('id, name, status, addressable_patients_primary, center_lat, center_lng, census_fetched_at')
     .order('created_at', { ascending: false })
+
+  // Drafts are in-progress, pre-sizing rows that reps should not see on this list.
+  // Executives keep full visibility to track several drafts at once.
+  // NULL-preserving on purpose: status is `text default 'available'` and nullable, so a bare
+  // .neq('status','draft') would compile to `status <> 'draft'` and silently drop any NULL-status
+  // row (the predicate is NULL, not true, for NULLs). `status IS DISTINCT FROM 'draft'` — expressed
+  // in PostgREST as `status.is.null,status.neq.draft` — drops only true drafts and keeps NULLs.
+  // This mirrors the National Map fix (migration 20260711160000, which preserves NULL identically).
+  if (!isExec) {
+    query = query.or('status.is.null,status.neq.draft')
+  }
+
+  const { data: territories } = await query
 
   const statusColors: Record<string, string> = {
     available: 'bg-green-100 text-green-700',
