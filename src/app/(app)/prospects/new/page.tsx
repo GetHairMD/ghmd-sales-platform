@@ -18,12 +18,18 @@ export default function NewProspectPage() {
     setError(null)
     const formData = new FormData(e.currentTarget)
     const supabase = createClient()
+    // E-0a rep attribution: stamp the creating user's auth.uid() as assigned_rep_id.
+    // Null when there is no session — a legitimate unattributed lead, never a fabricated id.
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
     const { error } = await supabase.from('prospects').insert(
       buildProspectInsert({
         full_name: formData.get('full_name') as string,
         email: formData.get('email') as string,
         phone: formData.get('phone') as string,
         lead_source: formData.get('source_channel') as string,
+        assigned_rep_id: user?.id ?? null,
       }),
     )
     if (error) {

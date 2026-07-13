@@ -21,6 +21,7 @@ export const PROSPECT_INSERT_COLUMNS = [
   'lead_source',
   'lead_source_sub',
   'assigned_rep',
+  'assigned_rep_id',
   'strong_connection',
   'referrer_id',
   'icp_score',
@@ -35,6 +36,12 @@ export interface NewProspectInput {
   /** Maps to the `lead_source` column (the UI field is labelled "Source Channel"). */
   lead_source?: string | null
   assigned_rep?: string
+  /**
+   * The creating user's auth.uid() (E-0a rep attribution). Real FK to auth.users.
+   * Null when there is no session — a legitimate "unattributed" lead; execs see it
+   * regardless via the `exec_all` policy. Never fabricate a value.
+   */
+  assigned_rep_id?: string | null
 }
 
 export interface ProspectInsert {
@@ -43,6 +50,7 @@ export interface ProspectInsert {
   phone: string | null
   lead_source: string | null
   assigned_rep: string
+  assigned_rep_id: string | null
   stage: number
 }
 
@@ -58,6 +66,7 @@ export function buildProspectInsert(input: NewProspectInput): ProspectInsert {
     phone: input.phone || null,
     lead_source: input.lead_source || null,
     assigned_rep: input.assigned_rep || 'trace',
+    assigned_rep_id: input.assigned_rep_id ?? null,
     stage: STAGE.NEW_LEAD,
   }
 

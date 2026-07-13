@@ -212,6 +212,25 @@ path to the password that skips it. Credentials come from `QA_EXEC_EMAIL` / `QA_
 preview QA automation must route sign-in through this helper; never read `QA_EXEC_*` directly and
 never point QA-exec sign-in at a non-preview host.
 
+## Rep Provisioning (manual — E-0a, decision #150)
+
+Reps are the second `internal_users.designation` value (`'rep'`; the domain is CHECK-constrained
+to `'executive' | 'rep'`). There is **no self-serve invite flow** — provisioning is manual and
+mirrors the QA-exec pattern exactly. **Hard Rule 6 applies identically to rep accounts: no
+password ever routes through an agent session, is echoed, committed, or pasted.**
+
+Procedure:
+1. **Trace** creates the Supabase Auth user (`auth.users`) and sets the password **directly in the
+   Supabase console** — never via any agent, never through Coder.
+2. **Trace** provides Coder only: the new user's **auth UUID**, the rep's **full name**, and
+   confirmation that the designation is `'rep'`.
+3. **Coder** inserts the `public.internal_users` row: `user_id = <UUID>`, `designation = 'rep'`,
+   `full_name = <name>`. (`internal_users.user_id` is an FK to `auth.users`, so step 1 must happen
+   first.)
+
+`full_name` is nullable — a rep may be provisioned before a name is supplied — so every UI surface
+that renders it must fall back to a generic label on NULL, never crash or show "null".
+
 ## Key Reference Values
 
 | Item | Value |

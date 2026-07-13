@@ -39,4 +39,19 @@ describe('buildProspectInsert (P0 insert-shape guard)', () => {
     expect(payload.lead_source).toBeNull()
     expect(payload.assigned_rep).toBe('trace')
   })
+
+  it('sets assigned_rep_id to the creating user id when provided (E-0a rep attribution)', () => {
+    const uid = '11111111-2222-3333-4444-555555555555'
+    const payload = buildProspectInsert({ full_name: 'Jane', assigned_rep_id: uid })
+    expect(payload.assigned_rep_id).toBe(uid)
+    // assigned_rep_id is a real FK column and must survive the column guard.
+    expect(PROSPECT_INSERT_COLUMNS).toContain('assigned_rep_id')
+  })
+
+  it('defaults assigned_rep_id to null when the creator is unknown (no session)', () => {
+    // Nullable FK: never fabricate an id. A null assigned_rep_id is a legitimate
+    // "unattributed" lead (exec sees it regardless via exec_all).
+    expect(buildProspectInsert({ full_name: 'Jane' }).assigned_rep_id).toBeNull()
+    expect(buildProspectInsert({ full_name: 'Jane', assigned_rep_id: null }).assigned_rep_id).toBeNull()
+  })
 })
