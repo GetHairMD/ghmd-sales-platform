@@ -28,6 +28,27 @@ Does NOT:
 - No credentials in chat. Never request or accept secrets pasted into conversation.
 - Confidential docs (Corporate Only) stay off shared surfaces unless Trace directs otherwise.
 
+### Verification Discipline
+- **Merged ≠ applied.** A merged migration file in git is not the same claim as an applied
+  migration on the live database. Before logging a decision-log entry that references
+  schema/RLS/deploy state, verify against live state (`list_migrations`, `to_regclass`/
+  `pg_policies`, `get_advisors`) — never infer database state from PR-merge status alone, even
+  when the migration is correct and gate-cleared. (Precedent: decisions #101→#105 correction,
+  2026-07-09.)
+- **Independent verification, not relay.** Every Coder self-report (PR diffs, test results,
+  migration status) is independently verified against live GitHub and Supabase state before
+  Chat acts on it or logs it to `ops.decision_log`. PR diffs read directly via
+  `pull_request_read` (`get_files`); CI via `get_check_runs`; DB state via `execute_sql`. Never
+  relay a Coder summary as fact without checking the underlying diff/state.
+- **Absence of automation is not evidence of accuracy.** Do not infer that a hand-maintained or
+  static artifact is current because no script exists to make it stale. Claims of the form "X
+  has not drifted" require a diff against live state, not an argument from mechanism.
+- **Check for existing governance before proposing new governance.** Before proposing any
+  cross-cutting rule change (write-path authority, review tiers, agent scope), query
+  `ops.decision_log` for prior decisions bearing on the same question — including `platform:
+  cross` decisions, which are binding regardless of which repo raised the question. Cite the
+  actual governing decision by number/date/status, not "this mirrors current practice."
+
 ### Locked Technical Facts
 - Formula v2: Addressable households = households × income-qualified share (ACS B19001, ZCTA, straddle interpolation) × credit-eligible share (state CSV, Experian-derived). No prevalence term. Anchor: $8,500 @ 24.99%/60mo → $249.44/mo → $37,415 @ 8% PTI. QA: national 69.6M @PTI8 / 56.3M @PTI5; Marin exactly 64,194.
 - CUSTOMERS_NEEDED = 62. Single source: lib/addressable-market-constants.ts.
@@ -42,6 +63,13 @@ Does NOT:
 ### Gate & Governance
 - Second-Opinion Gate on category-2+ PRs. gpt-unavailable = infrastructure failure, not a code finding — retry once, then manual accept is legitimate, but every manual clear must be logged to ops.decision_log (precedent: decision #48).
 - **Binding a decision-log row to a future PR:** When Chat logs a decision that a not-yet-created Coder PR will reference (via a `decision_log_id` in its Second-Opinion Gate block), `related_pr`/`related_repo` are correctly `NULL` at write time — the PR doesn't exist yet. Once the PR is opened and its number is known, that row's `related_pr`/`related_repo` must be back-filled via `UPDATE`, **not** a new `INSERT`. `gate_decision_for_pr` requires the bound row's `id` to exactly equal the PR body's declared `decision_log_id`, and a unique index allows only one bound row per PR — so inserting a new row to "complete the binding" will fail a *different* gate check (`verify-id-mismatch`) instead of fixing anything. This is a deliberate exception to the general append-only/supersede-never-delete rule: filling in a previously-unknowable linking field is not the same as revising a decision's substance, and is the only way the check can pass. (Precedent: decision #137 back-filled to PR #112, 2026-07-11.)
+- **Classification-block discipline.** Every Coder brief for `review`- or `ultrareview`-tier
+  work MUST explicitly instruct inclusion of the `second-opinion-gate` PR-body classification
+  block as a required deliverable — never an assumed default. Coder does not decide silently
+  whether a change is in scope for the gate; the brief states it, or Coder asks. A brief that
+  omits this instruction on trigger-eligible work is itself incomplete. (Root cause, precedent:
+  decision #155 — the gate was live and correctly configured but never fired on qualifying work
+  because nothing in the brief-writing process required the block to be declared.)
 - Decisions #46–49 locked: prevalence removal, 16-state target correction, gate override precedent, grandfathering retirement.
 
 ## Coder (this agent)
@@ -172,3 +200,4 @@ Communication style: bottom line first. Flag business-logic calls as Trace's dec
 | Secrets in git | Never — all env vars via Netlify + Supabase secrets |
 | Sprint scope creep | Never begin N+1 work during N session without Trace approval |
 | Territory price | $179,000 — non-negotiable in Phase 1; Trace decision required for any exception |
+| Cross-platform schema assumptions | NIP's `ops.decision_log` is a separate table with a different schema — no `related_pr`/`related_repo` columns, different `status`/`platform` enum values (uppercase vs. GHMD's lowercase). Shared *convention* (single Chat-only writer, append-only) does not imply shared *schema*. Verify live before assuming parity. |
