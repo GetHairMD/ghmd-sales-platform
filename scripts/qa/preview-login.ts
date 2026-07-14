@@ -16,12 +16,32 @@
  *      (`ghmdsalesplatform.netlify.app`), the branch deploy of main
  *      (`main--ghmdsalesplatform.netlify.app`), arbitrary branch deploys, the NIP site
  *      (`ghmdnetwork.netlify.app`), and every lookalike/decoy host are REFUSED.
- *   2. The QA-exec credentials are read ONLY from the `QA_EXEC_EMAIL` / `QA_EXEC_PASSWORD`
- *      environment variables — never hardcoded, never logged. Trace holds the password
- *      locally; it is never pasted into an agent session.
- *   3. Credentials are unreachable except via `preparePreviewLogin()`, which runs the
- *      hostname assertion FIRST. There is no sanctioned path to the password that skips
- *      the guard.
+ *   2. Every seat's credentials are read ONLY from environment variables (`QA_EXEC_*`,
+ *      `QA_REP_A_*`, `QA_REP_B_*`) — never hardcoded, never logged. Trace holds the passwords
+ *      locally; none is ever pasted into an agent session.
+ *   3. Credentials are unreachable except via `preparePreviewLoginAs()` / `preparePreviewLogin()`,
+ *      which run the hostname assertion FIRST. There is NO path out of this module that skips
+ *      the guard — the credential accessors themselves are module-private (see below).
+ *
+ * WHAT IT DOES **NOT** DO — read this before trusting the word "preview-only" anywhere
+ * (Second-Opinion Gate BLOCK #7, PR #130):
+ *   The guard confines THIS SCRIPT. It does not confine the CREDENTIALS. Every QA seat —
+ *   exec, rep-a, rep-b — is a REAL, allow-listed production principal, because a single
+ *   Supabase project (cprltmwwldbxcsunsafl) sits behind BOTH production and every deploy
+ *   preview. Anyone holding the raw env vars can therefore sign in against production and
+ *   read/write real data through PostgREST without ever importing this file.
+ *
+ *   Until BLOCK #7 this module was worse than that: `getQaExecCredentials` was EXPORTED
+ *   (since PR #121), so even an in-repo importer could obtain the password without the guard
+ *   ever running — which made invariant 3 above false as written. E-2 widened that from one
+ *   credential to three. Both accessors are now module-private, so invariant 3 is finally
+ *   true of this file.
+ *
+ *   The remaining exposure is a property of the CREDENTIAL ARCHITECTURE, not of this script:
+ *   real prod principals, no prod/preview DB isolation (CLAUDE.md "QA / Deploy-Preview
+ *   Capability Stack", decisions #146 / #161). Closing it for real needs either a separate
+ *   Supabase project for previews, or a QA designation with no production data rights.
+ *   Do not describe these seats as "preview-only" without that caveat.
  *
  * The pattern below was confirmed against the live Netlify project (site slug
  * `ghmdsalesplatform`, primary URL `ghmdsalesplatform.netlify.app`, deploy-preview form
@@ -153,8 +173,22 @@ export function assertPreviewHost(targetUrl: string): string {
 /**
  * Read one seat's credentials from the environment. Throws if either var is missing.
  * Never logs or echoes the values.
+ *
+ * NOT EXPORTED — deliberately, and this is load-bearing (Second-Opinion Gate BLOCK #7,
+ * PR #130). While it WAS exported, the module offered a credential accessor that reached the
+ * password WITHOUT running `assertPreviewHost` first, which made the header's claim — "there
+ * is no sanctioned path to the password that skips the guard" — untrue: any importer could
+ * call it directly and point the result at production. Module-private, the ONLY way out of
+ * this file is `preparePreviewLoginAs()` / `preparePreviewLogin()`, both of which run the
+ * hostname assertion BEFORE they read anything.
+ *
+ * This narrows the module's misuse surface; it does NOT make the seats preview-only. They
+ * remain real production principals — one Supabase project sits behind prod and every
+ * preview — so anyone HOLDING the raw env vars can still reach production directly. That
+ * residual risk is a property of the credential architecture (CLAUDE.md "QA / Deploy-Preview
+ * Capability Stack", decisions #146 / #161), not of this file, and is flagged as such.
  */
-export function getQaSeatCredentials(
+function getQaSeatCredentials(
   seat: QaSeat,
   env: NodeJS.ProcessEnv = process.env,
 ): QaExecCredentials {
@@ -179,12 +213,14 @@ export function getQaSeatCredentials(
 }
 
 /**
- * Read the QA-exec credentials. Retained as the original exec-only accessor so existing
- * callers keep working unchanged; it is now a thin alias for the 'exec' seat.
+ * The QA-exec credentials — a thin alias for the 'exec' seat.
+ *
+ * ALSO NOT EXPORTED (BLOCK #7). It was exported before E-2 (shipped in PR #121), so the
+ * unguarded-accessor hole predates the rep seats — E-2 merely widened it from one credential
+ * to three. Both accessors are module-private now; `preparePreviewLogin()` is the guarded
+ * public entry point and its signature is unchanged for every existing caller.
  */
-export function getQaExecCredentials(
-  env: NodeJS.ProcessEnv = process.env,
-): QaExecCredentials {
+function getQaExecCredentials(env: NodeJS.ProcessEnv = process.env): QaExecCredentials {
   return getQaSeatCredentials('exec', env)
 }
 

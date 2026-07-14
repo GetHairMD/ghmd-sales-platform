@@ -10,8 +10,6 @@ import {
   PREVIEW_HOST_PATTERN,
   QA_SEATS,
   assertPreviewHost,
-  getQaExecCredentials,
-  getQaSeatCredentials,
   preparePreviewLogin,
   preparePreviewLoginAs,
 } from './preview-login'
@@ -74,17 +72,56 @@ describe('PREVIEW_HOST_PATTERN', () => {
   })
 })
 
-describe('getQaExecCredentials', () => {
-  it('returns creds from env when both are present', () => {
-    expect(getQaExecCredentials(CREDS_ENV)).toEqual({
-      email: 'qa@example.test',
-      password: 'pw',
-    })
+/**
+ * Second-Opinion Gate BLOCK #7 (Sol 5.6, PR #130) — the credential accessors are module-private.
+ *
+ * FINDING (in part, verbatim): "…exported `getQaSeatCredentials()` returns their credentials
+ * without invoking the guard at all."
+ *
+ * True, and it predates E-2: `getQaExecCredentials` was exported the same way in PR #121. So
+ * the module shipped a path to the password that never ran `assertPreviewHost` — which made the
+ * header's own invariant ("there is no sanctioned path to the password that skips the guard")
+ * false as written. E-2 widened it from one credential to three.
+ *
+ * Both accessors are now module-private. These tests therefore exercise credential resolution
+ * ONLY through the guarded entry points — which is the whole point: if a test could still reach
+ * the raw accessor, so could a caller.
+ *
+ * NOTE what this does NOT fix: the seats remain real production principals (one Supabase
+ * project behind prod and every preview). Anyone holding the raw env vars can still reach
+ * production directly, without importing this file at all. That is a property of the credential
+ * architecture (decisions #146 / #161), flagged to Trace, not something this module can close.
+ */
+describe('BLOCK #7 — no credential accessor escapes the module unguarded', () => {
+  it('does not export getQaExecCredentials / getQaSeatCredentials', async () => {
+    const mod: Record<string, unknown> = await import('./preview-login')
+    expect(Object.keys(mod)).not.toContain('getQaExecCredentials')
+    expect(Object.keys(mod)).not.toContain('getQaSeatCredentials')
   })
 
-  it('throws naming the missing var(s), without leaking values', () => {
-    expect(() => getQaExecCredentials({ QA_EXEC_EMAIL: 'x' })).toThrow(/QA_EXEC_PASSWORD/)
-    expect(() => getQaExecCredentials({})).toThrow(/QA_EXEC_EMAIL/)
+  it('exports only the guarded entry points + the non-secret helpers', async () => {
+    const mod: Record<string, unknown> = await import('./preview-login')
+    const exportedFns = Object.keys(mod).filter((k) => typeof mod[k] === 'function')
+    expect(exportedFns.sort()).toEqual(
+      ['assertPreviewHost', 'preparePreviewLogin', 'preparePreviewLoginAs'].sort(),
+    )
+  })
+
+  it('surfaces a missing env var through the GUARDED path (behaviour preserved)', () => {
+    // Same coverage the old unguarded accessor tests gave, routed through the guard: a valid
+    // preview host passes the assertion, then the missing var is named — without leaking values.
+    expect(() => preparePreviewLogin(VALID, { QA_EXEC_EMAIL: 'x' })).toThrow(/QA_EXEC_PASSWORD/)
+    expect(() => preparePreviewLogin(VALID, {})).toThrow(/QA_EXEC_EMAIL/)
+    expect(() => preparePreviewLoginAs('rep-a', VALID, { QA_REP_A_EMAIL: 'x' })).toThrow(
+      /QA_REP_A_PASSWORD/,
+    )
+    expect(() => preparePreviewLoginAs('rep-b', VALID, {})).toThrow(/QA_REP_B_EMAIL/)
+  })
+
+  it('rejects an unknown seat rather than falling back to some default credential', () => {
+    expect(() =>
+      preparePreviewLoginAs('rep-z' as never, VALID, ALL_SEATS_ENV),
+    ).toThrow(/Unknown QA seat/)
   })
 })
 
@@ -131,27 +168,15 @@ describe('QA seats — rep fixtures inherit the exec seat\'s guard', () => {
   })
 
   it('resolves each seat to its OWN credentials (no cross-wiring)', () => {
-    expect(getQaSeatCredentials('exec', ALL_SEATS_ENV).email).toBe('qa-exec@example.test')
-    expect(getQaSeatCredentials('rep-a', ALL_SEATS_ENV).email).toBe('qa-rep-a@example.test')
-    expect(getQaSeatCredentials('rep-b', ALL_SEATS_ENV).email).toBe('qa-rep-b@example.test')
+    // Routed through the GUARDED entry point — the raw accessor is module-private (BLOCK #7).
+    expect(preparePreviewLoginAs('exec', VALID, ALL_SEATS_ENV).email).toBe('qa-exec@example.test')
+    expect(preparePreviewLoginAs('rep-a', VALID, ALL_SEATS_ENV).email).toBe('qa-rep-a@example.test')
+    expect(preparePreviewLoginAs('rep-b', VALID, ALL_SEATS_ENV).email).toBe('qa-rep-b@example.test')
     // Rep A and Rep B must be genuinely distinct principals — AC5 (one rep cannot read the
     // other's pending post) is meaningless if both sessions are the same user.
-    expect(getQaSeatCredentials('rep-a', ALL_SEATS_ENV)).not.toEqual(
-      getQaSeatCredentials('rep-b', ALL_SEATS_ENV),
+    expect(preparePreviewLoginAs('rep-a', VALID, ALL_SEATS_ENV).password).not.toBe(
+      preparePreviewLoginAs('rep-b', VALID, ALL_SEATS_ENV).password,
     )
-  })
-
-  it('throws naming the missing var, without leaking values', () => {
-    expect(() => getQaSeatCredentials('rep-a', { QA_REP_A_EMAIL: 'x' })).toThrow(
-      /QA_REP_A_PASSWORD/,
-    )
-    expect(() => getQaSeatCredentials('rep-b', {})).toThrow(/QA_REP_B_EMAIL/)
-  })
-
-  it('rejects an unknown seat rather than falling back to some default credential', () => {
-    expect(() =>
-      getQaSeatCredentials('rep-z' as never, ALL_SEATS_ENV),
-    ).toThrow(/Unknown QA seat/)
   })
 
   for (const seat of QA_SEATS) {
