@@ -413,6 +413,102 @@ describe('e2 gate-BLOCK fix — select_own requires LIVE internal_users membersh
   })
 })
 
+/**
+ * Second-Opinion Gate BLOCK #2 (Sol 5.6, run 29323185511, PR #130) — closed by migration
+ * 20260714190000.
+ *
+ * FINDING (verbatim): "The INSERT policies do not constrain `reviewed_by` or `reviewed_at`,
+ * while `stamp_community_board_review()` fires only on UPDATE. A rep or executive can
+ * therefore insert client-supplied audit values, and an executive's directly published row
+ * can retain a forged reviewer and timestamp indefinitely."
+ *
+ * Reproduced live before fixing, through RLS as the real QA Rep A seat: an INSERT carrying
+ * reviewed_by = <the executive's uuid> and reviewed_at = '1999-01-01' was ACCEPTED and
+ * STORED verbatim — a row whose audit trail claimed an executive approved it, in 1999.
+ *
+ * This is the same category as E-1's funded_won_at forgery (#128), and it is also a gap in
+ * the ORIGINAL E-2 adversarial pass: that pass tested forging the audit columns on UPDATE
+ * (where the trigger overrode them) and never tested forging them on INSERT.
+ *
+ * The fix extends the ONE existing mechanism rather than adding a second: the trigger — not
+ * an RLS policy — remains the sole authority over these two columns, now on both verbs.
+ */
+describe('e2 gate-BLOCK #2 fix — the stamp trigger owns the audit columns on INSERT too', () => {
+  const code = sqlCodeOnly(read(migrationPath('_e2_stamp_trigger_covers_insert.sql')))
+  const fn =
+    code.match(
+      /create\s+or\s+replace\s+function\s+public\.stamp_community_board_review\(\)[\s\S]*?\$\$;/i,
+    )?.[0] ?? ''
+
+  it('re-registers the trigger as BEFORE INSERT OR UPDATE (was UPDATE-only — the gap)', () => {
+    expect(code).toMatch(
+      /create\s+trigger\s+community_board_posts_stamp_review\s+before\s+insert\s+or\s+update\s+on\s+public\.community_board_posts/i,
+    )
+  })
+
+  it('forces reviewed_by/reviewed_at to NULL on INSERT, whatever the client sent', () => {
+    expect(fn, 'function definition must be found').toBeTruthy()
+    expect(fn).toMatch(/if\s+tg_op\s*=\s*'INSERT'\s+then/i)
+    expect(fn).toMatch(/new\.reviewed_by\s*:=\s*null/i)
+    expect(fn).toMatch(/new\.reviewed_at\s*:=\s*null/i)
+  })
+
+  it('checks TG_OP FIRST — OLD is unassigned on INSERT, so the status compare would error', () => {
+    const tgOpIdx = fn.search(/tg_op\s*=\s*'INSERT'/i)
+    const oldRefIdx = fn.search(/old\.status/i)
+    expect(tgOpIdx).toBeGreaterThan(-1)
+    expect(oldRefIdx).toBeGreaterThan(-1)
+    expect(
+      tgOpIdx,
+      'the TG_OP=INSERT branch must precede any OLD reference, or every INSERT errors',
+    ).toBeLessThan(oldRefIdx)
+  })
+
+  it('leaves the UPDATE path intact — genuine review still stamps auth.uid() + now()', () => {
+    expect(fn).toMatch(/elsif\s+new\.status\s+is\s+distinct\s+from\s+old\.status\s+then/i)
+    expect(fn).toMatch(/new\.reviewed_by\s*:=\s*\(select\s+auth\.uid\(\)\)/i)
+    expect(fn).toMatch(/new\.reviewed_at\s*:=\s*now\(\)/i)
+  })
+
+  it('leaves the no-status-change path intact — a pin does not clobber the audit trail', () => {
+    expect(fn).toMatch(/new\.reviewed_by\s*:=\s*old\.reviewed_by/i)
+    expect(fn).toMatch(/new\.reviewed_at\s*:=\s*old\.reviewed_at/i)
+  })
+
+  it('stays SECURITY INVOKER (a DEFINER context would stamp the owner, not the reviewer)', () => {
+    expect(fn).not.toMatch(/security\s+definer/i)
+    expect(fn).toMatch(/set\s+search_path\s*=\s*''/i)
+  })
+
+  it('keeps EXECUTE revoked and never grants it back (no RPC surface)', () => {
+    expect(code).toMatch(
+      /revoke\s+all\s+on\s+function\s+public\.stamp_community_board_review\(\)\s+from\s+public,\s*anon,\s*authenticated/i,
+    )
+    expect(code).not.toMatch(/grant\s+execute\s+on\s+function\s+public\.stamp_community_board_review/i)
+  })
+
+  it('is a trigger-only fix — touches NO RLS policy (the brief\'s single-mechanism call)', () => {
+    expect(code).not.toMatch(/create\s+policy/i)
+    expect(code).not.toMatch(/drop\s+policy/i)
+    // ...and specifically does NOT add the alternative `IS NULL` WITH CHECK guard, which
+    // would make a policy the enforcer of column-value integrity — deliberately rejected.
+    expect(code).not.toMatch(/with\s+check[\s\S]{0,120}reviewed_by\s+is\s+null/i)
+  })
+
+  it('adds no new grant, column, or index surface (advisors diff unchanged)', () => {
+    expect(code).not.toMatch(/^\s*grant\s+(?!execute)/im)
+    expect(code).not.toMatch(/add\s+column/i)
+    expect(code).not.toMatch(/create\s+index/i)
+  })
+
+  it('does not edit either already-applied migration (supersede-never-delete)', () => {
+    // 20260714170100 must still show the ORIGINAL UPDATE-only trigger registration.
+    const prior = sqlCodeOnly(read(migrationPath('_e2_community_board_review.sql')))
+    expect(prior).toMatch(/before\s+update\s+on\s+public\.community_board_posts/i)
+    expect(prior).not.toMatch(/before\s+insert\s+or\s+update/i)
+  })
+})
+
 describe('e2 migration — status DEFAULT keeps the E-1 bell trigger working untouched', () => {
   const code = sqlCodeOnly(read(migrationPath('_e2_community_board_review.sql')))
 
