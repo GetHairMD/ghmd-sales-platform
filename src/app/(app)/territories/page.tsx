@@ -2,96 +2,104 @@ import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { getViewerDesignation } from '@/lib/auth/internal-role'
+import TerritoriesIndex, { type TerritoryRow } from '@/components/territories/TerritoriesIndex'
 
+/** One row of the territory_sold_summary() RPC — mirrors the SQL RETURNS TABLE shape. */
+interface SoldSummaryRow {
+  id: string
+  name: string
+  state: string | null
+  sold_at: string | null
+  sold_to_practice: string | null
+  closed_by_name: string | null
+}
+
+/**
+ * Deal Territories index (E-0b). Row VISIBILITY is enforced by RLS on `territories`
+ * (exec sees all; a rep sees available/unclaimed rows plus their own, any status —
+ * every other rep's in-flight AND sold rows are absent from the base query). COLUMN
+ * DETAIL is shaped here: base rows are `full`; other reps' sold territories come only
+ * from territory_sold_summary() (a SECURITY DEFINER projection that exposes the buyer
+ * practice, closing rep, and date but NO addressable/census), rendered as `minimal`.
+ */
 export default async function TerritoriesPage() {
   const supabase = createClient()
   const isExec = (await getViewerDesignation()) === 'executive'
-  let query = supabase
-    .from('territories')
-    .select('id, name, status, addressable_patients_primary, center_lat, center_lng, census_fetched_at')
-    .order('created_at', { ascending: false })
 
-  // Drafts are in-progress, pre-sizing rows that reps should not see on this list.
-  // Executives keep full visibility to track several drafts at once.
-  // NULL-preserving on purpose: status is `text default 'available'` and nullable, so a bare
-  // .neq('status','draft') would compile to `status <> 'draft'` and silently drop any NULL-status
-  // row (the predicate is NULL, not true, for NULLs). `status IS DISTINCT FROM 'draft'` — expressed
-  // in PostgREST as `status.is.null,status.neq.draft` — drops only true drafts and keeps NULLs.
-  // This mirrors the National Map fix (migration 20260711160000, which preserves NULL identically).
-  if (!isExec) {
-    query = query.or('status.is.null,status.neq.draft')
+  // Base rows — RLS-filtered to what the viewer is entitled to see in full.
+  const { data: baseRows } = await supabase
+    .from('territories')
+    .select('id, name, state, status, prospect_id, addressable_patients_primary, sold_at')
+    .order('name', { ascending: true })
+
+  // Minimal sold projection — every sold territory, no addressable/census. Used to
+  // (a) resolve buyer/closer display names the viewer may not read directly, and
+  // (b) add minimal-only rows for other reps' sold territories absent from baseRows.
+  const { data: soldData } = await supabase.rpc('territory_sold_summary')
+  const soldSummaries = (soldData ?? []) as SoldSummaryRow[]
+  const summaryById = new Map(soldSummaries.map((s) => [s.id, s]))
+  const baseIds = new Set((baseRows ?? []).map((r) => r.id))
+
+  const rows: TerritoryRow[] = []
+
+  for (const r of baseRows ?? []) {
+    const summary = summaryById.get(r.id)
+    rows.push({
+      id: r.id,
+      name: r.name,
+      state: r.state ?? null,
+      status: r.status ?? 'available',
+      detail: 'full',
+      addressable: r.addressable_patients_primary ?? null,
+      soldTo: summary?.sold_to_practice ?? null,
+      closedBy: summary?.closed_by_name ?? null,
+      soldAt: r.sold_at ?? summary?.sold_at ?? null,
+      href: `/territories/${r.id}`,
+    })
   }
 
-  const { data: territories } = await query
-
-  const statusColors: Record<string, string> = {
-    available: 'bg-green-100 text-green-700',
-    reserved: 'bg-yellow-100 text-yellow-700',
-    sold: 'bg-red-100 text-red-700',
+  // Other reps' sold territories: present in the summary projection but never in the
+  // RLS-filtered base query. Minimal by construction — no addressable, no detail link.
+  for (const s of soldSummaries) {
+    if (baseIds.has(s.id)) continue
+    rows.push({
+      id: s.id,
+      name: s.name,
+      state: s.state ?? null,
+      status: 'sold',
+      detail: 'minimal',
+      addressable: null,
+      soldTo: s.sold_to_practice ?? null,
+      closedBy: s.closed_by_name ?? null,
+      soldAt: s.sold_at ?? null,
+      href: null,
+    })
   }
 
   return (
     <main className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Territories</h1>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400">{territories?.length ?? 0} territories</span>
-          {isExec && (
-            <Link
-              href="/territories/new"
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 font-heading text-sm font-medium uppercase tracking-caps text-text-inverse transition-colors hover:bg-primary/90"
-            >
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              New Territory
-            </Link>
-          )}
-        </div>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="font-heading text-2xl font-bold text-text">Territories</h1>
+        {isExec && (
+          <Link
+            href="/territories/new"
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 font-heading text-sm font-medium uppercase tracking-caps text-text-inverse transition-colors hover:bg-primary/90"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            New Territory
+          </Link>
+        )}
       </div>
 
-      {!territories || territories.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-300 p-12 text-center">
-          <p className="text-gray-500 mb-1">No territories yet</p>
-          <p className="text-sm text-gray-400">
-            Territories are added via the Supabase console or a future admin UI.
+      {rows.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-mist p-12 text-center">
+          <p className="mb-1 text-text-muted">No territories yet</p>
+          <p className="text-sm text-text-muted">
+            Territories become visible here once they are created and sized.
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {territories.map(t => {
-            const status = t.status ?? 'available'
-            return (
-              <Link
-                key={t.id}
-                href={`/territories/${t.id}`}
-                className="block rounded-xl border border-gray-200 p-5 hover:border-[#4681A3] hover:shadow-sm transition-all bg-white"
-              >
-                <div className="flex justify-between items-start mb-3">
-                  <h2 className="font-semibold text-gray-900">{t.name}</h2>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${statusColors[status] ?? 'bg-gray-100 text-gray-700'}`}>
-                    {status}
-                  </span>
-                </div>
-
-                {t.addressable_patients_primary != null ? (
-                  <div className="mb-1">
-                    <span className="text-2xl font-bold text-[#4681A3]">
-                      {t.addressable_patients_primary.toLocaleString()}
-                    </span>
-                    <span className="text-sm text-gray-400 ml-1">addressable patients</span>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-400 mb-1">Census data pending</p>
-                )}
-
-                {t.census_fetched_at && (
-                  <p className="text-xs text-gray-400">
-                    Data: {new Date(t.census_fetched_at).toLocaleDateString()}
-                  </p>
-                )}
-              </Link>
-            )
-          })}
-        </div>
+        <TerritoriesIndex rows={rows} />
       )}
     </main>
   )
