@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { NAV_ITEMS, navItemsFor } from '../../components/shell/nav-items'
+import { BOTTOM_TABS, NAV_ITEMS, navItemsFor } from '../../components/shell/nav-items'
 import {
   EXEC_SUBMITTABLE_POST_TYPES,
   FILTER_TAGS,
@@ -502,5 +502,47 @@ describe('e2 — Community Board nav is visible to every internal role', () => {
     const item = NAV_ITEMS.find((i) => i.label === 'Community Board')
     expect(item?.execOnly, 'reps post to this board — they must be able to reach it').toBeFalsy()
     expect(item?.comingSoon).toBeFalsy()
+  })
+
+  it('reaches the mobile bottom tab bar (reps post from phones)', () => {
+    expect(BOTTOM_TABS.map((i) => i.label)).toContain('Community Board')
+  })
+})
+
+/**
+ * Mobile bottom-bar legibility. Adding Community Board made this an 8-tab bar, and at 390px
+ * the multi-word labels collapsed into an unreadable run — caught in E-2's 390px QA sweep by
+ * LOOKING at the screenshot, not by an assertion (the flex row shrank rather than overflowed,
+ * so a scrollWidth check reported "no overflow" while the bar was visibly broken).
+ * Every long label now carries a shortLabel, and the bar scrolls instead of crushing.
+ */
+describe('e2 — the mobile bottom tab bar stays legible at 390px', () => {
+  /** ~4.5rem/72px minimum per tab, at the bar's 0.625rem font. */
+  const MAX_TAB_CHARS = 11
+
+  for (const item of BOTTOM_TABS) {
+    it(`"${item.label}" renders a tab label of <= ${MAX_TAB_CHARS} chars`, () => {
+      const rendered = item.shortLabel ?? item.label
+      expect(
+        rendered.length,
+        `"${rendered}" is too long for a 390px tab — give this nav item a shortLabel`,
+      ).toBeLessThanOrEqual(MAX_TAB_CHARS)
+    })
+  }
+
+  it('every multi-word bottom tab has an explicit shortLabel', () => {
+    for (const item of BOTTOM_TABS) {
+      if (item.label.includes(' ')) {
+        expect(item.shortLabel, `"${item.label}" needs a shortLabel`).toBeTruthy()
+      }
+    }
+  })
+
+  it('the bar scrolls rather than shrinking its tabs below a legible width', () => {
+    const src = read('src/components/shell/BottomTabBar.tsx')
+    expect(src).toMatch(/overflow-x-auto/)
+    expect(src).toMatch(/min-w-\[4\.5rem\]/)
+    expect(src).toMatch(/shrink-0/)
+    expect(src).toMatch(/item\.shortLabel\s*\?\?\s*item\.label/)
   })
 })

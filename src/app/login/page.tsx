@@ -53,7 +53,22 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          {/*
+            method="post" is a CREDENTIAL-LEAK GUARD, not a functional choice — this form is
+            never actually POSTed anywhere. handleSubmit calls preventDefault(), so after
+            hydration the native submit never fires and the method is moot.
+
+            It matters BEFORE hydration. Until React attaches onSubmit, this is plain HTML,
+            and a plain form with no method defaults to GET — so a submit in that window
+            serializes every field into the URL, putting the user's PASSWORD in the query
+            string, browser history, the Referer header, and CDN/access logs. That window is
+            real: a slow connection or cold cache plus an Enter keypress is enough. It was hit
+            for real during E-2 deploy-preview QA, which is how this was found.
+
+            With method="post" the same pre-hydration submit POSTs instead, and the credentials
+            never touch the URL.
+          */}
+          <form method="post" onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
               <label
                 htmlFor="email"
