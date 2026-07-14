@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { NAV_ITEMS, BOTTOM_TABS, navItemsFor } from '../../components/shell/nav-items'
+import {
+  NAV_ITEMS,
+  BOTTOM_TABS,
+  navItemsFor,
+  activeTabScrollLeft,
+} from '../../components/shell/nav-items'
 
 /**
  * Nav visibility guardrails (PR4 — Territories nav split).
@@ -77,6 +82,49 @@ describe('Territories → Deal Territories (label-only rename, PR4)', () => {
       'expected at least one exec-only route to make this guard meaningful',
     ).toBe(true)
     expect(BOTTOM_TABS.every((i) => !i.execOnly)).toBe(true)
+  })
+})
+
+describe('mobile bottom bar scrolls the ACTIVE tab into view (E-2 QA, AC10)', () => {
+  // Why this exists: the bar holds more tabs than fit at 390px, so it scrolls (overflow-x-auto)
+  // rather than crushing labels. But it opened at scrollLeft=0 every time, so on the two newest
+  // destinations the active tab sat OFF-SCREEN and the viewer got no active-state feedback at
+  // all. Measured live on the PR #130 deploy preview at 390px: content 576px in a 390px bar,
+  // 8 tabs, "Scoreboard" and "Community" never visible. These numbers are that real geometry.
+  const BAR = { navScrollWidth: 576, navClientWidth: 390 }
+  const TAB_W = 72 // min-w-[4.5rem]
+  const tabAt = (index: number) => ({ tabOffsetLeft: index * TAB_W, tabWidth: TAB_W })
+  const maxScroll = BAR.navScrollWidth - BAR.navClientWidth // 186
+
+  it('leaves a bar whose tabs already fit alone (no gratuitous scroll)', () => {
+    expect(
+      activeTabScrollLeft({ navScrollWidth: 390, navClientWidth: 390, ...tabAt(0) }),
+    ).toBe(0)
+  })
+
+  it('never scrolls negative for a tab already at the left edge', () => {
+    expect(activeTabScrollLeft({ ...BAR, ...tabAt(0) })).toBe(0)
+  })
+
+  it('centers a middle tab', () => {
+    // tab 3 spans 216..288; centering it puts scrollLeft at 216 + 36 - 195 = 57
+    expect(activeTabScrollLeft({ ...BAR, ...tabAt(3) })).toBe(57)
+  })
+
+  it('clamps to max scroll for the LAST tab — the Community Board case that failed QA', () => {
+    // Community is the 8th tab (index 7). Centering would want 345, which overscrolls;
+    // clamping to 186 still brings it fully into view, which is the whole point.
+    expect(activeTabScrollLeft({ ...BAR, ...tabAt(7) })).toBe(maxScroll)
+  })
+
+  it('brings the previously-offscreen Scoreboard and Community tabs fully into view', () => {
+    for (const index of [6, 7]) {
+      const scrollLeft = activeTabScrollLeft({ ...BAR, ...tabAt(index) })
+      const { tabOffsetLeft, tabWidth } = tabAt(index)
+      // Fully visible == the tab's box sits inside the scrolled viewport of the bar.
+      expect(tabOffsetLeft).toBeGreaterThanOrEqual(scrollLeft)
+      expect(tabOffsetLeft + tabWidth).toBeLessThanOrEqual(scrollLeft + BAR.navClientWidth)
+    }
   })
 })
 
