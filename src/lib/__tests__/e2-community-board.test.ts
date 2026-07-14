@@ -591,6 +591,125 @@ describe('e2 gate-BLOCK #3 fix — bell_ringing is trigger-only for EVERY client
   })
 })
 
+/**
+ * Second-Opinion Gate BLOCK #4 (Sol 5.6, run 29325541530, PR #130) — closed by migration
+ * 20260714210000.
+ *
+ * FINDING (verbatim): "The executive UPDATE policy permits changing any column and constrains
+ * only the resulting `status`, so an executive can PATCH an existing row's `post_type` to
+ * `bell_ringing` and fabricate a published bell without using ring_bell_on_funded_won().
+ * Restricting `bell_ringing` only in INSERT policies does not make it trigger-written only on
+ * every client verb."
+ *
+ * Reproduced live as the real QA-exec seat: publish an innocuous 'win', then PATCH
+ * post_type -> 'bell_ringing'. ACCEPTED — the row became a published bell. The same fabricated
+ * close as BLOCK #3, reached through the OTHER verb.
+ *
+ * THE RECURRING SHAPE, which these tests exist to stop:
+ *   BLOCK #2 — the trigger owned the audit columns on UPDATE but not INSERT.
+ *   BLOCK #3 — the policies restricted bell_ringing on INSERT but not UPDATE.
+ * The same mistake in mirror image: an invariant enforced on the verb we happened to be
+ * thinking about. So the freeze here is UNCONDITIONAL, not predicated on a value.
+ *
+ * rep_id is frozen alongside post_type (Trace's confirmed decision), flagged proactively
+ * rather than waiting for a BLOCK #5: it is the identical defect class — equally
+ * attribution-bearing, equally unguarded on UPDATE — so an executive could otherwise silently
+ * re-attribute any post, including a real bell, to a different rep.
+ *
+ * WHY A TRIGGER AND NOT A POLICY — the crux of this round: a WITH CHECK only ever sees the
+ * RESULTING row and cannot compare it to the prior one. Banning post_type='bell_ringing' in
+ * the result would therefore also deny an executive pinning or rejecting a GENUINE,
+ * trigger-written bell. RLS can say "the row must end up satisfying X"; only a trigger can
+ * say "you may not CHANGE this column", because only a trigger sees OLD and NEW together.
+ */
+describe('e2 gate-BLOCK #4 fix — post_type and rep_id are immutable after creation', () => {
+  const code = sqlCodeOnly(read(migrationPath('_e2_post_type_rep_id_immutable.sql')))
+  const fn =
+    code.match(
+      /create\s+or\s+replace\s+function\s+public\.stamp_community_board_review\(\)[\s\S]*?\$\$;/i,
+    )?.[0] ?? ''
+
+  it('pins post_type to its prior value on UPDATE', () => {
+    expect(fn, 'function definition must be found').toBeTruthy()
+    expect(fn).toMatch(/new\.post_type\s*:=\s*old\.post_type/i)
+  })
+
+  it('pins rep_id to its prior value on UPDATE (the proactively-flagged companion gap)', () => {
+    expect(fn).toMatch(/new\.rep_id\s*:=\s*old\.rep_id/i)
+  })
+
+  it('freezes BOTH columns on EVERY update — not only status-changing ones', () => {
+    // The prior body was a FLAT if/elsif/else, so the status test was a SIBLING of the INSERT
+    // branch. The freeze must sit in the UPDATE arm BEFORE that test, or it would cover only
+    // half the updates (a pin/copy-edit could still re-type or re-attribute the post).
+    const freezeIdx = fn.search(/new\.post_type\s*:=\s*old\.post_type/i)
+    const statusTestIdx = fn.search(/new\.status\s+is\s+distinct\s+from\s+old\.status/i)
+    expect(freezeIdx).toBeGreaterThan(-1)
+    expect(statusTestIdx).toBeGreaterThan(-1)
+    expect(
+      freezeIdx,
+      'the freeze must precede the status test, so it applies to every UPDATE',
+    ).toBeLessThan(statusTestIdx)
+    // ...and it must not be nested under the status test as an `elsif` sibling.
+    expect(fn).not.toMatch(/elsif[\s\S]{0,80}new\.post_type\s*:=\s*old\.post_type/i)
+  })
+
+  it('still checks TG_OP first (OLD is unassigned on INSERT — any OLD ref would error)', () => {
+    const tgOpIdx = fn.search(/tg_op\s*=\s*'INSERT'/i)
+    const firstOldIdx = fn.search(/old\./i)
+    expect(tgOpIdx).toBeGreaterThan(-1)
+    expect(tgOpIdx).toBeLessThan(firstOldIdx)
+  })
+
+  it('leaves the INSERT branch intact (audit cols NULLed, BLOCK #2 fix)', () => {
+    expect(fn).toMatch(/new\.reviewed_by\s*:=\s*null/i)
+    expect(fn).toMatch(/new\.reviewed_at\s*:=\s*null/i)
+  })
+
+  it('leaves both UPDATE audit branches intact (genuine review + pin preservation)', () => {
+    expect(fn).toMatch(/new\.reviewed_by\s*:=\s*\(select\s+auth\.uid\(\)\)/i)
+    expect(fn).toMatch(/new\.reviewed_at\s*:=\s*now\(\)/i)
+    expect(fn).toMatch(/new\.reviewed_by\s*:=\s*old\.reviewed_by/i)
+    expect(fn).toMatch(/new\.reviewed_at\s*:=\s*old\.reviewed_at/i)
+  })
+
+  it('stays SECURITY INVOKER with a pinned search_path', () => {
+    expect(fn).not.toMatch(/security\s+definer/i)
+    expect(fn).toMatch(/set\s+search_path\s*=\s*''/i)
+  })
+
+  it('is a trigger-only fix — touches NO RLS policy', () => {
+    expect(code).not.toMatch(/create\s+policy/i)
+    expect(code).not.toMatch(/drop\s+policy/i)
+    // No WITH CHECK *clause* is introduced — specifically not the naive
+    // `post_type <> 'bell_ringing'` guard, which would also block an executive from pinning
+    // or rejecting a GENUINE bell. Matched on the opening paren: the COMMENT ON FUNCTION
+    // prose deliberately DISCUSSES "WITH CHECK" to explain why it is the wrong mechanism,
+    // and sqlCodeOnly strips `--` comments but not string literals, so a bare /with check/
+    // would fire on the explanation rather than on any real clause.
+    expect(code).not.toMatch(/with\s+check\s*\(/i)
+  })
+
+  it('needs no trigger re-registration (already BEFORE INSERT OR UPDATE from BLOCK #2)', () => {
+    expect(code).not.toMatch(/create\s+trigger/i)
+    expect(code).not.toMatch(/drop\s+trigger/i)
+  })
+
+  it('adds no new grant, column, or index surface (advisors diff unchanged)', () => {
+    expect(code).not.toMatch(/^\s*grant\s+(?!execute)/im)
+    expect(code).not.toMatch(/add\s+column/i)
+    expect(code).not.toMatch(/create\s+index/i)
+  })
+
+  it('does not edit any already-applied migration (supersede-never-delete)', () => {
+    // 20260714190000 (BLOCK #2's fix) must still show its ORIGINAL body — no column freeze.
+    const prior = sqlCodeOnly(read(migrationPath('_e2_stamp_trigger_covers_insert.sql')))
+    expect(prior).toMatch(/new\.reviewed_by\s*:=\s*null/i)
+    expect(prior).not.toMatch(/new\.post_type\s*:=\s*old\.post_type/i)
+    expect(prior).not.toMatch(/new\.rep_id\s*:=\s*old\.rep_id/i)
+  })
+})
+
 describe('e2 — neither client role may author a bell, at the DB or in the UI', () => {
   it('the TS submittable-type lists exclude bell_ringing for both roles (UI affordance)', () => {
     expect(submittablePostTypes('executive')).not.toContain('bell_ringing')
