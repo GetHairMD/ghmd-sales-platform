@@ -336,6 +336,83 @@ describe('e2 migration — the grant layer is set independently of the policies'
   })
 })
 
+/**
+ * Second-Opinion Gate BLOCK (Sol 5.6, run 87048875500, PR #130) — closed by migration
+ * 20260714180000.
+ *
+ * FINDING (verbatim): "The `community_board_select_own` policy checks only
+ * `rep_id = auth.uid()` and does not require current `internal_users` membership or
+ * `designation = 'rep'`. A removed or otherwise non-internal authenticated account can
+ * therefore continue reading its pending/rejected posts, bypassing the internal allow-list
+ * used by the other SELECT policies."
+ *
+ * Why it mattered: deleting a user's internal_users row IS the offboarding control here
+ * (Hard Rule 10, #86/#105). Every other policy on this table goes dark the moment that row
+ * is gone; select_own did not, so a still-valid JWT for a de-listed account kept reading the
+ * unpublished drafts it had authored.
+ *
+ * Proven live against a real offboarding simulation (QA Rep A's internal_users row deleted,
+ * then restored): the offboarded seat read 0 rows and could not INSERT; a CURRENT rep still
+ * reads their own pending post; access returns on re-listing.
+ */
+describe('e2 gate-BLOCK fix — select_own requires LIVE internal_users membership', () => {
+  const code = sqlCodeOnly(read(migrationPath('_e2_select_own_internal_gate.sql')))
+  const policy =
+    code.match(/create\s+policy\s+community_board_select_own[\s\S]*?;/i)?.[0] ?? ''
+
+  it('redefines community_board_select_own (drop + create, superseding the prior definition)', () => {
+    expect(code).toMatch(/drop\s+policy\s+if\s+exists\s+community_board_select_own/i)
+    expect(policy, 'the recreated policy must be present').toBeTruthy()
+  })
+
+  it('still scopes to the caller\'s own rows', () => {
+    expect(policy).toMatch(/rep_id\s*=\s*\(select\s+auth\.uid\(\)\)/i)
+  })
+
+  it('ALSO requires a live internal_users row with designation=rep (the fix)', () => {
+    expect(policy).toMatch(/exists\s*\(\s*select\s+1\s+from\s+public\.internal_users\s+iu/i)
+    expect(policy).toMatch(/iu\.user_id\s*=\s*\(select\s+auth\.uid\(\)\)/i)
+    expect(policy).toMatch(/iu\.designation\s*=\s*'rep'/i)
+  })
+
+  it('the rep_id match alone can no longer satisfy the policy (both conjuncts required)', () => {
+    // An `or` between the two conjuncts would reopen the hole entirely.
+    expect(policy).toMatch(/rep_id\s*=\s*\(select\s+auth\.uid\(\)\)\s*and\s*exists/i)
+    expect(policy).not.toMatch(/rep_id\s*=\s*\(select\s+auth\.uid\(\)\)\s*or\s/i)
+  })
+
+  it('touches ONLY select_own — the other five policies are not redefined', () => {
+    for (const other of [
+      'community_board_select_published',
+      'community_board_select_executive_all',
+      'community_board_insert_executive',
+      'community_board_insert_rep_pending',
+      'community_board_update_executive_review',
+    ]) {
+      expect(code, `${other} must not be touched by this fix`).not.toMatch(
+        new RegExp(`create\\s+policy\\s+${other}`, 'i'),
+      )
+    }
+  })
+
+  it('is a strict tightening — no new grant, function, column, or index surface', () => {
+    expect(code).not.toMatch(/\bgrant\b/i)
+    expect(code).not.toMatch(/create\s+(or\s+replace\s+)?function/i)
+    expect(code).not.toMatch(/add\s+column/i)
+    expect(code).not.toMatch(/create\s+index/i)
+  })
+
+  it('does not edit the already-applied E-2 migration (supersede-never-delete)', () => {
+    // The original file must still contain its ORIGINAL, un-gated select_own definition —
+    // rewriting it would falsify the record of what that migration actually shipped.
+    const original = sqlCodeOnly(read(migrationPath('_e2_community_board_review.sql')))
+    const originalPolicy =
+      original.match(/create\s+policy\s+community_board_select_own[\s\S]*?;/i)?.[0] ?? ''
+    expect(originalPolicy).toMatch(/using\s*\(rep_id\s*=\s*\(select\s+auth\.uid\(\)\)\)/i)
+    expect(originalPolicy).not.toMatch(/internal_users/i)
+  })
+})
+
 describe('e2 migration — status DEFAULT keeps the E-1 bell trigger working untouched', () => {
   const code = sqlCodeOnly(read(migrationPath('_e2_community_board_review.sql')))
 
