@@ -509,6 +509,115 @@ describe('e2 gate-BLOCK #2 fix — the stamp trigger owns the audit columns on I
   })
 })
 
+/**
+ * Second-Opinion Gate BLOCK #3 (Sol 5.6, run 29324328208, PR #130) — closed by migration
+ * 20260714200000.
+ *
+ * FINDING (verbatim): "The executive INSERT policy does not restrict `post_type`, so an
+ * executive can bypass the server action and directly INSERT a published `bell_ringing` row
+ * through PostgREST. This contradicts the claim that `bell_ringing` is trigger-written only
+ * and permits a fabricated close."
+ *
+ * Reproduced live before fixing, through RLS as the real QA-exec seat: an INSERT of
+ * post_type='bell_ringing', status='published', titled "🔔 QA Rep A closed Austin Westlake!"
+ * was ACCEPTED and STORED — a fabricated financial event, live on the celebration feed,
+ * attributed to a rep who closed nothing.
+ *
+ * The lesson this pins: the UI was never the boundary. EXEC_SUBMITTABLE_POST_TYPES (below)
+ * has always excluded bell_ringing, and the submit form never offered it — but a client can
+ * skip the form and POST straight to PostgREST. An invariant asserted in a TS constant is a
+ * UX affordance; only RLS enforces it. This PR *claimed* "bell_ringing is trigger-written
+ * only" in its own table comment while the database permitted exactly that forgery.
+ *
+ * Design decision (Trace, confirmed): no manual bell-authorship path exists or is planned —
+ * a bell asserts a real funded close, and only the close may assert it. So bell_ringing is
+ * now unreachable from BOTH client-facing INSERT policies.
+ */
+describe('e2 gate-BLOCK #3 fix — bell_ringing is trigger-only for EVERY client role', () => {
+  const code = sqlCodeOnly(read(migrationPath('_e2_bell_ringing_trigger_only_every_role.sql')))
+  const execPolicy =
+    code.match(/create\s+policy\s+community_board_insert_executive[\s\S]*?;/i)?.[0] ?? ''
+
+  it('redefines the executive INSERT policy (drop + create)', () => {
+    expect(code).toMatch(/drop\s+policy\s+if\s+exists\s+community_board_insert_executive/i)
+    expect(execPolicy, 'the recreated exec INSERT policy must be present').toBeTruthy()
+  })
+
+  it('excludes bell_ringing from the executive INSERT policy (the fix)', () => {
+    expect(execPolicy).toMatch(/post_type\s*<>\s*'bell_ringing'/i)
+  })
+
+  it('still pins the executive to status=published and designation=executive', () => {
+    expect(execPolicy).toMatch(/status\s*=\s*'published'/i)
+    expect(execPolicy).toMatch(/designation\s*=\s*'executive'/i)
+  })
+
+  it('touches ONLY the executive INSERT policy — no other policy, and not the trigger', () => {
+    for (const other of [
+      'community_board_insert_rep_pending',
+      'community_board_select_own',
+      'community_board_select_published',
+      'community_board_select_executive_all',
+      'community_board_update_executive_review',
+    ]) {
+      expect(code, `${other} must not be touched`).not.toMatch(
+        new RegExp(`create\\s+policy\\s+${other}`, 'i'),
+      )
+    }
+    // BLOCK #2's trigger fix is correct and unrelated — do not redefine it here.
+    expect(code).not.toMatch(/create\s+or\s+replace\s+function\s+public\.stamp_community_board_review/i)
+    expect(code).not.toMatch(/create\s+trigger/i)
+  })
+
+  it('does NOT touch the bell trigger itself (its SECURITY DEFINER path is the only producer)', () => {
+    expect(code).not.toMatch(/create\s+or\s+replace\s+function\s+public\.ring_bell_on_funded_won/i)
+    expect(code).not.toMatch(/drop\s+trigger[\s\S]{0,60}ring_bell/i)
+  })
+
+  it('adds no new grant, function, column, or index surface (advisors diff unchanged)', () => {
+    expect(code).not.toMatch(/\bgrant\b/i)
+    expect(code).not.toMatch(/create\s+(or\s+replace\s+)?function/i)
+    expect(code).not.toMatch(/add\s+column/i)
+    expect(code).not.toMatch(/create\s+index/i)
+  })
+
+  it('does not edit any already-applied migration (supersede-never-delete)', () => {
+    // 20260714170100 must still show its ORIGINAL, post_type-unrestricted exec INSERT policy.
+    const prior = sqlCodeOnly(read(migrationPath('_e2_community_board_review.sql')))
+    const priorExec =
+      prior.match(/create\s+policy\s+community_board_insert_executive[\s\S]*?;/i)?.[0] ?? ''
+    expect(priorExec).toBeTruthy()
+    expect(priorExec).not.toMatch(/bell_ringing/i)
+  })
+})
+
+describe('e2 — neither client role may author a bell, at the DB or in the UI', () => {
+  it('the TS submittable-type lists exclude bell_ringing for both roles (UI affordance)', () => {
+    expect(submittablePostTypes('executive')).not.toContain('bell_ringing')
+    expect(submittablePostTypes('rep')).not.toContain('bell_ringing')
+  })
+
+  it('...and BOTH INSERT policies exclude it at the DB (the actual boundary)', () => {
+    // The rep policy enumerates only the four self-serve types (original E-2 migration);
+    // the exec policy excludes bell_ringing explicitly (BLOCK #3 fix). The TS lists above
+    // are a convenience — these two are what a PostgREST client actually hits.
+    const repPolicy =
+      sqlCodeOnly(read(migrationPath('_e2_community_board_review.sql'))).match(
+        /create\s+policy\s+community_board_insert_rep_pending[\s\S]*?;/i,
+      )?.[0] ?? ''
+    expect(repPolicy).toMatch(
+      /post_type\s+in\s*\(\s*'win'\s*,\s*'materials'\s*,\s*'training'\s*,\s*'competitive'\s*\)/i,
+    )
+    expect(repPolicy).not.toMatch(/'bell_ringing'/i)
+
+    const execPolicy =
+      sqlCodeOnly(read(migrationPath('_e2_bell_ringing_trigger_only_every_role.sql'))).match(
+        /create\s+policy\s+community_board_insert_executive[\s\S]*?;/i,
+      )?.[0] ?? ''
+    expect(execPolicy).toMatch(/post_type\s*<>\s*'bell_ringing'/i)
+  })
+})
+
 describe('e2 migration — status DEFAULT keeps the E-1 bell trigger working untouched', () => {
   const code = sqlCodeOnly(read(migrationPath('_e2_community_board_review.sql')))
 
