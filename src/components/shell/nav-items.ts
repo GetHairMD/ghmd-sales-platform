@@ -81,3 +81,40 @@ export const BOTTOM_TABS: NavItem[] = NAV_ITEMS.filter(
 export function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
+
+/** Geometry of the mobile bar and the active tab inside it, in CSS pixels. */
+export interface ActiveTabGeometry {
+  navScrollWidth: number
+  navClientWidth: number
+  tabOffsetLeft: number
+  tabWidth: number
+}
+
+/**
+ * The `scrollLeft` the mobile bottom bar should open at so the ACTIVE tab is visible.
+ *
+ * BOTTOM_TABS outgrew the viewport (8 tabs ≈ 576px of content in a 390px bar), so the bar
+ * scrolls instead of crushing labels. It used to open at scrollLeft = 0 unconditionally,
+ * which left the active tab off-screen on the two newest destinations — a viewer on
+ * /community-board or /scoreboard saw no active tab at all. Found in deploy-preview QA of
+ * PR #130; a document-level scrollWidth check does NOT catch it, because the overflow is
+ * contained inside this nav by design.
+ *
+ * Centers the tab, then clamps into [0, maxScroll] — clamping is what handles the two ends:
+ * the first tab never scrolls negative, and the last tab (Community Board — the case that
+ * actually failed) stops at maxScroll, which still brings it fully into view.
+ *
+ * Pure on purpose: it takes measured geometry rather than a DOM node, so the behaviour is
+ * unit-testable without a layout engine (jsdom reports 0 for every box metric).
+ */
+export function activeTabScrollLeft({
+  navScrollWidth,
+  navClientWidth,
+  tabOffsetLeft,
+  tabWidth,
+}: ActiveTabGeometry): number {
+  const maxScroll = navScrollWidth - navClientWidth
+  if (maxScroll <= 0) return 0 // everything already fits — don't scroll a bar that needn't
+  const centered = tabOffsetLeft + tabWidth / 2 - navClientWidth / 2
+  return Math.round(Math.min(Math.max(centered, 0), maxScroll))
+}
