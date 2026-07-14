@@ -16,12 +16,32 @@
  *      (`ghmdsalesplatform.netlify.app`), the branch deploy of main
  *      (`main--ghmdsalesplatform.netlify.app`), arbitrary branch deploys, the NIP site
  *      (`ghmdnetwork.netlify.app`), and every lookalike/decoy host are REFUSED.
- *   2. The QA-exec credentials are read ONLY from the `QA_EXEC_EMAIL` / `QA_EXEC_PASSWORD`
- *      environment variables — never hardcoded, never logged. Trace holds the password
- *      locally; it is never pasted into an agent session.
- *   3. Credentials are unreachable except via `preparePreviewLogin()`, which runs the
- *      hostname assertion FIRST. There is no sanctioned path to the password that skips
- *      the guard.
+ *   2. Every seat's credentials are read ONLY from environment variables (`QA_EXEC_*`,
+ *      `QA_REP_A_*`, `QA_REP_B_*`) — never hardcoded, never logged. Trace holds the passwords
+ *      locally; none is ever pasted into an agent session.
+ *   3. Credentials are unreachable except via `preparePreviewLoginAs()` / `preparePreviewLogin()`,
+ *      which run the hostname assertion FIRST. There is NO path out of this module that skips
+ *      the guard — the credential accessors themselves are module-private (see below).
+ *
+ * WHAT IT DOES **NOT** DO — read this before trusting the word "preview-only" anywhere
+ * (Second-Opinion Gate BLOCK #7, PR #130):
+ *   The guard confines THIS SCRIPT. It does not confine the CREDENTIALS. Every QA seat —
+ *   exec, rep-a, rep-b — is a REAL, allow-listed production principal, because a single
+ *   Supabase project (cprltmwwldbxcsunsafl) sits behind BOTH production and every deploy
+ *   preview. Anyone holding the raw env vars can therefore sign in against production and
+ *   read/write real data through PostgREST without ever importing this file.
+ *
+ *   Until BLOCK #7 this module was worse than that: `getQaExecCredentials` was EXPORTED
+ *   (since PR #121), so even an in-repo importer could obtain the password without the guard
+ *   ever running — which made invariant 3 above false as written. E-2 widened that from one
+ *   credential to three. Both accessors are now module-private, so invariant 3 is finally
+ *   true of this file.
+ *
+ *   The remaining exposure is a property of the CREDENTIAL ARCHITECTURE, not of this script:
+ *   real prod principals, no prod/preview DB isolation (CLAUDE.md "QA / Deploy-Preview
+ *   Capability Stack", decisions #146 / #161). Closing it for real needs either a separate
+ *   Supabase project for previews, or a QA designation with no production data rights.
+ *   Do not describe these seats as "preview-only" without that caveat.
  *
  * The pattern below was confirmed against the live Netlify project (site slug
  * `ghmdsalesplatform`, primary URL `ghmdsalesplatform.netlify.app`, deploy-preview form
@@ -80,6 +100,27 @@ export interface PreviewLogin extends QaExecCredentials {
 }
 
 /**
+ * The QA seats. Extended in E-2 (decision #161) from exec-only to include the two REP
+ * fixtures, so rep-siloed RLS can be walked with real rep sessions instead of only
+ * adversarial JWT simulation.
+ *
+ * EVERY seat is a REAL production principal — the reps no more preview-confined than the
+ * exec was (one Supabase project sits behind prod AND every preview). So all three route
+ * through the SAME hostname guard, and the guard-first sequencing below is what keeps
+ * them off production. Adding a seat here without routing it through `assertPreviewHost`
+ * would silently reintroduce the exact hole this file exists to close.
+ */
+export type QaSeat = 'exec' | 'rep-a' | 'rep-b'
+
+const SEAT_ENV_VARS: Record<QaSeat, { email: string; password: string }> = {
+  exec: { email: 'QA_EXEC_EMAIL', password: 'QA_EXEC_PASSWORD' },
+  'rep-a': { email: 'QA_REP_A_EMAIL', password: 'QA_REP_A_PASSWORD' },
+  'rep-b': { email: 'QA_REP_B_EMAIL', password: 'QA_REP_B_PASSWORD' },
+}
+
+export const QA_SEATS = Object.keys(SEAT_ENV_VARS) as QaSeat[]
+
+/**
  * Assert that `targetUrl` points at a sanctioned deploy-preview host and return the
  * validated hostname. Throws (refuses) for anything else — production, branch deploys,
  * the NIP site, non-https schemes, URLs carrying userinfo, or unparseable input.
@@ -130,17 +171,38 @@ export function assertPreviewHost(targetUrl: string): string {
 }
 
 /**
- * Read the QA-exec credentials from the environment. Throws if either var is missing.
+ * Read one seat's credentials from the environment. Throws if either var is missing.
  * Never logs or echoes the values.
+ *
+ * NOT EXPORTED — deliberately, and this is load-bearing (Second-Opinion Gate BLOCK #7,
+ * PR #130). While it WAS exported, the module offered a credential accessor that reached the
+ * password WITHOUT running `assertPreviewHost` first, which made the header's claim — "there
+ * is no sanctioned path to the password that skips the guard" — untrue: any importer could
+ * call it directly and point the result at production. Module-private, the ONLY way out of
+ * this file is `preparePreviewLoginAs()` / `preparePreviewLogin()`, both of which run the
+ * hostname assertion BEFORE they read anything.
+ *
+ * This narrows the module's misuse surface; it does NOT make the seats preview-only. They
+ * remain real production principals — one Supabase project sits behind prod and every
+ * preview — so anyone HOLDING the raw env vars can still reach production directly. That
+ * residual risk is a property of the credential architecture (CLAUDE.md "QA / Deploy-Preview
+ * Capability Stack", decisions #146 / #161), not of this file, and is flagged as such.
  */
-export function getQaExecCredentials(
+function getQaSeatCredentials(
+  seat: QaSeat,
   env: NodeJS.ProcessEnv = process.env,
 ): QaExecCredentials {
-  const email = env.QA_EXEC_EMAIL
-  const password = env.QA_EXEC_PASSWORD
+  const vars = SEAT_ENV_VARS[seat]
+  if (!vars) {
+    throw new Error(
+      `[preview-login] Unknown QA seat "${seat}". Known seats: ${QA_SEATS.join(', ')}.`,
+    )
+  }
+  const email = env[vars.email]
+  const password = env[vars.password]
   const missing: string[] = []
-  if (!email) missing.push('QA_EXEC_EMAIL')
-  if (!password) missing.push('QA_EXEC_PASSWORD')
+  if (!email) missing.push(vars.email)
+  if (!password) missing.push(vars.password)
   if (missing.length > 0) {
     throw new Error(
       `[preview-login] Missing required env var(s): ${missing.join(', ')}. ` +
@@ -151,18 +213,44 @@ export function getQaExecCredentials(
 }
 
 /**
- * The single sanctioned entry point for QA-exec sign-in. Runs the hostname guard FIRST,
- * then returns the credentials bundled with the validated host. Because credential
- * retrieval is sequenced after `assertPreviewHost`, there is no way to obtain the
- * password for an off-preview target.
+ * The QA-exec credentials — a thin alias for the 'exec' seat.
+ *
+ * ALSO NOT EXPORTED (BLOCK #7). It was exported before E-2 (shipped in PR #121), so the
+ * unguarded-accessor hole predates the rep seats — E-2 merely widened it from one credential
+ * to three. Both accessors are module-private now; `preparePreviewLogin()` is the guarded
+ * public entry point and its signature is unchanged for every existing caller.
+ */
+function getQaExecCredentials(env: NodeJS.ProcessEnv = process.env): QaExecCredentials {
+  return getQaSeatCredentials('exec', env)
+}
+
+/**
+ * The single sanctioned entry point for QA sign-in AS A GIVEN SEAT. Runs the hostname
+ * guard FIRST, then returns that seat's credentials bundled with the validated host.
+ * Because credential retrieval is sequenced after `assertPreviewHost`, there is no way to
+ * obtain ANY seat's password for an off-preview target — the rep seats inherit exactly the
+ * protection the exec seat already had.
+ */
+export function preparePreviewLoginAs(
+  seat: QaSeat,
+  targetUrl: string,
+  env: NodeJS.ProcessEnv = process.env,
+): PreviewLogin {
+  const host = assertPreviewHost(targetUrl)
+  const { email, password } = getQaSeatCredentials(seat, env)
+  return { host, email, password }
+}
+
+/**
+ * QA-exec sign-in. Unchanged signature and behaviour (the exec seat is the default), so
+ * every existing caller and test keeps its contract; new rep-seat callers use
+ * `preparePreviewLoginAs`.
  */
 export function preparePreviewLogin(
   targetUrl: string,
   env: NodeJS.ProcessEnv = process.env,
 ): PreviewLogin {
-  const host = assertPreviewHost(targetUrl)
-  const { email, password } = getQaExecCredentials(env)
-  return { host, email, password }
+  return preparePreviewLoginAs('exec', targetUrl, env)
 }
 
 // ── CLI preflight ────────────────────────────────────────────────────────────
@@ -182,8 +270,14 @@ if (invokedDirectly) {
   try {
     const host = assertPreviewHost(targetUrl)
     console.log(`OK: ${host} is a valid ghmd-sales-platform deploy-preview target.`)
-    console.log(`QA_EXEC_EMAIL set:    ${!!process.env.QA_EXEC_EMAIL}`)
-    console.log(`QA_EXEC_PASSWORD set: ${!!process.env.QA_EXEC_PASSWORD}`)
+    // PRESENCE only, as booleans — never the values (Hard Rule 6).
+    for (const seat of QA_SEATS) {
+      const vars = SEAT_ENV_VARS[seat]
+      console.log(
+        `seat ${seat.padEnd(5)} → ${vars.email} set: ${!!process.env[vars.email]}, ` +
+          `${vars.password} set: ${!!process.env[vars.password]}`,
+      )
+    }
     process.exit(0)
   } catch (err) {
     console.error((err as Error).message)

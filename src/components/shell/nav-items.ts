@@ -14,7 +14,7 @@
  * `navItemsFor()` before rendering, never the raw array.
  */
 import type { LucideIcon } from 'lucide-react'
-import { LayoutDashboard, GitBranch, Users, FileText, Map, Globe, Compass, Trophy, Sparkles } from 'lucide-react'
+import { LayoutDashboard, GitBranch, Users, FileText, Map, Globe, Compass, Trophy, MessageSquare, Sparkles } from 'lucide-react'
 import type { Designation } from '@/lib/auth/internal-role'
 
 export interface NavItem {
@@ -26,6 +26,14 @@ export interface NavItem {
   comingSoon?: boolean
   /** Visible to executive viewers only; hidden for reps + unauthenticated (fail closed). */
   execOnly?: boolean
+  /**
+   * Shorter label for the mobile bottom tab bar ONLY (the sidebar always uses `label`).
+   * Multi-word labels — "Community Board", "Deal Territories", "National Map" — collapse
+   * into an illegible run at 390px once the bar carries this many tabs. Set this for any
+   * label that is not a single short word. Caught in E-2 390px QA, where adding an 8th tab
+   * crushed the bar.
+   */
+  shortLabel?: string
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -33,13 +41,18 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Pipeline', icon: GitBranch, href: '/pipeline' },
   { label: 'Prospects', icon: Users, href: '/prospects' },
   { label: 'Proposals', icon: FileText, href: '/proposals' },
-  { label: 'Deal Territories', icon: Map, href: '/territories' },
+  { label: 'Deal Territories', icon: Map, href: '/territories', shortLabel: 'Territories' },
   // National status map (decision #121/#122/#132): standalone, visible to ALL reps
   // and executives (no execOnly). Distinct route from Deal Territories.
-  { label: 'National Map', icon: Globe, href: '/national-map' },
+  { label: 'National Map', icon: Globe, href: '/national-map', shortLabel: 'Map' },
   // Scoreboard (E-1): the rep leaderboard is a shared culture surface — visible to
   // ALL internal users (no execOnly), same as the RPC's all-internal audience.
   { label: 'Scoreboard', icon: Trophy, href: '/scoreboard' },
+  // Community Board (E-2): deliberately NOT execOnly. The FEED is a shared surface (every
+  // internal user reads every published post, and any internal user may author) — it is
+  // only the Pending Review queue INSIDE the page that is executive-gated. Marking the nav
+  // item execOnly would hide the board from the reps who post to it.
+  { label: 'Community Board', icon: MessageSquare, href: '/community-board', shortLabel: 'Community' },
   { label: 'Territory Scouting', icon: Compass, href: '/territory-scouting', execOnly: true },
   { label: 'Insights', icon: Sparkles, comingSoon: true },
 ]
