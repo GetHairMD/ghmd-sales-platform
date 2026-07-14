@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { viewerIsExecutive } from '@/lib/auth/internal-role'
 import { parseApiCoordinate } from '@/lib/geocode'
+import { geoToFips } from '@/lib/census'
+import { abbrForStateFips } from '@/lib/state-fips'
 
 // Reads cookies (auth gate) + writes a row — never static.
 export const runtime = 'nodejs'
@@ -51,10 +53,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'center_lng must be a number between -180 and 180' }, { status: 400 })
   }
 
+  // Forward-going state population: a real Census geography lookup (NOT the demo
+  // name-parse backfill). geoToFips reuses the existing Census geocoder path — no new
+  // Mapbox dependency. Best-effort: a geocoder hiccup leaves state NULL (nullable,
+  // rendered gracefully downstream) rather than blocking territory creation.
+  let state: string | null = null
+  try {
+    const { stateFips } = await geoToFips(lat, lng)
+    state = abbrForStateFips(stateFips) ?? null
+  } catch (geoErr) {
+    console.error('[api/territories] state lookup failed; leaving NULL', geoErr)
+  }
+
   const service = createServiceClient()
   const { data, error } = await service
     .from('territories')
-    .insert({ name, center_lat: lat, center_lng: lng, status: 'draft' })
+    .insert({ name, center_lat: lat, center_lng: lng, status: 'draft', state })
     .select('id')
     .single()
 
