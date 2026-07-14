@@ -710,6 +710,202 @@ describe('e2 gate-BLOCK #4 fix — post_type and rep_id are immutable after crea
   })
 })
 
+/**
+ * Second-Opinion Gate BLOCK #5 (Sol 5.6, run 29326808223, PR #130) — closed by migration
+ * 20260714220000.
+ *
+ * FINDING (verbatim): "The executive UPDATE policy still permits changing a genuine bell's
+ * title, body, territory_id, created_at, and other event-defining fields; the trigger restores
+ * only post_type, rep_id, reviewed_by, and reviewed_at. An executive can therefore repurpose
+ * one real bell into a published claim for a different or fabricated funded close without
+ * invoking the close trigger."
+ *
+ * Reproduced live: a GENUINE trigger-written bell ("🔔 QA Rep A closed a deal!") was rewritten
+ * by the QA-exec seat into "🔔 QA Rep A closed Beverly Hills — $1.2M!", body fabricated,
+ * territory_id re-pointed at a different territory, created_at back-dated to 2020 — while
+ * post_type stayed 'bell_ringing', so the row still PRESENTED as trigger-originated.
+ *
+ * ── WHY THIS KEPT HAPPENING (the real root cause, worth reading before editing this file) ──
+ *   BLOCK #2 — audit columns guarded on UPDATE but not INSERT.
+ *   BLOCK #3 — bell_ringing restricted on INSERT but not UPDATE.
+ *   BLOCK #4 — post_type + rep_id frozen: the columns that had just been named.
+ *   BLOCK #5 — title/body/territory_id/created_at: the columns that had NOT been named.
+ * Each round closed exactly the door the reviewer had just walked through. The mistake was
+ * never a missing column — it was ENUMERATING columns at all. An allow-list of frozen columns
+ * means every column added to this table in future silently inherits the HOLE.
+ *
+ * So the fix is DENY-BY-DEFAULT BY CONSTRUCTION: on a bell row the trigger does `new := old`
+ * (resetting the entire row) and then re-applies ONLY status and pinned. It never lists what
+ * to freeze. A column added tomorrow is frozen on bells automatically — the failure mode of
+ * forgetting flips from "silently exposed" to "silently protected".
+ *
+ * If you add a column to community_board_posts, add it to COLUMN_CLASSIFICATION below and
+ * decide deliberately which bucket it is in. The test will fail until you do.
+ */
+describe('e2 gate-BLOCK #5 fix — a bell\'s content is trigger-authored, deny-by-default', () => {
+  const code = sqlCodeOnly(read(migrationPath('_e2_bell_content_immutable_deny_by_default.sql')))
+  const fn =
+    code.match(
+      /create\s+or\s+replace\s+function\s+public\.stamp_community_board_review\(\)[\s\S]*?\$\$;/i,
+    )?.[0] ?? ''
+
+  it('resets the WHOLE row on a bell update (new := old) rather than listing frozen columns', () => {
+    expect(fn, 'function definition must be found').toBeTruthy()
+    expect(fn).toMatch(/if\s+old\.post_type\s*=\s*'bell_ringing'\s+then/i)
+    expect(fn, 'the deny-by-default reset is the entire point of this fix').toMatch(
+      /new\s*:=\s*old\s*;/i,
+    )
+  })
+
+  it('re-applies ONLY status and pinned on a bell — the confirmed moderation surface', () => {
+    const bellBranch =
+      fn.match(/if\s+old\.post_type\s*=\s*'bell_ringing'\s+then[\s\S]*?end\s+if\s*;/i)?.[0] ?? ''
+    expect(bellBranch).toBeTruthy()
+    expect(bellBranch).toMatch(/new\.status\s*:=\s*keep_status/i)
+    expect(bellBranch).toMatch(/new\.pinned\s*:=\s*keep_pinned/i)
+    // No other column may be re-applied after the reset — that would reopen the hole.
+    for (const col of ['title', 'body', 'territory_id', 'created_at', 'post_type', 'rep_id']) {
+      expect(
+        bellBranch,
+        `${col} must NOT be re-applied after new := old — only status and pinned may be`,
+      ).not.toMatch(new RegExp(`new\\.${col}\\s*:=\\s*keep_`, 'i'))
+    }
+  })
+
+  it('captures status as TEXT, not boolean (the brief\'s sketch had this wrong)', () => {
+    // status is text NOT NULL default 'published'; only `pinned` is boolean. Declaring
+    // keep_status boolean would not compile.
+    expect(fn).toMatch(/keep_status\s+text\s*;/i)
+    expect(fn).toMatch(/keep_pinned\s+boolean\s*;/i)
+    expect(fn).not.toMatch(/keep_status\s+boolean/i)
+  })
+
+  it('freezes id / created_at / post_type / rep_id on EVERY row, not just bells', () => {
+    expect(fn).toMatch(/new\.id\s*:=\s*old\.id/i)
+    expect(fn).toMatch(/new\.created_at\s*:=\s*old\.created_at/i)
+    expect(fn).toMatch(/new\.post_type\s*:=\s*old\.post_type/i)
+    expect(fn).toMatch(/new\.rep_id\s*:=\s*old\.rep_id/i)
+  })
+
+  it('forces created_at = now() on INSERT — no post is created backdated', () => {
+    const insertBranch =
+      fn.match(/if\s+tg_op\s*=\s*'INSERT'\s+then[\s\S]*?else/i)?.[0] ?? ''
+    expect(insertBranch).toMatch(/new\.created_at\s*:=\s*now\(\)/i)
+  })
+
+  it('stamps the audit columns AFTER the bell reset, so new := old cannot resurrect a stale value', () => {
+    const resetIdx = fn.search(/new\s*:=\s*old\s*;/i)
+    const auditIdx = fn.search(/new\.status\s+is\s+distinct\s+from\s+old\.status/i)
+    expect(resetIdx).toBeGreaterThan(-1)
+    expect(auditIdx).toBeGreaterThan(-1)
+    expect(auditIdx, 'the audit block must run after the reset').toBeGreaterThan(resetIdx)
+  })
+
+  it('still checks TG_OP first (OLD is unassigned on INSERT)', () => {
+    const tgOpIdx = fn.search(/tg_op\s*=\s*'INSERT'/i)
+    const firstOldIdx = fn.search(/old\./i)
+    expect(tgOpIdx).toBeGreaterThan(-1)
+    expect(tgOpIdx).toBeLessThan(firstOldIdx)
+  })
+
+  it('is a trigger-only fix — no RLS policy, no trigger re-registration, no new surface', () => {
+    expect(code).not.toMatch(/create\s+policy/i)
+    expect(code).not.toMatch(/drop\s+policy/i)
+    expect(code).not.toMatch(/create\s+trigger/i)
+    expect(code).not.toMatch(/^\s*grant\s+(?!execute)/im)
+    expect(code).not.toMatch(/add\s+column/i)
+    expect(code).not.toMatch(/create\s+index/i)
+  })
+
+  it('stays SECURITY INVOKER with a pinned search_path', () => {
+    expect(fn).not.toMatch(/security\s+definer/i)
+    expect(fn).toMatch(/set\s+search_path\s*=\s*''/i)
+  })
+
+  it('does not edit any already-applied migration (supersede-never-delete)', () => {
+    // 20260714210000 (BLOCK #4's fix) must still show its ORIGINAL body — no bell reset.
+    const prior = sqlCodeOnly(read(migrationPath('_e2_post_type_rep_id_immutable.sql')))
+    expect(prior).toMatch(/new\.post_type\s*:=\s*old\.post_type/i)
+    expect(prior).not.toMatch(/new\s*:=\s*old\s*;/i)
+  })
+})
+
+/**
+ * Every column on community_board_posts, classified. AC3 of the BLOCK #5 brief: completeness
+ * is DEMONSTRATED, not assumed — the whole failure mode of the last four rounds was a column
+ * nobody had thought about.
+ *
+ * ADDING A COLUMN? Add it here and pick its bucket deliberately. The count assertion below
+ * fails until you do. (At the DB the bell freeze already protects it automatically — this
+ * test exists so the *decision* is still conscious.)
+ */
+const COLUMN_CLASSIFICATION = {
+  // Frozen on EVERY row, of every post_type, through any verb.
+  alwaysFrozen: ['id', 'created_at', 'post_type', 'rep_id'],
+  // Owned by the trigger on every row: NULL on insert, auth.uid()/now() on a genuine status
+  // transition, preserved otherwise. Never client-set.
+  triggerOwned: ['reviewed_by', 'reviewed_at'],
+  // Frozen on BELL rows (they define what the bell asserts); client-mutable on non-bell rows,
+  // where an executive may legitimately copy-edit the post.
+  frozenOnBellsOnly: ['title', 'body', 'territory_id'],
+  // The moderation surface — client-mutable on bells AND non-bells (via the executive review
+  // UPDATE policy only; no rep UPDATE policy exists).
+  clientMutable: ['status', 'pinned'],
+} as const
+
+describe('e2 — every column on community_board_posts is deliberately classified', () => {
+  const ALL_COLUMNS = [
+    'id',
+    'post_type',
+    'rep_id',
+    'territory_id',
+    'title',
+    'body',
+    'pinned',
+    'created_at',
+    'status',
+    'reviewed_by',
+    'reviewed_at',
+  ]
+
+  const classified = [
+    ...COLUMN_CLASSIFICATION.alwaysFrozen,
+    ...COLUMN_CLASSIFICATION.triggerOwned,
+    ...COLUMN_CLASSIFICATION.frozenOnBellsOnly,
+    ...COLUMN_CLASSIFICATION.clientMutable,
+  ]
+
+  it('classifies all 11 columns — none unaccounted for', () => {
+    expect(classified.length).toBe(ALL_COLUMNS.length)
+    expect([...classified].sort()).toEqual([...ALL_COLUMNS].sort())
+  })
+
+  it('assigns each column to exactly one bucket (no double-classification)', () => {
+    expect(new Set(classified).size).toBe(classified.length)
+  })
+
+  it('matches the migration source: the always-frozen columns are pinned to old.*', () => {
+    const code = sqlCodeOnly(read(migrationPath('_e2_bell_content_immutable_deny_by_default.sql')))
+    for (const col of COLUMN_CLASSIFICATION.alwaysFrozen) {
+      expect(code, `${col} is classified alwaysFrozen but is not pinned in the trigger`).toMatch(
+        new RegExp(`new\\.${col}\\s*:=\\s*old\\.${col}`, 'i'),
+      )
+    }
+  })
+
+  it('the bells-only-frozen columns are NOT pinned table-wide (non-bells stay editable)', () => {
+    const code = sqlCodeOnly(read(migrationPath('_e2_bell_content_immutable_deny_by_default.sql')))
+    for (const col of COLUMN_CLASSIFICATION.frozenOnBellsOnly) {
+      // They are covered by `new := old` on bells only — never by an explicit table-wide pin,
+      // which would break an executive copy-editing an announcement.
+      expect(
+        code,
+        `${col} must NOT be pinned table-wide — that would block legitimate copy-edits`,
+      ).not.toMatch(new RegExp(`new\\.${col}\\s*:=\\s*old\\.${col}`, 'i'))
+    }
+  })
+})
+
 describe('e2 — neither client role may author a bell, at the DB or in the UI', () => {
   it('the TS submittable-type lists exclude bell_ringing for both roles (UI affordance)', () => {
     expect(submittablePostTypes('executive')).not.toContain('bell_ringing')
