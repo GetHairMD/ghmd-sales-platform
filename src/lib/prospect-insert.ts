@@ -21,6 +21,7 @@ export const PROSPECT_INSERT_COLUMNS = [
   'lead_source',
   'lead_source_sub',
   'assigned_rep',
+  'assigned_rep_id',
   'strong_connection',
   'referrer_id',
   'icp_score',
@@ -35,6 +36,14 @@ export interface NewProspectInput {
   /** Maps to the `lead_source` column (the UI field is labelled "Source Channel"). */
   lead_source?: string | null
   assigned_rep?: string
+  /**
+   * The explicitly-selected rep's user_id (E-0a rep attribution). Real FK to auth.users.
+   * MUST be the assigned rep, never the creating exec's own uid — the new-prospect UI
+   * requires an explicit "Assign to" selection. Pure passthrough here: null only for a
+   * non-UI caller (e.g. a future webhook import) that legitimately has no rep to name.
+   * Never fabricated / never inferred from the caller's identity.
+   */
+  assigned_rep_id?: string | null
 }
 
 export interface ProspectInsert {
@@ -43,6 +52,7 @@ export interface ProspectInsert {
   phone: string | null
   lead_source: string | null
   assigned_rep: string
+  assigned_rep_id: string | null
   stage: number
 }
 
@@ -58,6 +68,7 @@ export function buildProspectInsert(input: NewProspectInput): ProspectInsert {
     phone: input.phone || null,
     lead_source: input.lead_source || null,
     assigned_rep: input.assigned_rep || 'trace',
+    assigned_rep_id: input.assigned_rep_id ?? null,
     stage: STAGE.NEW_LEAD,
   }
 
