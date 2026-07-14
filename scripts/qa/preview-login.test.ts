@@ -8,9 +8,12 @@
 import { describe, it, expect } from 'vitest'
 import {
   PREVIEW_HOST_PATTERN,
+  QA_SEATS,
   assertPreviewHost,
   getQaExecCredentials,
+  getQaSeatCredentials,
   preparePreviewLogin,
+  preparePreviewLoginAs,
 } from './preview-login'
 
 const VALID = 'https://deploy-preview-123--ghmdsalesplatform.netlify.app'
@@ -104,5 +107,75 @@ describe('preparePreviewLogin — guard is sequenced before credential access', 
     expect(() =>
       preparePreviewLogin('https://ghmdsalesplatform.netlify.app', {}),
     ).toThrow(/deploy-preview host/)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E-2 (decision #161): the two REP seats. They are REAL production principals with no
+// prod/preview DB isolation, exactly like the exec — so the guard must cover them
+// identically. A rep seat that could reach production would be a regression of the whole
+// point of this file.
+// ─────────────────────────────────────────────────────────────────────────────
+const ALL_SEATS_ENV = {
+  QA_EXEC_EMAIL: 'qa-exec@example.test',
+  QA_EXEC_PASSWORD: 'pw-exec',
+  QA_REP_A_EMAIL: 'qa-rep-a@example.test',
+  QA_REP_A_PASSWORD: 'pw-a',
+  QA_REP_B_EMAIL: 'qa-rep-b@example.test',
+  QA_REP_B_PASSWORD: 'pw-b',
+}
+
+describe('QA seats — rep fixtures inherit the exec seat\'s guard', () => {
+  it('exposes exactly the three known seats', () => {
+    expect(QA_SEATS).toEqual(['exec', 'rep-a', 'rep-b'])
+  })
+
+  it('resolves each seat to its OWN credentials (no cross-wiring)', () => {
+    expect(getQaSeatCredentials('exec', ALL_SEATS_ENV).email).toBe('qa-exec@example.test')
+    expect(getQaSeatCredentials('rep-a', ALL_SEATS_ENV).email).toBe('qa-rep-a@example.test')
+    expect(getQaSeatCredentials('rep-b', ALL_SEATS_ENV).email).toBe('qa-rep-b@example.test')
+    // Rep A and Rep B must be genuinely distinct principals — AC5 (one rep cannot read the
+    // other's pending post) is meaningless if both sessions are the same user.
+    expect(getQaSeatCredentials('rep-a', ALL_SEATS_ENV)).not.toEqual(
+      getQaSeatCredentials('rep-b', ALL_SEATS_ENV),
+    )
+  })
+
+  it('throws naming the missing var, without leaking values', () => {
+    expect(() => getQaSeatCredentials('rep-a', { QA_REP_A_EMAIL: 'x' })).toThrow(
+      /QA_REP_A_PASSWORD/,
+    )
+    expect(() => getQaSeatCredentials('rep-b', {})).toThrow(/QA_REP_B_EMAIL/)
+  })
+
+  it('rejects an unknown seat rather than falling back to some default credential', () => {
+    expect(() =>
+      getQaSeatCredentials('rep-z' as never, ALL_SEATS_ENV),
+    ).toThrow(/Unknown QA seat/)
+  })
+
+  for (const seat of QA_SEATS) {
+    it(`preparePreviewLoginAs("${seat}") returns host + creds on a valid preview`, () => {
+      const login = preparePreviewLoginAs(seat, VALID, ALL_SEATS_ENV)
+      expect(login.host).toBe('deploy-preview-123--ghmdsalesplatform.netlify.app')
+      expect(login.email).toBeTruthy()
+      expect(login.password).toBeTruthy()
+    })
+
+    it(`preparePreviewLoginAs("${seat}") REFUSES production even with creds present`, () => {
+      expect(() =>
+        preparePreviewLoginAs(seat, 'https://ghmdsalesplatform.netlify.app', ALL_SEATS_ENV),
+      ).toThrow(/not a ghmd-sales-platform deploy-preview host/)
+    })
+
+    it(`preparePreviewLoginAs("${seat}") REFUSES the NIP site`, () => {
+      expect(() =>
+        preparePreviewLoginAs(seat, 'https://ghmdnetwork.netlify.app', ALL_SEATS_ENV),
+      ).toThrow(/preview-login/)
+    })
+  }
+
+  it('preparePreviewLogin (legacy signature) still means the exec seat', () => {
+    expect(preparePreviewLogin(VALID, ALL_SEATS_ENV).email).toBe('qa-exec@example.test')
   })
 })

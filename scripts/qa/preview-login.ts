@@ -80,6 +80,27 @@ export interface PreviewLogin extends QaExecCredentials {
 }
 
 /**
+ * The QA seats. Extended in E-2 (decision #161) from exec-only to include the two REP
+ * fixtures, so rep-siloed RLS can be walked with real rep sessions instead of only
+ * adversarial JWT simulation.
+ *
+ * EVERY seat is a REAL production principal — the reps no more preview-confined than the
+ * exec was (one Supabase project sits behind prod AND every preview). So all three route
+ * through the SAME hostname guard, and the guard-first sequencing below is what keeps
+ * them off production. Adding a seat here without routing it through `assertPreviewHost`
+ * would silently reintroduce the exact hole this file exists to close.
+ */
+export type QaSeat = 'exec' | 'rep-a' | 'rep-b'
+
+const SEAT_ENV_VARS: Record<QaSeat, { email: string; password: string }> = {
+  exec: { email: 'QA_EXEC_EMAIL', password: 'QA_EXEC_PASSWORD' },
+  'rep-a': { email: 'QA_REP_A_EMAIL', password: 'QA_REP_A_PASSWORD' },
+  'rep-b': { email: 'QA_REP_B_EMAIL', password: 'QA_REP_B_PASSWORD' },
+}
+
+export const QA_SEATS = Object.keys(SEAT_ENV_VARS) as QaSeat[]
+
+/**
  * Assert that `targetUrl` points at a sanctioned deploy-preview host and return the
  * validated hostname. Throws (refuses) for anything else — production, branch deploys,
  * the NIP site, non-https schemes, URLs carrying userinfo, or unparseable input.
@@ -130,17 +151,24 @@ export function assertPreviewHost(targetUrl: string): string {
 }
 
 /**
- * Read the QA-exec credentials from the environment. Throws if either var is missing.
+ * Read one seat's credentials from the environment. Throws if either var is missing.
  * Never logs or echoes the values.
  */
-export function getQaExecCredentials(
+export function getQaSeatCredentials(
+  seat: QaSeat,
   env: NodeJS.ProcessEnv = process.env,
 ): QaExecCredentials {
-  const email = env.QA_EXEC_EMAIL
-  const password = env.QA_EXEC_PASSWORD
+  const vars = SEAT_ENV_VARS[seat]
+  if (!vars) {
+    throw new Error(
+      `[preview-login] Unknown QA seat "${seat}". Known seats: ${QA_SEATS.join(', ')}.`,
+    )
+  }
+  const email = env[vars.email]
+  const password = env[vars.password]
   const missing: string[] = []
-  if (!email) missing.push('QA_EXEC_EMAIL')
-  if (!password) missing.push('QA_EXEC_PASSWORD')
+  if (!email) missing.push(vars.email)
+  if (!password) missing.push(vars.password)
   if (missing.length > 0) {
     throw new Error(
       `[preview-login] Missing required env var(s): ${missing.join(', ')}. ` +
@@ -151,18 +179,42 @@ export function getQaExecCredentials(
 }
 
 /**
- * The single sanctioned entry point for QA-exec sign-in. Runs the hostname guard FIRST,
- * then returns the credentials bundled with the validated host. Because credential
- * retrieval is sequenced after `assertPreviewHost`, there is no way to obtain the
- * password for an off-preview target.
+ * Read the QA-exec credentials. Retained as the original exec-only accessor so existing
+ * callers keep working unchanged; it is now a thin alias for the 'exec' seat.
+ */
+export function getQaExecCredentials(
+  env: NodeJS.ProcessEnv = process.env,
+): QaExecCredentials {
+  return getQaSeatCredentials('exec', env)
+}
+
+/**
+ * The single sanctioned entry point for QA sign-in AS A GIVEN SEAT. Runs the hostname
+ * guard FIRST, then returns that seat's credentials bundled with the validated host.
+ * Because credential retrieval is sequenced after `assertPreviewHost`, there is no way to
+ * obtain ANY seat's password for an off-preview target — the rep seats inherit exactly the
+ * protection the exec seat already had.
+ */
+export function preparePreviewLoginAs(
+  seat: QaSeat,
+  targetUrl: string,
+  env: NodeJS.ProcessEnv = process.env,
+): PreviewLogin {
+  const host = assertPreviewHost(targetUrl)
+  const { email, password } = getQaSeatCredentials(seat, env)
+  return { host, email, password }
+}
+
+/**
+ * QA-exec sign-in. Unchanged signature and behaviour (the exec seat is the default), so
+ * every existing caller and test keeps its contract; new rep-seat callers use
+ * `preparePreviewLoginAs`.
  */
 export function preparePreviewLogin(
   targetUrl: string,
   env: NodeJS.ProcessEnv = process.env,
 ): PreviewLogin {
-  const host = assertPreviewHost(targetUrl)
-  const { email, password } = getQaExecCredentials(env)
-  return { host, email, password }
+  return preparePreviewLoginAs('exec', targetUrl, env)
 }
 
 // ── CLI preflight ────────────────────────────────────────────────────────────
@@ -182,8 +234,14 @@ if (invokedDirectly) {
   try {
     const host = assertPreviewHost(targetUrl)
     console.log(`OK: ${host} is a valid ghmd-sales-platform deploy-preview target.`)
-    console.log(`QA_EXEC_EMAIL set:    ${!!process.env.QA_EXEC_EMAIL}`)
-    console.log(`QA_EXEC_PASSWORD set: ${!!process.env.QA_EXEC_PASSWORD}`)
+    // PRESENCE only, as booleans — never the values (Hard Rule 6).
+    for (const seat of QA_SEATS) {
+      const vars = SEAT_ENV_VARS[seat]
+      console.log(
+        `seat ${seat.padEnd(5)} → ${vars.email} set: ${!!process.env[vars.email]}, ` +
+          `${vars.password} set: ${!!process.env[vars.password]}`,
+      )
+    }
     process.exit(0)
   } catch (err) {
     console.error((err as Error).message)
