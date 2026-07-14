@@ -848,9 +848,21 @@ const COLUMN_CLASSIFICATION = {
   // Frozen on BELL rows (they define what the bell asserts); client-mutable on non-bell rows,
   // where an executive may legitimately copy-edit the post.
   frozenOnBellsOnly: ['title', 'body', 'territory_id'],
-  // The moderation surface — client-mutable on bells AND non-bells (via the executive review
-  // UPDATE policy only; no rep UPDATE policy exists).
-  clientMutable: ['status', 'pinned'],
+  // INSERT-frozen to false for EVERY role (the trigger overrides whatever the client sends);
+  // executive-mutable thereafter via UPDATE only.
+  //
+  // ⚠ THIS LINE IS A CORRECTION. The BLOCK #5 version of this table classified `pinned` as
+  // simply "client-mutable by an executive" — and that was FALSE at the INSERT boundary, in the
+  // very table written to demonstrate completeness. A rep could submit an already-pinned
+  // pending post, and an executive approving it by changing status ALONE would silently publish
+  // it to the top of the feed, with nothing in the review UI to show that pinning was also
+  // being approved (Sol 5.6, BLOCK #6, run 29327798173 — reproduced live before fixing).
+  // Pinning is now always a deliberate, separate executive act on an EXISTING row.
+  insertFrozenExecMutable: ['pinned'],
+  // The review surface — client-mutable via the executive review UPDATE policy only (the sole
+  // UPDATE policy on this table; no rep UPDATE policy exists). This is how a bad bell is
+  // rejected.
+  clientMutable: ['status'],
 } as const
 
 describe('e2 — every column on community_board_posts is deliberately classified', () => {
@@ -872,6 +884,7 @@ describe('e2 — every column on community_board_posts is deliberately classifie
     ...COLUMN_CLASSIFICATION.alwaysFrozen,
     ...COLUMN_CLASSIFICATION.triggerOwned,
     ...COLUMN_CLASSIFICATION.frozenOnBellsOnly,
+    ...COLUMN_CLASSIFICATION.insertFrozenExecMutable,
     ...COLUMN_CLASSIFICATION.clientMutable,
   ]
 
@@ -903,6 +916,98 @@ describe('e2 — every column on community_board_posts is deliberately classifie
         `${col} must NOT be pinned table-wide — that would block legitimate copy-edits`,
       ).not.toMatch(new RegExp(`new\\.${col}\\s*:=\\s*old\\.${col}`, 'i'))
     }
+  })
+})
+
+/**
+ * Second-Opinion Gate BLOCK #6 (Sol 5.6, run 29327798173, PR #130) — closed by migration
+ * 20260714230000.
+ *
+ * FINDING (verbatim): "The rep INSERT policy does not require `pinned = false`, and the INSERT
+ * trigger preserves client-supplied `pinned`, so a rep can submit a pending post already
+ * pinned; approving it by changing only `status` silently publishes a rep-pinned post. This
+ * violates the stated invariant that `pinned` is client-mutable only by an executive."
+ *
+ * Reproduced live as the real QA Rep A seat: an INSERT of (status='pending', pinned=true) was
+ * ACCEPTED and stored pinned; the executive then approved it by changing status ALONE, and it
+ * published with pinned=true, sorting first on the feed.
+ *
+ * THIS ONE LANDED ON A CLAIM, NOT JUST ON CODE. The BLOCK #5 column table — written expressly
+ * to demonstrate completeness — asserted "pinned: CLIENT-MUTABLE by an executive". That was
+ * false at the INSERT boundary. The deny-by-default reset from #5 governs bell UPDATEs; the
+ * question "who may SET this on INSERT?" was never asked of `pinned`. Stating the invariant out
+ * loud is what made the gap findable, which is the argument for stating them.
+ *
+ * Fix (Trace's decision): pinned := false on INSERT for EVERY role — no caller-role check is
+ * added, the trigger stays role-agnostic. An executive who wants a pre-pinned post does it in
+ * two calls. That costs nothing today: neither SubmitPostForm nor the submitPost server action
+ * ever sends `pinned`, so this was only ever reachable by calling PostgREST directly — which is
+ * precisely the standard this PR has held throughout: the UI is not the boundary.
+ */
+describe('e2 gate-BLOCK #6 fix — pinned is insert-frozen to false for every role', () => {
+  const code = sqlCodeOnly(read(migrationPath('_e2_pinned_insert_frozen.sql')))
+  const fn =
+    code.match(
+      /create\s+or\s+replace\s+function\s+public\.stamp_community_board_review\(\)[\s\S]*?\$\$;/i,
+    )?.[0] ?? ''
+  const insertBranch = fn.match(/if\s+tg_op\s*=\s*'INSERT'\s+then[\s\S]*?else/i)?.[0] ?? ''
+
+  it('forces pinned := false in the INSERT branch', () => {
+    expect(fn, 'function definition must be found').toBeTruthy()
+    expect(insertBranch).toBeTruthy()
+    expect(insertBranch).toMatch(/new\.pinned\s*:=\s*false/i)
+  })
+
+  it('applies to EVERY role — no executive exception, no internal_users lookup on INSERT', () => {
+    // The trigger stays role-agnostic by design (Trace's option 1). A designation check here
+    // would be the seed of exactly the kind of "…except when" that this PR keeps getting bitten
+    // by, so its ABSENCE in the insert branch is the thing worth pinning.
+    expect(insertBranch).not.toMatch(/internal_users/i)
+    expect(insertBranch).not.toMatch(/designation/i)
+  })
+
+  it('freezes it alongside the other columns no client may set on creation', () => {
+    expect(insertBranch).toMatch(/new\.reviewed_by\s*:=\s*null/i)
+    expect(insertBranch).toMatch(/new\.reviewed_at\s*:=\s*null/i)
+    expect(insertBranch).toMatch(/new\.created_at\s*:=\s*now\(\)/i)
+  })
+
+  it('does NOT freeze pinned on UPDATE — an executive must still be able to pin/unpin', () => {
+    // The UPDATE arm must keep re-applying pinned on bell rows (the moderation surface), and
+    // must not pin it to old.* table-wide, or an executive could never pin anything.
+    expect(fn).toMatch(/new\.pinned\s*:=\s*keep_pinned/i)
+    expect(fn, 'a table-wide pinned freeze would break moderation entirely').not.toMatch(
+      /new\.pinned\s*:=\s*old\.pinned/i,
+    )
+  })
+
+  it('leaves the BLOCK #5 bell deny-by-default reset intact', () => {
+    expect(fn).toMatch(/if\s+old\.post_type\s*=\s*'bell_ringing'\s+then/i)
+    expect(fn).toMatch(/new\s*:=\s*old\s*;/i)
+    expect(fn).toMatch(/new\.status\s*:=\s*keep_status/i)
+  })
+
+  it('leaves the BLOCK #4 table-wide freezes intact', () => {
+    expect(fn).toMatch(/new\.id\s*:=\s*old\.id/i)
+    expect(fn).toMatch(/new\.created_at\s*:=\s*old\.created_at/i)
+    expect(fn).toMatch(/new\.post_type\s*:=\s*old\.post_type/i)
+    expect(fn).toMatch(/new\.rep_id\s*:=\s*old\.rep_id/i)
+  })
+
+  it('is a trigger-only fix — no RLS policy, no re-registration, no new surface', () => {
+    expect(code).not.toMatch(/create\s+policy/i)
+    expect(code).not.toMatch(/drop\s+policy/i)
+    expect(code).not.toMatch(/create\s+trigger/i)
+    expect(code).not.toMatch(/with\s+check\s*\(/i)
+    expect(code).not.toMatch(/^\s*grant\s+(?!execute)/im)
+  })
+
+  it('does not edit the already-applied BLOCK #5 migration (supersede-never-delete)', () => {
+    const prior = sqlCodeOnly(read(migrationPath('_e2_bell_content_immutable_deny_by_default.sql')))
+    expect(prior).toMatch(/new\s*:=\s*old\s*;/i)
+    expect(prior, 'the #5 file must still show its original, pinned-less INSERT branch').not.toMatch(
+      /new\.pinned\s*:=\s*false/i,
+    )
   })
 })
 
