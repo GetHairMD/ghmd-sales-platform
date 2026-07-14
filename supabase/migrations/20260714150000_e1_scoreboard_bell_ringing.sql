@@ -226,6 +226,15 @@ create trigger prospects_ring_bell_funded_won
   execute function public.ring_bell_on_funded_won();
 
 -- ── 3. scoreboard_summary() — aggregate leaderboard (SECURITY DEFINER) ────────
+-- ⚠ SUPERSEDED by migration 20260714154000 (E-1 follow-up #2): the `close_months`
+-- return column below was a second Second-Opinion Gate finding — returning the raw
+-- month array to a shared leaderboard leaked peer deal-timing for low-volume reps. The
+-- follow-up DROPs and recreates this function WITHOUT close_months, returning a
+-- `current_streak integer` computed IN SQL instead. The definition below is retained
+-- as the historical as-shipped version (supersede-never-delete); the live/canonical
+-- shape is the follow-up's. The "streak computed in TypeScript" note in this file's
+-- header (§ DELIBERATE ARCHITECTURE NOTE) applies only to that superseded version —
+-- only pipeline_value is TS now.
 -- One row per REP (internal_users.designation = 'rep'), returned to ANY internal
 -- user (the leaderboard is visible to all — that's the point). SECURITY DEFINER so
 -- it can aggregate across every rep's prospects (a rep cannot read another rep's

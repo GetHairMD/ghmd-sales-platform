@@ -66,10 +66,23 @@ function lockdownMigrationPath(): string {
   return `${dir}/${hit}`
 }
 
+/** Follow-up #2: the canonical scoreboard_summary() definition (streak in SQL). */
+function streakMigrationPath(): string {
+  const dir = 'supabase/migrations'
+  const hit = readdirSync(join(process.cwd(), dir)).find((f) =>
+    f.endsWith('_scoreboard_summary_streak_in_sql.sql'),
+  )
+  if (!hit) throw new Error('scoreboard_summary_streak_in_sql migration not found')
+  return `${dir}/${hit}`
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Pure functions — current_streak (AC4/AC8 streak boundaries)
+// current_streak — TEST-ONLY REFERENCE IMPLEMENTATION of the SQL streak semantics.
+// The live streak is computed in scoreboard_summary() (SQL, follow-up #2) and re-proven
+// live by the rolled-back adversarial test; these cases pin the intended semantics at
+// every calendar boundary that a single live run can't exhaustively cover.
 // ─────────────────────────────────────────────────────────────────────────────
-describe('computeCurrentStreak — consecutive months walking back from the reference', () => {
+describe('computeCurrentStreak (reference impl) — consecutive months walking back from the reference', () => {
   it('empty history is a 0 streak', () => {
     expect(computeCurrentStreak([], '2026-07')).toBe(0)
   })
@@ -150,30 +163,32 @@ describe('toScoreboardRow + ranking', () => {
     deals_closed_count: 2,
     active_pipeline_count: 3,
     proposal_engagement_score: 9,
-    close_months: ['2026-07', '2026-06'],
+    current_streak: 2,
   }
 
-  it('maps aggregate fields and resolves the two computed figures', () => {
-    const row = toScoreboardRow(base, '2026-07')
+  it('maps aggregate fields, passes streak through, derives only pipeline_value', () => {
+    const row = toScoreboardRow(base)
     expect(row).toEqual({
       repId: 'r1',
       repName: 'Alex Rivera',
       dealsClosed: 2,
       pipelineValue: 3 * TERRITORY_STANDARD_PRICE,
       proposalEngagement: 9,
-      currentStreak: 2,
+      currentStreak: 2, // straight from the RPC (computed in SQL)
     })
   })
 
   it('falls back to a generic label when rep_name is empty/whitespace', () => {
-    expect(toScoreboardRow({ ...base, rep_name: '   ' }, '2026-07').repName).toBe('Unnamed rep')
+    expect(toScoreboardRow({ ...base, rep_name: '   ' }).repName).toBe('Unnamed rep')
   })
 
   it('a zero-deal rep maps to zeros without throwing', () => {
-    const row = toScoreboardRow(
-      { ...base, deals_closed_count: 0, active_pipeline_count: 0, close_months: [] },
-      '2026-07',
-    )
+    const row = toScoreboardRow({
+      ...base,
+      deals_closed_count: 0,
+      active_pipeline_count: 0,
+      current_streak: 0,
+    })
     expect(row.dealsClosed).toBe(0)
     expect(row.pipelineValue).toBe(0)
     expect(row.currentStreak).toBe(0)
@@ -181,17 +196,17 @@ describe('toScoreboardRow + ranking', () => {
 
   it('rankRows orders by deals closed desc, then pipeline value desc, then name', () => {
     const rows = [
-      toScoreboardRow({ ...base, rep_id: 'a', rep_name: 'A', deals_closed_count: 1, active_pipeline_count: 1 }, '2026-07'),
-      toScoreboardRow({ ...base, rep_id: 'b', rep_name: 'B', deals_closed_count: 3, active_pipeline_count: 1 }, '2026-07'),
-      toScoreboardRow({ ...base, rep_id: 'c', rep_name: 'C', deals_closed_count: 3, active_pipeline_count: 5 }, '2026-07'),
+      toScoreboardRow({ ...base, rep_id: 'a', rep_name: 'A', deals_closed_count: 1, active_pipeline_count: 1 }),
+      toScoreboardRow({ ...base, rep_id: 'b', rep_name: 'B', deals_closed_count: 3, active_pipeline_count: 1 }),
+      toScoreboardRow({ ...base, rep_id: 'c', rep_name: 'C', deals_closed_count: 3, active_pipeline_count: 5 }),
     ]
     expect(rankRows(rows).map((r) => r.repId)).toEqual(['c', 'b', 'a'])
   })
 
   it('sortRows sorts by a column with a stable name tiebreak', () => {
     const rows = [
-      toScoreboardRow({ ...base, rep_id: 'a', rep_name: 'A', proposal_engagement_score: 5 }, '2026-07'),
-      toScoreboardRow({ ...base, rep_id: 'b', rep_name: 'B', proposal_engagement_score: 8 }, '2026-07'),
+      toScoreboardRow({ ...base, rep_id: 'a', rep_name: 'A', proposal_engagement_score: 5 }),
+      toScoreboardRow({ ...base, rep_id: 'b', rep_name: 'B', proposal_engagement_score: 8 }),
     ]
     expect(sortRows(rows, 'proposalEngagement', 'desc').map((r) => r.repId)).toEqual(['b', 'a'])
     expect(sortRows(rows, 'proposalEngagement', 'asc').map((r) => r.repId)).toEqual(['a', 'b'])
@@ -247,12 +262,16 @@ describe('e1 migration — community_board_posts has no client write path', () =
   })
 })
 
-describe('e1 migration — scoreboard_summary() is aggregate-only and authenticated-only', () => {
-  const raw = read(migrationPath())
-  const code = sqlCodeOnly(raw)
+describe('scoreboard_summary() (follow-up #2) — aggregate-only, streak in SQL, no month detail', () => {
+  // The canonical definition lives in the follow-up migration (DROP + recreate with a
+  // new return shape); the E-1 migration's original is superseded.
+  const code = sqlCodeOnly(read(streakMigrationPath()))
+  const body =
+    code.match(/create\s+function\s+public\.scoreboard_summary\(\)[\s\S]*?\$\$;/i)?.[0] ?? ''
 
   it('is SECURITY DEFINER, search_path pinned, authenticated-only, never anon', () => {
-    expect(code).toMatch(/create\s+or\s+replace\s+function\s+public\.scoreboard_summary\(\)/i)
+    expect(code).toMatch(/drop\s+function\s+if\s+exists\s+public\.scoreboard_summary\(\)/i)
+    expect(code).toMatch(/create\s+function\s+public\.scoreboard_summary\(\)/i)
     expect(code).toMatch(/security\s+definer/i)
     expect(code).toMatch(/set\s+search_path\s*=\s*''/i)
     expect(code).toMatch(/revoke\s+all\s+on\s+function\s+public\.scoreboard_summary\(\)\s+from\s+public,\s*anon,\s*authenticated/i)
@@ -260,20 +279,24 @@ describe('e1 migration — scoreboard_summary() is aggregate-only and authentica
     expect(code).not.toMatch(/grant\s+execute\s+on\s+function\s+public\.scoreboard_summary\(\)\s+to\s+anon/i)
   })
 
-  it('gates rows on internal_users membership (fail closed for non-internal callers)', () => {
-    const body = code.match(/create\s+or\s+replace\s+function\s+public\.scoreboard_summary\(\)[\s\S]*?\$\$;/i)?.[0]
+  it('returns current_streak (integer) and NO close_months / month-level detail', () => {
     expect(body, 'scoreboard_summary definition must be found').toBeTruthy()
+    expect(body).toMatch(/current_streak\s+integer/i)
+    expect(body).not.toMatch(/close_months/i)
+    // No text[] month array leaves the function.
+    expect(body).not.toMatch(/text\[\]/i)
+  })
+
+  it('gates rows on internal_users membership (fail closed for non-internal callers)', () => {
     expect(body).toMatch(/from\s+public\.internal_users\s+me\s+where\s+me\.user_id\s*=\s*auth\.uid\(\)/i)
   })
 
   it('attributes by assigned_rep_id and defines closes by funded_won_at', () => {
-    const body = code.match(/create\s+or\s+replace\s+function\s+public\.scoreboard_summary\(\)[\s\S]*?\$\$;/i)?.[0] ?? ''
     expect(body).toMatch(/assigned_rep_id/i)
     expect(body).toMatch(/funded_won_at\s+is\s+not\s+null/i)
   })
 
   it('projects NO individual-identity / geometry / census column (leak-proof by omission)', () => {
-    const body = code.match(/create\s+or\s+replace\s+function\s+public\.scoreboard_summary\(\)[\s\S]*?\$\$;/i)?.[0] ?? ''
     for (const forbidden of [/addressable/i, /census/i, /boundary/i, /geom/i, /center_lat/i, /center_lng/i, /practice_name/i]) {
       expect(body, `scoreboard_summary body must not reference ${forbidden}`).not.toMatch(forbidden)
     }

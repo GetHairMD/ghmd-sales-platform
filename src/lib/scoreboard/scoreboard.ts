@@ -2,20 +2,18 @@
  * Scoreboard domain logic (E-1) — the pure functions the /scoreboard page composes
  * over the aggregate rows returned by the `scoreboard_summary()` RPC.
  *
- * WHY this lives in TS and not in the SQL function (flagged to Chat in the PR):
- *   • pipeline_value = active-pipeline count × the $179,000 territory price. The
- *     price is a single-source constant (TERRITORY_STANDARD_PRICE, CLAUDE.md "never
- *     hardcode the price inline"). SQL cannot import a TS constant, so multiplying
- *     here keeps the money figure single-sourced instead of duplicating $179K into
- *     the migration.
- *   • current_streak is calendar-boundary logic (year rollover, gaps, current-month-
- *     empty). Implemented as a pure function it is exercised at every boundary by
- *     unit tests with an injected reference month — no time-dependent DB fixtures.
+ * pipeline_value = active-pipeline count × the $179,000 territory price is computed
+ * HERE (not in SQL): the price is a single-source constant (TERRITORY_STANDARD_PRICE,
+ * CLAUDE.md "never hardcode the price inline") and SQL cannot import a TS constant, so
+ * multiplying here keeps the money figure single-sourced instead of duplicating $179K
+ * into the migration.
  *
- * scoreboard_summary() therefore returns only aggregate primitives
- * (deals_closed_count, active_pipeline_count, proposal_engagement_score, and the SET
- * of close-months); this module derives the two computed figures. That also makes the
- * SQL surface strictly narrower — it never even embeds the price.
+ * current_streak is now computed IN SQL inside scoreboard_summary() (follow-up #2):
+ * returning the raw close-months array to a shared leaderboard leaked peer deal-timing,
+ * so the RPC returns only a streak NUMBER. `computeCurrentStreak` below is retained
+ * ONLY as a TEST-ONLY REFERENCE IMPLEMENTATION of the streak semantics — it is NOT
+ * called by any live path; the live rolled-back adversarial proof is the source of
+ * truth for the SQL behaviour it mirrors.
  */
 
 // Relative (not '@/') import: this module is imported directly by vitest, which has
@@ -25,7 +23,7 @@ import { TERRITORY_STANDARD_PRICE } from '../../components/proposal/constants'
 
 /**
  * One row of the `scoreboard_summary()` RPC — mirrors the SQL RETURNS TABLE shape.
- * `close_months` are distinct 'YYYY-MM' keys (UTC) the rep closed in — the streak input.
+ * `current_streak` is computed in SQL (no month-level detail crosses the boundary).
  */
 export interface ScoreboardSummaryRow {
   rep_id: string
@@ -33,7 +31,7 @@ export interface ScoreboardSummaryRow {
   deals_closed_count: number
   active_pipeline_count: number
   proposal_engagement_score: number
-  close_months: string[]
+  current_streak: number
 }
 
 /** View-model row the leaderboard UI renders (camelCase, computed figures resolved). */
@@ -85,13 +83,18 @@ export function computePipelineValue(activePipelineCount: number): number {
 }
 
 /**
- * current_streak — the number of CONSECUTIVE calendar months, walking back from and
- * INCLUDING `referenceMonth`, in which the rep had >= 1 close.
+ * current_streak — TEST-ONLY REFERENCE IMPLEMENTATION.
  *
- * Semantics (per the brief, "walking back from the current month"): the walk starts
- * at the reference (current) month. If the rep has no close in the current month the
- * streak is 0 — the run must be anchored at the current month. The first gap stops
- * the walk. Duplicate/unordered close-month keys are handled (deduped via a Set).
+ * The live streak is computed in SQL inside scoreboard_summary() (follow-up #2). This
+ * function is NOT called by any production path; it exists so the streak semantics are
+ * pinned by fast unit tests at every calendar boundary, mirroring what the SQL does.
+ * (There is a small drift risk between this and the SQL version — the SQL is the source
+ * of truth, re-proven live by the rolled-back adversarial test.)
+ *
+ * Semantics: the number of CONSECUTIVE calendar months, walking back from and INCLUDING
+ * `referenceMonth`, in which the rep had >= 1 close. If the rep has no close in the
+ * reference (current) month the streak is 0 — the run must be anchored at the current
+ * month. The first gap stops the walk. Duplicate/unordered keys are handled (Set).
  *
  * Examples (referenceMonth = '2026-07'):
  *   ['2026-07','2026-06']            -> 2   (07, 06 consecutive)
@@ -114,11 +117,12 @@ export function computeCurrentStreak(
   return streak
 }
 
-/** Map one aggregate RPC row to the UI view-model, resolving the computed figures. */
-export function toScoreboardRow(
-  raw: ScoreboardSummaryRow,
-  referenceMonth: string = currentMonthKey(),
-): ScoreboardRow {
+/**
+ * Map one aggregate RPC row to the UI view-model. current_streak comes straight from
+ * the RPC (computed in SQL); only pipeline_value is derived here (× the single-source
+ * price), since SQL cannot import the TS constant.
+ */
+export function toScoreboardRow(raw: ScoreboardSummaryRow): ScoreboardRow {
   return {
     repId: raw.rep_id,
     // rep_name already carries the SQL-side NULL fallback ('Unnamed rep'); guard again
@@ -127,7 +131,7 @@ export function toScoreboardRow(
     dealsClosed: raw.deals_closed_count ?? 0,
     pipelineValue: computePipelineValue(raw.active_pipeline_count ?? 0),
     proposalEngagement: raw.proposal_engagement_score ?? 0,
-    currentStreak: computeCurrentStreak(raw.close_months ?? [], referenceMonth),
+    currentStreak: raw.current_streak ?? 0,
   }
 }
 
