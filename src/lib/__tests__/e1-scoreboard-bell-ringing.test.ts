@@ -57,6 +57,15 @@ function migrationPath(): string {
   return `${dir}/${hit}`
 }
 
+function lockdownMigrationPath(): string {
+  const dir = 'supabase/migrations'
+  const hit = readdirSync(join(process.cwd(), dir)).find((f) =>
+    f.endsWith('_prospects_funded_won_at_client_write_lockdown.sql'),
+  )
+  if (!hit) throw new Error('prospects_funded_won_at_client_write_lockdown migration not found')
+  return `${dir}/${hit}`
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure functions — current_streak (AC4/AC8 streak boundaries)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -268,6 +277,24 @@ describe('e1 migration — scoreboard_summary() is aggregate-only and authentica
     for (const forbidden of [/addressable/i, /census/i, /boundary/i, /geom/i, /center_lat/i, /center_lng/i, /practice_name/i]) {
       expect(body, `scoreboard_summary body must not reference ${forbidden}`).not.toMatch(forbidden)
     }
+  })
+})
+
+describe('e1 follow-up — funded_won_at is not client-writable', () => {
+  const code = sqlCodeOnly(read(lockdownMigrationPath()))
+
+  it('drops the table-level UPDATE grant (a column revoke alone is a no-op under it)', () => {
+    expect(code).toMatch(/revoke\s+update\s+on\s+public\.prospects\s+from\s+authenticated/i)
+  })
+
+  it('re-grants column UPDATE to authenticated for every column EXCEPT funded_won_at', () => {
+    // Dynamic grant generated from information_schema, filtered by the exclusion predicate.
+    expect(code).toMatch(/grant\s+update\s*\(%s\)\s+on\s+public\.prospects\s+to\s+authenticated/i)
+    expect(code).toMatch(/column_name\s*<>\s*'funded_won_at'/i)
+  })
+
+  it('never grants UPDATE on funded_won_at back to authenticated', () => {
+    expect(code).not.toMatch(/grant\s+update\s*\([^)]*funded_won_at[^)]*\)\s+on\s+public\.prospects/i)
   })
 })
 
