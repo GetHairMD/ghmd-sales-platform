@@ -14,7 +14,7 @@
  * `navItemsFor()` before rendering, never the raw array.
  */
 import type { LucideIcon } from 'lucide-react'
-import { LayoutDashboard, GitBranch, Users, FileText, Map, Globe, Compass, Sparkles } from 'lucide-react'
+import { LayoutDashboard, GitBranch, Users, FileText, Map, Globe, Compass, Trophy, Sparkles } from 'lucide-react'
 import type { Designation } from '@/lib/auth/internal-role'
 
 export interface NavItem {
@@ -37,6 +37,9 @@ export const NAV_ITEMS: NavItem[] = [
   // National status map (decision #121/#122/#132): standalone, visible to ALL reps
   // and executives (no execOnly). Distinct route from Deal Territories.
   { label: 'National Map', icon: Globe, href: '/national-map' },
+  // Scoreboard (E-1): the rep leaderboard is a shared culture surface — visible to
+  // ALL internal users (no execOnly), same as the RPC's all-internal audience.
+  { label: 'Scoreboard', icon: Trophy, href: '/scoreboard' },
   { label: 'Territory Scouting', icon: Compass, href: '/territory-scouting', execOnly: true },
   { label: 'Insights', icon: Sparkles, comingSoon: true },
 ]
