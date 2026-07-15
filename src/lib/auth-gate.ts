@@ -25,6 +25,11 @@ export function isAuthGateDisabled(value: string | undefined): boolean {
  * Trailing slashes are load-bearing:
  *   • '/p/'          → the gated /p/[slug] render (never matches /pipeline etc).
  *   • '/proposals/'  → the legacy public buyer page /proposals/[prospectId].
+ *   • '/r/'          → the E-3 Resource Library tracked-link route /r/[token]. A
+ *                      prospect opens it from a text/email, so it must be public.
+ *                      The trailing slash is what keeps it from matching the
+ *                      REP-facing '/resources' index, which stays auth-gated:
+ *                      '/resources'.startsWith('/r/') is false.
  * The BARE '/proposals' index is REP-facing (engagement stats) and must stay
  * auth-gated like /dashboard — startsWith('/proposals/') excludes it exactly.
  */
@@ -32,7 +37,8 @@ export function isPublicPath(pathname: string): boolean {
   return (
     pathname.startsWith('/login') ||
     pathname.startsWith('/proposals/') ||
-    pathname.startsWith('/p/')
+    pathname.startsWith('/p/') ||
+    pathname.startsWith('/r/')
   )
 }
 

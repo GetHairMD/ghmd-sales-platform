@@ -14,7 +14,7 @@
  * `navItemsFor()` before rendering, never the raw array.
  */
 import type { LucideIcon } from 'lucide-react'
-import { LayoutDashboard, GitBranch, Users, FileText, Map, Globe, Compass, Trophy, MessageSquare, Sparkles } from 'lucide-react'
+import { LayoutDashboard, GitBranch, Users, FileText, Map, Globe, Compass, Trophy, MessageSquare, BookOpen, Sparkles } from 'lucide-react'
 import type { Designation } from '@/lib/auth/internal-role'
 
 export interface NavItem {
@@ -53,6 +53,11 @@ export const NAV_ITEMS: NavItem[] = [
   // only the Pending Review queue INSIDE the page that is executive-gated. Marking the nav
   // item execOnly would hide the board from the reps who post to it.
   { label: 'Community Board', icon: MessageSquare, href: '/community-board', shortLabel: 'Community' },
+  // Resources / Field Kit (E-3, spec §4C.3): approved collateral library. Shared surface —
+  // visible to ALL internal users (both designations), NOT execOnly. Single-word label, so
+  // no shortLabel. Adding it makes BOTTOM_TABS a 9th tab; the bar already scrolls and
+  // activeTabScrollLeft() keeps the active tab in view — re-verified in 390px QA (AC9).
+  { label: 'Resources', icon: BookOpen, href: '/resources' },
   { label: 'Territory Scouting', icon: Compass, href: '/territory-scouting', execOnly: true },
   { label: 'Insights', icon: Sparkles, comingSoon: true },
 ]
