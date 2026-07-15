@@ -149,3 +149,8 @@ storybook-static
 .agents/
 skills-lock.json
 .claude/skills/box
+
+# Cowork/Codex onboarding scaffolding — auto-generated on repo open, not project work.
+# Root-anchored so the real docs/AGENTS.md (authoritative cross-agent rules) is unaffected.
+/AGENTS.md
+/.codex/
