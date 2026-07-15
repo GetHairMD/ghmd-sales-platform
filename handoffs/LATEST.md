@@ -1,9 +1,9 @@
-# GHMD Sales Platform — Handoff v2.50
+# GHMD Sales Platform — Handoff v2.51
 
-Date: 2026-07-14 | Prepared by: Coder (content briefed by Chat) | Purpose: close
-out PR #133 (E-2 AC10 mobile-nav fix) and the E-2 QA pass that produced it —
-AC8/AC9/AC10 are now **fully closed**, ending the carry-forward v2.49 opened.
-Decisions #167 + #168. Supersedes v2.49.
+Date: 2026-07-14 | Prepared by: Coder (content briefed by Chat) | Purpose: close out
+the PR #135 + PR #136 arc — the §4D Rep Command Center spec addendum (PR #135) and
+E-3 Resource Library, structure only (PR #136, ultrareview, **two** Second-Opinion
+Gate BLOCKs, both resolved). Decisions #169 + #170 + #171. Supersedes v2.50.
 
 > **State facts are never read from this file.** Main HEAD, decision-log tip, open
 > PRs, and security-advisor status are derived live at every session start (git,
@@ -14,150 +14,142 @@ Decisions #167 + #168. Supersedes v2.49.
 
 ## What to do first (next session)
 
-**E-3 (Resource Library — structure only, content unproduced) is next in the
-confirmed sequence, but is NOT yet authorized to start.** It still awaits Trace's
-explicit go-ahead. Per Sprint Discipline, **confirm the current module with Trace at
-session start** — do not infer authorization from position in the queue. This is
-unchanged from v2.49 and is restated deliberately, so the rule is not weakened by
-omission.
+**Two unstarted threads now compete for "next" — this handoff deliberately does not
+resolve which comes first. That is Trace's call.**
+
+1. **Session E's next module.** E-3 was module 3 of 4 in the Session E sequence
+   (decision #159). Per `docs/SALES-OS-SPEC.md` §4C the next module *would be* **E-4,
+   the Email & SMS Template Gallery** (§4C item 5 — "lives in Resources", merge fields,
+   tracked links). Naming it here is orientation only: **Sprint Discipline requires
+   confirming the current module with Trace at session start — do not infer
+   authorization from position in the queue** (the exact rule v2.50 applied to E-3, and
+   it held: E-3 was not started until Trace gave an explicit go-ahead).
+2. **Rep Command Center** (§4D, the PR #135 spec addendum). Its feature brief — the
+   `§4D` migrations plus the `/rep-command-center` executive-only UI — is **fully
+   drafted and Trace-confirmed from a prior session, but has NOT been dispatched to
+   Coder.** State it exactly as it is: drafted, confirmed, not sent. Do **not** imply it
+   is next.
+
+Neither is authorized to start. Confirm the intended thread with Trace before writing
+any code.
 
 ## What shipped this cycle
 
-### PR #133 — MERGED (`ffb9ff771b37696a31208b114c190ffa0d5893ad`) — E-2 AC10 mobile-nav fix
+### PR #135 — MERGED — §4D Rep Command Center spec addendum (docs-only)
 
-The E-2 deploy-preview walkthrough that v2.49 flagged as never performed was run, on
-the **existing** deploy-preview path. It closed AC8 and AC9, and found AC10 genuinely
-failing. PR #133 fixes AC10.
+A pure-docs spec addendum: added **§4D — Rep Command Center (executive-only, fully
+concealed from reps)** to `docs/SALES-OS-SPEC.md`, between §4C and §5. Executive-only
+manager view of per-rep performance including gross-vs-net (discount-aware) close value,
+discount frequency by reason, deal-cycle time, two closing-rate variants, and per-deal
+drill-down; routing returns a **404 indistinguishable from the real 404** to non-execs
+(concealment of existence, not just access denial). This PR predates the E-3 session and
+carried a **genuine, verified `Handoff: not needed` opt-out** (pure docs, no code path).
+It is recorded here only because its bound decision closed inside this cycle.
 
-### AC8 / AC9 — closed, end-to-end, against real seats
+**Decision #169 — discount governance — was Trace's call.** It formalizes a discount-
+authorization practice that had been happening informally and repeatedly across licensee
+deals (the `deals.discount_reason` / `discount_authorized_by` CHECK and the
+`discount_authorizing_designations` seed that §4D introduces). This was **Trace's
+determination**, not an independent Chat or Coder assessment — do not flatten it into
+"the team decided."
 
-Verified with clearly-labelled fixture posts, driven through the real UI as **QA Rep A**
-and **QA-exec** (not adversarial JWT simulation):
+### PR #136 — MERGED (`ada9ab8`) — E-3 Resource Library ("Field Kit"), structure only [ultrareview]
 
-- Rep submits → post lands `pending`, **invisible to the shared feed**, visible only in
-  the rep's own "Your submissions". The rep is offered **no** Approve/Reject control at
-  any point.
-- Exec sees both submissions in Pending Review → approves one, rejects the other.
-- The approved post reaches the **shared feed for both seats**; the rejected one does
-  not, and its author can still see its outcome.
-- The database confirms the UI rather than merely agreeing with it: `reviewed_by` /
-  `reviewed_at` are stamped with **reviewer ≠ author**. A rep cannot self-stamp its own
-  review audit.
+Ships the Resource Library **structure only** — **zero real collateral**; all six
+categories (`decks · testimonial_videos · case_studies · clinical_evidence ·
+business_opportunity · objection_playbook`) render genuine empty states. Real content is
+Trace's separate production track (spec §4C.3), not this PR.
 
-Fixtures were deleted afterward. `community_board_posts` is back to **0 rows**,
-independently re-verified (by Chat after cleanup, and again by Coder post-#133-merge).
+What landed:
 
-### AC10 — found failing, fixed
+- **Three new RLS-gated tables.** `resource_assets` (executive-only INSERT/UPDATE, no
+  client DELETE — soft-delete via `active`; a rep sees `active=true` only, an exec sees
+  all). `resource_shares` (per-rep, per-prospect tracked links; `rep_id` server-stamped
+  from `auth.uid()` by a BEFORE INSERT trigger; `prospect_id` NOT NULL; unguessable
+  96-bit token; open-tracking columns **not** client-writable). `resource_engagement_events`
+  (service-role-only, RLS-enabled-no-policy — mirrors `proposal_events` exactly). The
+  `/r/[token]` open path is an atomic `open_resource_share()` **SECURITY DEFINER** function
+  locked to `service_role` that logs exactly one `link_opened`, stamps the share, and
+  returns **only** the redirect URL (zero internal-metadata leakage).
+- **Routes:** `/resources` (six category cards, `Card`+`EmptyState`+design tokens — note
+  the brief named a `DataTable` primitive that **does not exist** in this repo; the
+  established `Card`/hand-rolled-table convention was used instead), rep share actions
+  (Copy Link / Text / Email with a **required** prospect selection); and `/r/[token]`, a
+  **public, no-auth** prospect-facing redirect (added `/r/` to `isPublicPath` — the
+  trailing slash keeps it from matching the rep-facing `/resources` index).
+- **Role-scoped dashboard feed:** resource `link_opened` events heat-sort alongside
+  proposal engagement, rendered two ways from one data set — a rep sees opens on **their
+  own** prospects, an executive sees **all** reps' opens, attributed by rep name.
 
-**This is a different bug from the PR #130 label-crushing one, which stayed fixed.** The
-bar correctly scrolls rather than crushing labels (`overflow-x-auto` working as designed).
-But it opened at **`scrollLeft = 0` unconditionally**, so the active tab sat **off-screen**
-on `/community-board` and `/scoreboard`: a rep on a phone got **no active-state feedback at
-all** on the two newest destinations, which were reachable only by discovering a sideways
-scroll on the bar.
+**Second-Opinion Gate BLOCK #1 — a real defect, fixed.** The gate flagged that
+`resource_shares_insert_rep_own` validated `rep_id`, rep designation, and asset-active —
+but **nothing about `prospect_id`.** A rep could INSERT a share naming *any* prospect,
+including one assigned to a different rep. That is not cosmetic: `computeResourceFeed()`
+attributes each resource-open feed item by `prospects.assigned_rep_id`, **not** by who
+created the share — so a forged share against another rep's prospect would surface as
+**fabricated engagement in the victim rep's dashboard feed.** Root cause of the original
+miss: the first adversarial pass tested `rep_id` forgery (blocked by the trigger) but
+never the `prospect_id` axis of the same policy. Fixed in commit **`4579b02`** via a
+**superseding** migration `20260714270000` (the applied `20260714250000` was *not* edited
+— supersede-never-delete) adding a fourth WITH CHECK clause requiring
+`prospects.assigned_rep_id = auth.uid()`. Because `assigned_rep_id` is nullable, an
+**unassigned** prospect correctly fails for every rep (`NULL = auth.uid()` is never true).
+Re-verified live: **20/20** role-simulated probes — the original 17 unchanged (no
+regression, including the rep-INSERT-own positive control) plus three new `prospect_id`
+probes (another rep's prospect → denied; own prospect → allowed; unassigned → denied).
+Chat independently confirmed the live `pg_policy` WITH CHECK clause on the database, not
+just the committed file.
 
-**A document-level `scrollWidth` check does not catch this** — it reports no overflow
-(390 == 390), because the overflow is contained *inside* the nav by design. It was caught
-by measuring the nav element itself and by looking at the render. That is the second time
-in two PRs this bar has produced a defect that a `scrollWidth` assertion certified as fine.
-**Standing lesson, now twice-earned: for mobile nav, assertions are not a substitute for
-eyes on the render.**
+**Second-Opinion Gate BLOCK #2 — a design question, not a defect — resolved by Trace as
+Model A (decision #170).** The gate raised that the dashboard resource-feed scoping
+follows the prospect's **current** `assigned_rep_id`, not the share-creator's `rep_id` —
+so if a prospect is reassigned, the *new* rep sees the pre-handoff engagement. Trace
+reviewed both models and **chose Model A** (current behaviour is correct and intentional):
+it is consistent with the existing org-wide proposal-engagement precedent, and the new
+rep already has full RLS access to the reassigned prospect, so no new boundary is crossed.
+Model B (scope by share-creator) was **explicitly rejected** as worse — it would break
+handoff continuity. This was **Trace's call** after Chat presented both models with their
+tradeoffs; do not attribute it to Chat or Coder. Logged as decision #170 (a manual gate
+override, precedent per decision #48).
 
-The fix:
+Fixture cleanup (0/0/0 across all three tables) and the security-advisor diff (one
+expected `resource_engagement_events` RLS-enabled-no-policy INFO — intentional, matches
+`proposal_events`; `open_resource_share` confirmed **absent** from the anon/authenticated
+executable lists, i.e. locked to `service_role`) were both independently re-verified live
+by Chat, not relayed from Coder self-report.
 
-- **`activeTabScrollLeft()`** (`nav-items.ts`) — a **pure, unit-tested geometry function**:
-  centers the active tab, then clamps into `[0, maxScroll]`. Pure on purpose — this repo has
-  no DOM test infra and jsdom has no layout engine (every box metric reads 0), so taking
-  measured geometry as *input* is what makes the logic testable at all.
-- **`BottomTabBar`** writes `nav.scrollLeft` directly via `useLayoutEffect`, keyed on
-  `pathname`. Deliberately **NOT `scrollIntoView()`**, which scrolls every scrollable
-  ancestor and is therefore free to pan the **page body** horizontally — the exact invariant
-  this bar's contained overflow exists to protect.
+## Second-Opinion Gate — routed, two BLOCKs, both cleared
 
-Verified **live on the PR's own deploy preview**, not just by assertion: `scrollLeft = 186`
-on both previously-failing routes — exactly `maxScroll` (576 − 390), matching the unit test's
-predicted clamp — with the active tab fully visible and highlighted; `/dashboard` correctly
-stays at `scrollLeft = 0` (no gratuitous scroll when the tab is already in view); and
-page-level horizontal overflow confirmed `false` on every route checked.
-
-### A retracted claim — the "duplicate `aria-label`" was never a defect
-
-The original QA report flagged a secondary a11y issue: `Sidebar` and `BottomTabBar` both
-used `aria-label="Primary"`. **This was checked before shipping and retracted, not fixed.**
-The two navs are mutually exclusive by breakpoint (`hidden md:flex` vs `md:hidden`), and
-`display: none` removes a node from the accessibility tree — so **no screen reader was ever
-offered two same-named landmarks.** It was not a live defect.
-
-The rename to `aria-label="Primary mobile"` shipped anyway as a **defensive-only** measure
-(it forecloses the collision if either bar is ever shown at both breakpoints someday), and
-is labelled as exactly that in both the code comment and the PR body. It is **not** presented
-as a bug fix. Recorded here because the correction is the point: the claim was walked back
-before it could harden into folklore.
-
-## Second-Opinion Gate — auto-pass, verified correct
-
-PR #133 carried **no `second-opinion-gate` classification block and auto-passed.** This was
-**verified against `docs/SECOND-OPINION-GATE.md`, not assumed**: the five trigger categories
-are (1) security/auth boundaries, RLS policies, webhook signature verification; (2) financial
-formulas; (3) PHI-adjacent data paths; (4) operator-score gating logic; (5) NPI provider data
-handling. **Mobile nav UI is none of them** — it is excluded by design.
-
-**The auto-pass is a complete and final outcome for this PR, not a placeholder and not a
-gap.** Stated explicitly so that a future reader does not mistake the absent classification
-block for an oversight.
-
-## Production-QA guard — authorized, never built, now lapsed
-
-Earlier in this cycle Trace authorized a **fallback** path, in case the PR #130 deploy-preview
-host had stopped resolving post-merge: a **separate, explicitly-named `prepareProductionQALogin()`**
-function — deliberately **not** a widened hostname regex on the existing `preparePreviewLogin()`
-guard, since widening the shared guard would leave every future preview-QA call one string away
-from silently targeting production.
-
-**It was never needed and never written.** The preview host was confirmed live by a
-*differential* probe (`/community-board` and `/scoreboard` returning 200 while a nonsense route
-404'd — ruling out a stale-deploy or catch-all false positive), so `preparePreviewLogin()` was
-used **untouched**. There is **no diff, no new function, and no guard-override event.**
-
-**That authorization is not standing.** It lapsed when this QA pass concluded on the
-preview path. A future session needing production QA must **obtain it again from Trace** —
-do not treat this paragraph as a live grant.
-
-## Process note — the delete that errored, and was not assumed
-
-During fixture cleanup, the first delete attempt **errored**: it had been bundled with a count
-query against a `bell_ringing` table that does not exist (the bell trigger inserts into
-`community_board_posts` itself), and the error aborted the whole batch — so **nothing was
-deleted**. Coder did **not** assume the delete had succeeded despite the error; it re-ran and
-confirmed `posts_remaining: 0, fixtures_remaining: 0` before reporting done.
-
-Worth naming explicitly: an error that aborts a batch is exactly the situation in which a
-"probably fine" would have left real fixture rows sitting on the production Community Board.
-This is the "don't assume — verify" discipline the project has been building toward since the
-#101 → #105 correction (*merged migration ≠ applied migration*), and it is the same instinct
-that caught AC10 in the first place.
+PR #136 carried a `second-opinion-gate` classification block (**category 1** — RLS/auth
+boundaries) and correctly routed through the gate. BLOCK #1 was a genuine RLS defect and
+was fixed in code; BLOCK #2 was a design judgment Trace resolved by manual override. PR
+#135, being pure docs, was **out of gate scope** — its `Handoff: not needed` opt-out was
+verified, not assumed.
 
 ## Decisions logged this cycle
 
 | # | Substance | `related_pr` |
 |---|---|---|
-| #167 | AC8/9/10 closure + the AC10 production-QA authorization | **NULL** — covers the QA pass itself, which had no accompanying PR |
-| #168 | PR #133 merge, and the correction to #167's "a11y nit" mischaracterization | 133 |
+| #169 | Discount-governance formalization for §4D (Trace's call) | 135 |
+| #170 | Dashboard resource-feed scoping accepted as **Model A** (prospect's current `assigned_rep_id`); manual Second-Opinion Gate override (Trace's call, precedent #48) | 136 |
+| #171 | PR #136 merge closure. Deploy-preview UI-render QA gap accepted (`residual_risk: accepted`). `related_pr` **NULL** per the one-bound-row-per-PR back-fill rule (#170 already carries PR #136) — referenced in text only | **NULL** |
 
 ## Standing queue — carry-forward (re-derive the live set; do not hand-renumber)
 
 | Item | Owner | Status |
 |---|---|---|
-| E-2 (Community Board) | — | **SHIPPED + QA-CLOSED** (PR #130, `0d66b9b`; AC10 fix PR #133, `ffb9ff7`; decisions #161/#162/#165/#166/#167/#168) |
-| ~~AC8 / AC9 / AC10~~ | — | **CLOSED this cycle.** AC8/AC9 verified end-to-end against real rep + exec seats; AC10 found failing and fixed in PR #133. No longer carried forward. |
-| QA/deploy-preview credential isolation (#165) | Trace, then Coder | **Accepted residual risk, on the backlog.** Separate preview Supabase project, or a QA designation with zero production RLS grants. No urgency trigger yet — **revisit before Community Board carries real customer/deal-identifying content at scale** |
-| `preview-login.ts` decision citation | future Coder, opportunistic | Docstring cites **#146**, which is the wrong decision. Correct it to **#165** whenever the file is next touched — not worth its own PR. (Still outstanding: #133 did not touch this file.) |
-| Session E remaining modules (E-3 Resource Library — structure only, content unproduced — E-4 Template Gallery, E-5 Events & Invites, E-6 Objection playbook) | Trace authorization per #159 | **E-3 next in the confirmed sequence, NOT yet authorized.** Confirm with Trace at session start per Sprint Discipline |
+| E-2 (Community Board) | — | **SHIPPED + QA-CLOSED** (PR #130; AC10 fix PR #133; decisions #161/#162/#165/#166/#167/#168) |
+| E-3 (Resource Library, structure only) | — | **SHIPPED** (PR #136, `ada9ab8`; gate-fix commit `4579b02`, migration `20260714270000`; decisions #159/#170/#171). Content unproduced by design. **Deploy-preview UI walkthrough still outstanding — see next row** |
+| **Deploy-preview QA for PR #136** | Trace, then Coder | **Never performed — carry forward.** AC1 (UI render), AC2/AC4/AC6 (via UI), AC8 (feed render), AC9 (390px) all require **Trace to sign into the deploy-preview host first**, per the E-3 brief. All security-critical ACs (**AC3, AC5, AC6, AC7, AC10**) were proven live-DB pre-merge (17→20 probes). This is a **UI-render walkthrough gap, not an authorization gap.** Flagged `residual_risk: accepted` in decision #171 — carry until closed |
+| **Rep Command Center feature brief** | Trace to dispatch | **Drafted + Trace-confirmed from a prior session, NOT yet sent to Coder.** §4D migrations + `/rep-command-center` UI. State as-is; not implied to be next |
+| Session E next module | Trace authorization per #159 | E-3 was module 3 of 4. Next *would be* **E-4 (Email & SMS Template Gallery, §4C.5)**, then E-5 Events & Invites, E-6 Objection playbook. **Not confirmed — confirm current module with Trace at session start** (Sprint Discipline) |
 | E-5 blocked on a Trace call | Trace | Webinar registration source (Calendly vs. Zoom webhook) still undecided — flagged in #159, not needed until E-5 |
-| Rep provisioning | Trace | **Two real rep seats now exist** (QA Rep A/B, #161) — this is a *fixture*, not a sales-team rollout. Real reps are still unprovisioned |
+| Dashboard service-role RLS bypass (`src/lib/dashboard/data.ts`) | future Coder | Unchanged. Note E-3's resource feed **is** role-scoped, but the existing proposal-engagement feed remains org-wide — that org-wide behaviour is the accepted **Model A** precedent (#170), not a bug to "fix" without a decision |
+| QA/deploy-preview credential isolation (#165) | Trace, then Coder | Accepted residual risk, on the backlog. Separate preview Supabase project, or a QA designation with zero production RLS grants. **Revisit before any board/library carries real customer/deal-identifying content at scale** |
+| `preview-login.ts` decision citation | future Coder, opportunistic | Docstring still cites **#146**; correct origin is **#165**. Fix opportunistically only if that file is touched for unrelated reasons — not worth its own PR. (PR #136 did not touch it.) |
+| Rep provisioning | Trace | Two real rep seats exist (QA Rep A/B, #161) — a *fixture*, not a sales-team rollout. Real reps still unprovisioned |
 | AC5 forward-going state population (E-0b) | future QA | Still code/build-verified only, not runtime-exercised |
-| Dashboard service-role RLS bypass (`src/lib/dashboard/data.ts`) | future Coder | Unchanged |
-| No rep INSERT/UPDATE policy on `prospects` | future Coder | Unchanged. **Remember `prospects` is on column-level UPDATE grants** (E-1's `funded_won_at` lockdown): any new rep-write policy needs its columns explicitly granted, and must **not** include `funded_won_at` |
+| No rep INSERT/UPDATE policy on `prospects` | future Coder | Unchanged. **`prospects` is on column-level UPDATE grants** (E-1's `funded_won_at` lockdown): any new rep-write policy needs its columns explicitly granted, and must **not** include `funded_won_at` |
 | No DB-level check `assigned_rep_id` → `designation='rep'` | future Coder, low priority | Unchanged |
 | TopBar global search — nullable-status exposure | future Coder | Unchanged |
 | Legacy ArcGIS sold-territory import (#141) | Trace | Unchanged, deferred |
@@ -165,19 +157,18 @@ that caught AC10 in the first place.
 | Demo/test data cleanup | future Coder | Unchanged |
 | Box Sign / Territory License Agreement (#99-legal) | Bruce / counsel, then Coder | Unchanged, paused externally |
 
-## Carried forward from v2.49 — still true, do not "fix" these
+## Carried forward — still true, do not "fix" these
 
 - **Retired QA Rep A UUID (`de190bae-…`) still appears in two files on purpose**: the
-  already-applied migration `20260714170000_e2_qa_rep_provisioning.sql`, and the corresponding
-  assertion in `e2-community-board.test.ts`. Applied migrations are immutable history. A Rule
-  0-E-style grep **will keep hitting these two — that is expected, not contamination.** The live
-  database holds **zero** references to it. Current QA Rep A UUID is
-  `6ef1bb8b-e133-4861-b176-bed75b5f206a`; QA Rep B was unaffected.
+  already-applied migration `20260714170000_e2_qa_rep_provisioning.sql`, and the
+  corresponding assertion in `e2-community-board.test.ts`. Applied migrations are immutable
+  history. A Rule 0-E-style grep **will keep hitting these two — that is expected, not
+  contamination.** The live database holds **zero** references to it. Current QA Rep A UUID
+  is `6ef1bb8b-e133-4861-b176-bed75b5f206a`; QA Rep B was unaffected.
 - **NIP remains fully off-limits** (`kjweckggegifjmmqccul` / `ghmdnetwork.netlify.app`) — see
-  CLAUDE.md "NIP Separation" and the Hard Boundaries table in `docs/AGENTS.md`. Decision **#163**
-  authorized one *separately-scoped* cross-project NIP session; it does **not** relax the standing
-  boundary, and it is the likely origin of the wrong-repo Coder session that Rules 0 / 0-C caught
-  and stopped with zero writes last cycle.
+  CLAUDE.md "NIP Separation" and the Hard Boundaries table in `docs/AGENTS.md`. Decision
+  **#163** authorized one *separately-scoped* cross-project NIP session; it does **not**
+  relax the standing boundary.
 
 ## Note on `AUTH_GATE_DISABLED`
 
