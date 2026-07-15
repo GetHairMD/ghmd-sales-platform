@@ -128,6 +128,27 @@ describe('mobile bottom bar scrolls the ACTIVE tab into view (E-2 QA, AC10)', ()
   })
 })
 
+describe('Resources / Field Kit is a shared route for every role (E-3, spec §4C.3)', () => {
+  it('reps AND executives AND unauthenticated viewers all see Resources', () => {
+    for (const d of ['executive', 'rep', null] as const) {
+      const item = navItemsFor(d).find((i) => i.label === 'Resources')
+      expect(item, `Resources must be visible for ${d}`).toBeDefined()
+      expect(item?.href, 'Resources is a live route').toBe('/resources')
+      expect(item?.execOnly, 'Resources is a shared surface, not exec-only').toBeFalsy()
+    }
+  })
+
+  it('appears on the mobile bottom bar (live, non-exec route)', () => {
+    expect(labels(BOTTOM_TABS)).toContain('Resources')
+  })
+
+  it('sits between Community Board and Insights in the spec §4C order', () => {
+    const order = labels(NAV_ITEMS)
+    expect(order.indexOf('Resources')).toBeGreaterThan(order.indexOf('Community Board'))
+    expect(order.indexOf('Resources')).toBeLessThan(order.indexOf('Insights'))
+  })
+})
+
 describe('National Map is visible to every role (decision #121/#122/#132)', () => {
   it('reps AND executives AND unauthenticated viewers all see National Map', () => {
     // No execOnly flag → visible to everyone via navItemsFor, same as the other

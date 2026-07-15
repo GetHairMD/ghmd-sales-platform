@@ -12,11 +12,16 @@ import {
   aggregateEngagement,
   computeEngagementFeed,
   computeHotLeads,
+  computeResourceFeed,
   type FeedItem,
   type HotLead,
   type ProposalEventRow,
   type ProposalSessionRow,
   type ProspectDisplay,
+  type ResourceOpenEventRow,
+  type ResourceProspect,
+  type ResourceShareLink,
+  type ResourceViewer,
 } from './triggers'
 import type { TimelineEventRow, TimelineSessionRow } from '../proposal/timeline'
 
@@ -43,18 +48,44 @@ interface ProspectRow {
   practice_name: string | null
   stage: number | null
   deal_status: string | null
+  assigned_rep_id: string | null
 }
 
-export async function getDashboardData(nowMs: number = Date.now()): Promise<DashboardData> {
+/**
+ * @param viewer  who is looking — drives the Resource Library feed's rep-own vs exec-all
+ *   split (AC8a/AC8b). Defaults to a null viewer (no resource items), so any caller that
+ *   forgets to pass it fails closed rather than leaking every rep's opens.
+ */
+export async function getDashboardData(
+  viewer: ResourceViewer = { designation: null, userId: null },
+  nowMs: number = Date.now(),
+): Promise<DashboardData> {
   const db = createServiceClient()
 
-  const [{ data: prospects }, { data: events }, { data: sessions }, { data: proposals }] =
-    await Promise.all([
-      db.from('prospects').select('id, full_name, practice_name, stage, deal_status').eq('archived', false),
-      db.from('proposal_events').select('prospect_id, event_type, payload, created_at'),
-      db.from('proposal_sessions').select('prospect_id, started_at'),
-      db.from('proposals').select('prospect_id'),
-    ])
+  const [
+    { data: prospects },
+    { data: events },
+    { data: sessions },
+    { data: proposals },
+    { data: resourceEvents },
+    { data: resourceShares },
+    { data: resourceAssets },
+    { data: internalUsers },
+  ] = await Promise.all([
+    db
+      .from('prospects')
+      .select('id, full_name, practice_name, stage, deal_status, assigned_rep_id')
+      .eq('archived', false),
+    db.from('proposal_events').select('prospect_id, event_type, payload, created_at'),
+    db.from('proposal_sessions').select('prospect_id, started_at'),
+    db.from('proposals').select('prospect_id'),
+    db.from('resource_engagement_events').select('share_id, created_at'),
+    db.from('resource_shares').select('id, rep_id, prospect_id, asset_id'),
+    db.from('resource_assets').select('id, title'),
+    // Service-role read bypasses internal_users' self_read RLS, so exec attribution can
+    // resolve any rep's name directly — no SECURITY DEFINER helper needed here.
+    db.from('internal_users').select('user_id, full_name'),
+  ])
 
   const rows = (prospects ?? []) as ProspectRow[]
 
@@ -92,12 +123,48 @@ export async function getDashboardData(nowMs: number = Date.now()): Promise<Dash
     (p) => p.stage != null && p.stage >= STAGE.FUNDED_WON && p.deal_status !== 'lost',
   ).length
 
+  // Resource Library feed contribution (E-3, AC8a/AC8b). Role-scoped in computeResourceFeed:
+  // a rep sees opens on their OWN prospects only; an executive sees all, rep-attributed.
+  // Lost prospects are excluded here too (same as the proposal heat surfaces).
+  const prospectById: Record<string, ResourceProspect> = {}
+  for (const p of rows) {
+    if (p.deal_status === 'lost') continue
+    prospectById[p.id] = {
+      who: p.practice_name ? `${p.full_name} · ${p.practice_name}` : p.full_name,
+      assignedRepId: p.assigned_rep_id,
+    }
+  }
+  const assetTitleById: Record<string, string> = {}
+  for (const a of (resourceAssets ?? []) as { id: string; title: string }[]) {
+    assetTitleById[a.id] = a.title
+  }
+  const repNameById: Record<string, string> = {}
+  for (const u of (internalUsers ?? []) as { user_id: string; full_name: string | null }[]) {
+    if (u.full_name) repNameById[u.user_id] = u.full_name
+  }
+
+  const resourceFeed = computeResourceFeed({
+    events: (resourceEvents ?? []) as ResourceOpenEventRow[],
+    shares: (resourceShares ?? []) as ResourceShareLink[],
+    assetTitleById,
+    prospectById,
+    repNameById,
+    viewer,
+  })
+
+  // Merge the proposal-engagement and resource-open items into one heat-sorted feed.
+  // computeEngagementFeed is asked for a generous slice so the merge is fair, then the
+  // combined list is re-sorted and capped to the display limit.
+  const feed = [...computeEngagementFeed(engagements, nowMs, 24), ...resourceFeed]
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 12)
+
   return {
     stageCounts,
     totalActive: rows.filter((p) => p.deal_status !== 'lost').length,
     activeProposals,
     wonCount,
-    feed: computeEngagementFeed(engagements, nowMs),
+    feed,
     hotLeads: computeHotLeads(engagements, nowMs),
   }
 }

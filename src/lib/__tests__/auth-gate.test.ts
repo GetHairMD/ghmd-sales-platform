@@ -52,6 +52,7 @@ describe('isPublicPath — unauthenticated-reachable prefixes', () => {
     '/login/',
     '/proposals/abc-123',
     '/p/some-slug',
+    '/r/deadbeefcafe', // E-3 tracked-link route — a prospect opens it unauthenticated
   ]
   for (const p of publicPaths) {
     it(`treats ${p} as public`, () => {
@@ -63,6 +64,7 @@ describe('isPublicPath — unauthenticated-reachable prefixes', () => {
     '/',
     '/dashboard',
     '/proposals', // bare index is REP-facing — must stay gated
+    '/resources', // REP-facing Field Kit index — the trailing-slash /r/ must NOT match it
     '/pipeline',
     '/territories/abc',
     '/prospects',

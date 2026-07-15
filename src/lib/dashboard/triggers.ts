@@ -258,8 +258,11 @@ export interface FeedItem {
   prospectId: string
   who: string
   priority: FeedPriority
-  /** Always ENGAGEMENT for this feed (spec §4B category tag). */
-  category: 'ENGAGEMENT'
+  /**
+   * Feed category tag (spec §4B). ENGAGEMENT = proposal-engagement signals;
+   * RESOURCE = Resource Library tracked-link opens (E-3). Both heat-sort into one feed.
+   */
+  category: 'ENGAGEMENT' | 'RESOURCE'
   action: string
   weight: number
 }
@@ -307,6 +310,101 @@ export function computeEngagementFeed(
       })
     }
   }
+  return items.sort((a, b) => b.weight - a.weight).slice(0, limit)
+}
+
+// ── Resource Library engagement (E-3, spec §4C.3) ────────────────────────────
+
+/** A resource_engagement_events (link_opened) row projection. */
+export interface ResourceOpenEventRow {
+  share_id: string
+  created_at: string
+}
+
+/** A resource_shares row projection (the link a rep generated for a prospect). */
+export interface ResourceShareLink {
+  id: string
+  rep_id: string
+  prospect_id: string
+  asset_id: string
+}
+
+/** Who is looking at the dashboard — drives the rep-own vs exec-all feed split. */
+export interface ResourceViewer {
+  designation: 'executive' | 'rep' | null
+  userId: string | null
+}
+
+/** Prospect display + ownership, keyed by prospect id, for resource-feed scoping. */
+export interface ResourceProspect {
+  who: string
+  assignedRepId: string | null
+}
+
+/** Heat weight for a resource open: a single open is a soft signal, repeated opens
+ *  (the spec's "watched the LUX testimonial twice") escalate, capped below a financing
+ *  CTA click (100) so proposal intent still tops the feed. */
+function resourceWeight(opens: number): number {
+  return Math.min(90, 45 + 20 * Math.max(0, opens - 1))
+}
+
+/**
+ * The Resource Library contribution to the dashboard feed — TWO distinct renders of the
+ * SAME underlying data (spec §4C.3, AC8a/AC8b), chosen by the viewer:
+ *
+ *   • REP  → only opens on prospects assigned to that rep (assignedRepId === viewer.userId),
+ *            same rep-scoping as every other rep surface. No rep name (it is their own feed).
+ *   • EXEC → ALL reps' shares, fully attributed with the SHARING rep's name.
+ *
+ * A null viewer (unauthenticated / not on the allow-list) yields nothing — fail closed.
+ * One item per share (asset × prospect) that has at least one open, heat-sorted with the
+ * proposal-engagement items by the caller.
+ */
+export function computeResourceFeed(args: {
+  events: ResourceOpenEventRow[]
+  shares: ResourceShareLink[]
+  assetTitleById: Record<string, string>
+  prospectById: Record<string, ResourceProspect>
+  repNameById: Record<string, string>
+  viewer: ResourceViewer
+  limit?: number
+}): FeedItem[] {
+  const { events, shares, assetTitleById, prospectById, repNameById, viewer, limit = 12 } = args
+  if (viewer.designation === null) return [] // fail closed — no viewer, no rows
+
+  const opensByShare = new Map<string, number>()
+  for (const ev of events) {
+    opensByShare.set(ev.share_id, (opensByShare.get(ev.share_id) ?? 0) + 1)
+  }
+
+  const isExec = viewer.designation === 'executive'
+  const items: FeedItem[] = []
+
+  for (const share of shares) {
+    const opens = opensByShare.get(share.id) ?? 0
+    if (opens === 0) continue
+
+    const prospect = prospectById[share.prospect_id]
+    if (!prospect) continue // unknown/lost prospect — not on a heat surface
+
+    // Rep sees only their own prospects' opens; exec sees all.
+    if (!isExec && prospect.assignedRepId !== viewer.userId) continue
+
+    const title = assetTitleById[share.asset_id] ?? 'a resource'
+    const times = opens > 1 ? ` ${opens} times` : ''
+    const attribution = isExec ? ` · shared by ${repNameById[share.rep_id] ?? 'a rep'}` : ''
+    const weight = resourceWeight(opens)
+
+    items.push({
+      prospectId: share.prospect_id,
+      who: prospect.who,
+      priority: priorityFor(weight),
+      category: 'RESOURCE',
+      action: `opened "${title}"${times}${attribution}`,
+      weight,
+    })
+  }
+
   return items.sort((a, b) => b.weight - a.weight).slice(0, limit)
 }
 
