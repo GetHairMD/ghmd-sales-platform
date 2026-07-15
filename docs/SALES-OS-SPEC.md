@@ -64,6 +64,38 @@ Beyond proposals, the platform is the reps' operating system. Nav grows to: Dash
 6. **Events & Invites (P1).** An Events module listing upcoming GHMD webinars and conferences (title, date, registration link, one-line pitch). From any prospect record or the event card: **"Invite prospect"** → pre-filled tracked invite (email/SMS template above) → RSVP/registration status writes back to the prospect timeline and fires a dashboard feed item ("Dr. Hausauer registered for the July webinar"). Event attendance becomes a pipeline signal, not just marketing. Webinar registration source: Calendly or Zoom registration webhook — decide at build.
 4. **Demo Mode / "Show the Platform" (P2 — Coming Soon in nav).** NIP already runs a demo environment with simulated data and a demo login; weaponize it for sales. A guided, rep-led screen-share tour (≈5 scripted stops: Dashboard → Clinic Model → Patient Trainer → Prep Tool → Live Training) that lets the prospect *feel* network membership — the sophistication is the pitch. Guardrails: demo tenant only, "Simulated data" banner stays, **no prospect-facing credentials** (rep-driven screen share only), no live practice data ever shown. Positioning decision for a future session; hold as backlog.
 
+## 4D. Rep Command Center (executive-only, fully concealed from reps)
+**Purpose:** single view for executives to see who's doing what, how they're performing, and how money is actually moving — including negotiated exceptions to list price. Not visible to reps in any form — not in nav, not in DOM, not as a distinguishable 404.
+
+**Nav & routing:** executive-only nav item, gated `execOnly` in nav AND every backing API route — same base pattern as Territory Scouting (§4B item 7), with one deliberate divergence: Territory Scouting returns 403 to unauthorized callers; Rep Command Center returns **404, indistinguishable from the site's real 404 page**, because the requirement here is concealment of existence, not just access denial. The nav item must be absent from the rendered response for a non-executive session, not merely CSS-hidden — a rep with devtools open should find nothing.
+
+**Scope:** reps only (`internal_users.designation = 'rep'`). Executives are graders here, not graded.
+
+**Metrics per rep:**
+- Gross (count of Funded/Won closes × $179,000 list price) vs. **Net** (sum of actual `deals.territory_price` on Funded/Won closes — reflects any authorized discount)
+- Discount frequency (% of closes below list) with breakdown by the four reason categories
+- Average deal-cycle time (`prospects.created_at` → `funded_won_at`)
+- Closing rate — TWO variants, not one: overall (won ÷ all assigned) and stage-qualified (won ÷ reached Proposal Sent). Different management questions.
+- Engagement — proposal engagement (existing `proposal_events`) + Resource Library share activity once E-3 ships (soft dependency — render as unavailable, not broken, if E-3 hasn't shipped yet)
+- Self-score vs. exec-score delta (`call_scores` vs. `rep_call_grades` — both exist, currently both empty; this view is ready the moment either gets populated, including by the Phase-2 Whisper/Claude call-scoring pipeline referenced in CLAUDE.md)
+- Deal-health mix (active/stalled/lost, from `prospects.deal_status`)
+- Funding-prequal skip rate (`prospects.skipped_funding_prequal`) — feeds the soft-funding-gate revisit trigger already noted in `docs/AGENTS.md`
+- Speed-to-lead (approximate — no explicit assignment timestamp exists yet; Coder to use best available proxy, e.g. first `outreach_touches` row after `prospects.created_at`, and flag the approximation in code comments)
+- Tenure (rep's `internal_users.created_at` as start-date proxy)
+- Territory-quality-normalized deal size (deal price relative to the territory's addressable-market figure — a $179K close in a thin territory reads differently than the same number in a saturated one)
+- Full per-deal drill-down via the existing `SlideOverDetailPanel` primitive
+- **"Management tips" — explicit backlog, not built this session.** No concrete spec exists for what these should say; scope when there is one.
+
+**Data model additions:**
+- `deals.discount_reason` — CHECK-constrained: `speed_to_close | kol_political_sway | strategic_deal | multi_territory | other`
+- `deals.discount_authorized_by` — uuid FK `auth.users`
+- `CHECK (territory_price >= 179000 OR (discount_reason IS NOT NULL AND discount_authorized_by IS NOT NULL))` — a discounted deal without both fields fails at the database.
+- New table `discount_authorizing_designations` (`designation` text PK, `added_by`, `added_at`) — seeded with `'executive'`. Trace directs Coder to add/remove designations; not a UI-managed CRUD screen this session, matches the existing manual-provisioning discipline (Hard Rule 6).
+- Validation trigger on `deals` insert/update: when `discount_authorized_by` is set, look up that user's `internal_users.designation` and confirm it's present in `discount_authorizing_designations`; reject if not. A CHECK constraint cannot do this cross-table lookup — must be a trigger, same class as `stamp_community_board_review()`.
+- `discount_reason` / `discount_authorized_by` are executive-write-only columns, same lockdown pattern as `funded_won_at` (E-1).
+
+**Governance:** discounting is authorized commercial pricing discretion on licensee deals, formalized via `ops.decision_log` **decision #169** (adopted 2026-07-14, `legal_flag: false`, `residual_risk: none`). Not a compliance exception — Trace-confirmed as ordinary commercial discretion, distinct in kind from the standing ⚠ earnings-claims flag in §10, which remains open and unrelated.
+
 ## 5. Data Model — template variables (from red-circled screenshot audit)
 Add/confirm on `prospects` (or a `proposals` table keyed to prospect):
 
