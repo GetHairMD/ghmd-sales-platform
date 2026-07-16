@@ -2,7 +2,8 @@
 
 Adversarial second review for high-stakes PRs. Coder finishes a PR and writes a
 self-justification (existing practice); for changes in the trigger list, an
-independent OpenAI ("GPT-5") read is taken and compared against Coder's own risk
+independent OpenAI second-opinion read (model set by `OPENAI_MODEL`, currently
+`gpt-5.6-sol`) is taken and compared against Coder's own risk
 disposition. Disagreement — or any accepted/unresolved risk from either side —
 escalates to Trace before merge. Everything else passes silently.
 
@@ -157,7 +158,7 @@ provisioned). Both workflows are gated on repo variable
 | Variable | Value |
 |----------|-------|
 | `SECOND_OPINION_GATE_ENABLED` | `true` to activate. |
-| `OPENAI_MODEL` | optional; defaults to `gpt-5`. |
+| `OPENAI_MODEL` | optional; defaults to `gpt-5.6-sol`. Passed straight through to the API — no allow-list, so the variable alone selects the model. |
 | `GATE_TRACE_HANDLE` | optional; defaults to `traceh-ghmd`. |
 
 ## Step 7 (done) — required status check

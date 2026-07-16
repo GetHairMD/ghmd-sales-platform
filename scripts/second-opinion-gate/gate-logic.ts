@@ -2,7 +2,7 @@
  * Second-Opinion Gate — pure logic (A1–A3 of the design doc).
  *
  * This module has NO side effects: no network, no git, no process exit.
- * It holds the GPT-5 system prompt (A1), the PR-block + GPT-output parsers,
+ * It holds the second-opinion system prompt (A1), the PR-block + model-output parsers,
  * and the asymmetric-agreement decision function (A3). The thin runners
  * (run-gate.ts / run-sweep.ts) do all I/O and call into here so the logic
  * is unit-testable (see __tests__/gate-logic.test.ts).
@@ -236,7 +236,7 @@ export function blockIsMalformed(block: GateBlock): boolean {
   return block.category === null || block.spec.trim().length === 0
 }
 
-/** Parse the structured GPT-5 response (A1 STEP 3 format). */
+/** Parse the structured second-opinion response (A1 STEP 3 format). */
 export function parseGptOutput(text: string | null | undefined): GptVerdict {
   const get = (key: string): string => {
     if (!text) return ''
@@ -421,7 +421,7 @@ export function decideDisposition(input: DecideInput): Disposition {
     }
   }
   if (gptResidualRisk === 'unresolved') {
-    return { escalate: true, reason: 'gpt-block', human: 'GPT-5 returned BLOCK.' }
+    return { escalate: true, reason: 'gpt-block', human: 'The second opinion returned BLOCK.' }
   }
   if (coderResidualRisk === 'accepted' || coderResidualRisk === 'unresolved') {
     return {
@@ -434,7 +434,7 @@ export function decideDisposition(input: DecideInput): Disposition {
     return {
       escalate: true,
       reason: 'gpt-accepted',
-      human: 'GPT-5 returned ACCEPTABLE_WITH_RATIONALE (any accepted residual risk triggers review).',
+      human: 'The second opinion returned ACCEPTABLE_WITH_RATIONALE (any accepted residual risk triggers review).',
     }
   }
   if (gptResidualRisk === 'none' && coderResidualRisk === 'none') {
@@ -472,7 +472,7 @@ export function buildEscalationComment(args: {
     '',
     `WHAT THIS IS TRYING TO DO: ${whatItDoes}`,
     `WHAT CODER SAYS: ${coderSays}`,
-    `WHAT GPT-5 FOUND: ${gptFound}`,
+    `WHAT THE SECOND OPINION FOUND: ${gptFound}`,
     `WHAT'S AT STAKE IF THE CONCERN IS RIGHT: ${stakes}`,
     '',
     `Trigger: \`${disposition.reason}\` — ${disposition.human}`,

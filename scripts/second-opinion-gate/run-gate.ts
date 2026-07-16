@@ -14,7 +14,9 @@
  *   GITHUB_REPOSITORY   - "owner/repo"
  *   GITHUB_EVENT_PATH   - path to the pull_request event payload JSON
  *   OPENAI_API_KEY      - GitHub Actions repo secret
- *   OPENAI_MODEL        - optional; defaults to "gpt-5"
+ *   OPENAI_MODEL        - optional; defaults to "gpt-5.6-sol". The value is passed
+ *                         straight through to the API `model` field — no allow-list,
+ *                         so the repo variable selects the model with no code change.
  *   GATE_TRACE_HANDLE   - GitHub handle to tag; defaults to "traceh-ghmd"
  *   SUPABASE_URL        - Sales project URL (declaration-integrity lookup)
  *   SUPABASE_ANON_KEY   - anon/publishable key; the only role that can EXECUTE
@@ -35,7 +37,7 @@ import {
 } from './gate-logic'
 
 const MAX_DIFF_CHARS = 200_000 // ~50k tokens; beyond this we fail closed rather than review a partial diff
-const OPENAI_TIMEOUT_MS = 240_000 // GPT-5 reasoning latency exceeds 90s on non-trivial diffs
+const OPENAI_TIMEOUT_MS = 240_000 // reasoning-model latency (e.g. sol 5.6) exceeds 90s on non-trivial diffs
 const RPC_TIMEOUT_MS = 30_000 // declaration-integrity lookup; fail closed if the DB is unreachable
 
 function env(name: string, fallback?: string): string {
@@ -145,7 +147,7 @@ async function getSecondOpinion(spec: string, diff: string): Promise<GptVerdict 
     console.error('OPENAI_API_KEY not set — treating as gpt-unavailable (fail closed).')
     return null
   }
-  const model = env('OPENAI_MODEL', 'gpt-5')
+  const model = env('OPENAI_MODEL', 'gpt-5.6-sol')
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS)
   try {
@@ -154,7 +156,8 @@ async function getSecondOpinion(spec: string, diff: string): Promise<GptVerdict 
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        // No temperature override: GPT-5-class models only support the default (1).
+        // No temperature override: current reasoning models (sol 5.6 / gpt-5-class)
+        // only support the default (1); sending any other value is rejected.
         model,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
@@ -173,7 +176,7 @@ async function getSecondOpinion(spec: string, diff: string): Promise<GptVerdict 
       return null
     }
     // Auditability: the second opinion is part of the gate's reasoning record.
-    console.log(`----- GPT-5 raw response (model ${model}) -----\n${content}\n----- end GPT-5 response -----`)
+    console.log(`----- second-opinion raw response (model ${model}) -----\n${content}\n----- end second-opinion response -----`)
     const parsed = parseGptOutput(content)
     if (parsed.residualRisk === null) {
       console.error('OpenAI output malformed — could not parse RESIDUAL_RISK/VERDICT.')
