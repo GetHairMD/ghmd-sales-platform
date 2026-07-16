@@ -99,39 +99,29 @@ export async function setTerritoryPrice(
   }
   // At or above list: no discount, so both discount columns are cleared.
 
-  // ── Write via service-role (discount + territory_price columns are client-locked) ──
-  // Reuses the `service` client created for the auth check above.
-  const patch = {
-    territory_price: price,
-    discount_reason: discountReason,
-    // Self-stamped: the authorizer is the calling executive, never client-supplied.
-    discount_authorized_by: belowList ? user.id : null,
-  }
-
-  // A prospect is a durable CUSTOMER record that can own several deals (repeat territory
-  // purchases). This action must NEVER silently overwrite the wrong one:
-  //   • 0 deals → INSERT the first.
-  //   • exactly 1 deal → UPDATE it (correcting the customer's single deal — today's case).
-  //   • ≥2 deals → REFUSE. There is no unambiguous "the" deal to correct, and picking the
-  //     latest would silently destroy another territory's price/discount history. The
-  //     follow-up feature adds explicit per-deal targeting (correct-by-id) and an
-  //     add-a-new-deal mode; until then, fail closed rather than lose data.
-  const { data: existingDeals, error: readErr } = await service
-    .from('deals')
-    .select('id')
-    .eq('prospect_id', prospectId)
-    .order('created_at', { ascending: true })
-  if (readErr) return { ok: false, error: readErr.message }
-
-  if (!existingDeals || existingDeals.length === 0) {
-    const { error: insErr } = await service
-      .from('deals')
-      .insert({ prospect_id: prospectId, ...patch })
-    if (insErr) return { ok: false, error: insErr.message }
-  } else if (existingDeals.length === 1) {
-    const { error: updErr } = await service.from('deals').update(patch).eq('id', existingDeals[0].id)
-    if (updErr) return { ok: false, error: updErr.message }
-  } else {
+  // ── Atomic write via the set_deal_price() RPC (migration 20260716200000) ─────
+  // The write goes through set_deal_price() rather than an inline select+insert/update so
+  // it takes a FOR UPDATE lock on the SAME prospects row as ensure_priced_deal() — the two
+  // functions therefore serialize against each other, closing the cross-function race where
+  // saving a negotiated price and closing the same deal could both insert a first deal
+  // (Round 7; Round 6's own-call-only reasoning missed this). SECURITY DEFINER lets it write
+  // the client-locked columns (territory_price / discount pair); it is EXECUTE-granted to
+  // service_role only, so only this already-authorization-gated action can reach it.
+  //
+  // The 0→insert / 1→update / ≥2→'multiple' branch is unchanged — it moved into the function
+  // behind the lock. discount_authorized_by is still self-stamped from the calling user
+  // (never client input); the validate_deal_discount_authorization() trigger still validates
+  // it on the write.
+  const { data: status, error: rpcErr } = await service.rpc('set_deal_price', {
+    p_prospect_id: prospectId,
+    p_territory_price: price,
+    p_discount_reason: discountReason,
+    p_discount_authorized_by: belowList ? user.id : null,
+  })
+  if (rpcErr) return { ok: false, error: rpcErr.message }
+  if (status === 'multiple') {
+    // ≥2 deals: no unambiguous "the" deal to correct — refuse rather than overwrite one and
+    // lose another territory's price/discount history. Per-deal targeting is the follow-up.
     return {
       ok: false,
       error:

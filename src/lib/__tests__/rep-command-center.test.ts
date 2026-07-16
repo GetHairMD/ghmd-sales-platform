@@ -620,33 +620,66 @@ describe('§4D concealment boundary', () => {
 // 0/1/≥2-deal branches is done in the PR's adversarial pass.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('setTerritoryPrice — non-destructive on repeat customers', () => {
+describe('setTerritoryPrice — atomic, registry-gated, non-destructive', () => {
   const PRICE_ACTIONS = 'src/app/(app)/prospects/[id]/price-actions.ts'
   const src = () => codeOnly(read(PRICE_ACTIONS))
 
-  it('reads ALL of a prospect\'s deals (no latest-only .maybeSingle collapse on the write target)', () => {
+  it('writes through the set_deal_price RPC, not an inline deals select+insert/update', () => {
     const s = src()
-    // The write-target read must NOT reduce to a single row and then blindly update it.
-    expect(s).not.toMatch(/from\('deals'\)[\s\S]{0,160}maybeSingle\(\)/)
-    expect(s).toContain("existingDeals")
-  })
-
-  it('branches 0→insert, 1→update, ≥2→refuse (never silently overwrites an unspecified deal)', () => {
-    const s = src()
-    expect(s).toContain('existingDeals.length === 0')
-    expect(s).toContain('existingDeals.length === 1')
-    // The ≥2 case returns an error rather than writing.
+    // The atomic RPC (shared prospects FOR UPDATE lock) replaces the racy inline write.
+    expect(s).toContain("rpc('set_deal_price'")
+    expect(s).not.toMatch(/from\('deals'\)\s*\.(insert|update|select)/)
+    // ≥2 → the RPC returns 'multiple' and the action surfaces the existing message.
+    expect(s).toMatch(/status === 'multiple'/)
     expect(s).toMatch(/multiple deals/i)
   })
 
   it('gates on discount_authorizing_designations membership (not a hardcoded executive) and self-stamps', () => {
     const s = src()
-    // Registry-driven gate: read the caller's designation and confirm it's in the registry.
+    // Registry-driven gate stays exactly where it is (app-layer), unchanged by Round 7.
     expect(s).toContain("from('discount_authorizing_designations')")
     expect(s).toContain("from('internal_users')")
     expect(s).not.toContain('viewerIsExecutive')
     // Authorizer is still self-stamped from the calling user, never client input.
     expect(s).toMatch(/discount_authorized_by:\s*belowList \? user\.id : null/)
+  })
+})
+
+describe('set_deal_price migration — shared-lock, definer-scoped, client-unreachable', () => {
+  function migrationPathR7(): string {
+    const dir = 'supabase/migrations'
+    const hit = readdirSync(join(process.cwd(), dir)).find((f) =>
+      f.endsWith('_set_deal_price_atomic.sql'),
+    )
+    if (!hit) throw new Error('set_deal_price_atomic migration not found')
+    return `${dir}/${hit}`
+  }
+  const sql = () => sqlCodeOnly(read(migrationPathR7()))
+
+  it('locks the SAME prospects row FOR UPDATE as ensure_priced_deal (cross-function serialization)', () => {
+    expect(sql()).toMatch(/from public\.prospects\s+where id = p_prospect_id\s+for update/i)
+  })
+
+  it('is SECURITY DEFINER, client-unreachable (EXECUTE to service_role only)', () => {
+    const s = sql()
+    expect(s).toContain('security definer')
+    expect(s).toMatch(/set search_path = ''/)
+    expect(s).toContain(
+      'revoke all on function public.set_deal_price(uuid, numeric, text, uuid) from public, anon, authenticated',
+    )
+    expect(s).toContain(
+      'grant execute on function public.set_deal_price(uuid, numeric, text, uuid) to service_role',
+    )
+    // Must NOT be reachable by a client role — that would reopen the discount-column write path.
+    expect(s).not.toMatch(/grant execute[\s\S]*to authenticated/i)
+  })
+
+  it('keeps the 0→insert / 1→update / ≥2→multiple branch and thresholds', () => {
+    const s = sql()
+    expect(s).toMatch(/array_length\(v_ids, 1\) = 1/)
+    expect(s).toMatch(/return 'inserted'/)
+    expect(s).toMatch(/return 'updated'/)
+    expect(s).toMatch(/return 'multiple'/)
   })
 })
 
