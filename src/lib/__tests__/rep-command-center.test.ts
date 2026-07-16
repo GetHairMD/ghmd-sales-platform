@@ -484,6 +484,21 @@ describe('§4D concealment boundary', () => {
     expect(src).toMatch(/generateMetadata[\s\S]*?notFound\(\)/)
   })
 
+  it('middleware rewrites non-exec /rep-command-center to an unmatched path (byte-identical 404)', () => {
+    // The page's notFound() alone renders Next's DYNAMIC error shell, which differs
+    // byte-wise from the static /_not-found document an unmatched URL serves (measured
+    // on deploy-preview-139: 9008B vs 8195B). The middleware rewrite is what makes the
+    // concealed route serve the EXACT same 404 asset — do not remove it.
+    const src = codeOnly(read('src/middleware.ts'))
+    expect(src).toMatch(/pathname === '\/rep-command-center'/)
+    expect(src).toMatch(/startsWith\('\/rep-command-center\/'\)/)
+    expect(src).toMatch(/designation'\)/) // self_read designation lookup
+    expect(src).toMatch(/NextResponse\.rewrite/)
+    // Fail closed: the rewrite fires unless designation === 'executive'.
+    expect(src).toMatch(/isExecutive = data\?\.designation === 'executive'/)
+    expect(src).not.toMatch(/rep-command-center[\s\S]{0,400}redirect\(/)
+  })
+
   it('no API routes exist under rep-command-center (404-by-construction)', () => {
     const apiDir = join(process.cwd(), 'src/app/api')
     const hits: string[] = []
