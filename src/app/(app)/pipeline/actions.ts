@@ -9,7 +9,6 @@ import {
   FIRST_STAGE,
   LAST_STAGE,
 } from '@/lib/pipeline-stages'
-import { TERRITORY_STANDARD_PRICE } from '@/components/proposal/constants'
 
 export interface MoveResult {
   ok: boolean
@@ -101,29 +100,23 @@ export async function moveProspectStage(
   // ── No Funded/Won without a recorded price (Trace's invariant) ──────────────
   // stamp_prospect_funded_won() REJECTS the stage→Funded/Won crossing unless a priced
   // deals row exists (migration 20260716140000). Record the standard price DELIBERATELY,
-  // here in the app layer, when a prospect first crosses into Funded/Won with no deal —
-  // never as a silent trigger insert (a price should be recorded by an actor, not just
-  // materialize). An executive who negotiated a discount created the deal at the
-  // negotiated price earlier via the discount-entry action, so we auto-fill ONLY when no
-  // deal exists and never overwrite it. This runs before the stage update below, so the
-  // trigger's guard is satisfied by the time it fires.
+  // when a prospect first crosses into Funded/Won with no deal — never as a silent trigger
+  // insert. An executive who negotiated a discount created the deal at the negotiated price
+  // earlier via the discount-entry action, so we auto-fill ONLY when no deal exists and
+  // never overwrite it.
   //
-  // Not wrapped in a DB transaction with the stage update (two PostgREST calls): if the
-  // stage update below fails after this insert, an unused list-price deal is left behind —
-  // harmless (it is the correct standard price) and reused on the next close attempt.
+  // This goes through the ensure_priced_deal() RPC (migration 20260716180000) rather than
+  // an inline select-then-insert: the RPC locks the prospect row FOR UPDATE and does the
+  // check+insert inside ONE transaction, so two concurrent closes of the same prospect
+  // (double-click / retry / two sessions) cannot both insert a backstop deal. A bare
+  // client-side select+insert here was a check-then-act race (there is deliberately no
+  // unique constraint on deals.prospect_id — multi-territory customers, Round 4). Runs
+  // before the stage update below so the trigger's guard is satisfied when it fires.
   if (p.stage < STAGE.FUNDED_WON && targetStage >= STAGE.FUNDED_WON) {
-    const { data: existingDeals, error: dealReadErr } = await supabase
-      .from('deals')
-      .select('id')
-      .eq('prospect_id', prospectId)
-      .limit(1)
-    if (dealReadErr) return { ok: false, error: dealReadErr.message }
-    if (!existingDeals || existingDeals.length === 0) {
-      const { error: dealInsErr } = await supabase
-        .from('deals')
-        .insert({ prospect_id: prospectId, territory_price: TERRITORY_STANDARD_PRICE })
-      if (dealInsErr) return { ok: false, error: dealInsErr.message }
-    }
+    const { error: ensureErr } = await supabase.rpc('ensure_priced_deal', {
+      p_prospect_id: prospectId,
+    })
+    if (ensureErr) return { ok: false, error: ensureErr.message }
   }
 
   const { error: uErr } = await supabase.from('prospects').update(update).eq('id', prospectId)

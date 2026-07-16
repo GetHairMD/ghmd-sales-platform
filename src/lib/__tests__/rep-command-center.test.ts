@@ -651,6 +651,51 @@ describe('setTerritoryPrice — non-destructive on repeat customers', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ensure_priced_deal() atomic backstop (Round 6) — source-scan. The real concurrency
+// proof (two overlapping transactions → one deal) is a live-DB test in the PR's
+// adversarial pass; a unit test can't create genuine transaction overlap.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('ensure_priced_deal migration — atomic, invoker-scoped backstop', () => {
+  function migrationPathR6(): string {
+    const dir = 'supabase/migrations'
+    const hit = readdirSync(join(process.cwd(), dir)).find((f) =>
+      f.endsWith('_ensure_priced_deal_atomic.sql'),
+    )
+    if (!hit) throw new Error('ensure_priced_deal_atomic migration not found')
+    return `${dir}/${hit}`
+  }
+  const sql = () => sqlCodeOnly(read(migrationPathR6()))
+
+  it('locks the prospect row FOR UPDATE before the check (closes the race window)', () => {
+    const s = sql()
+    // The lock must precede the existence check in the function body.
+    expect(s).toMatch(/for update[\s\S]*from public\.deals[\s\S]*where prospect_id/i)
+    expect(s).toMatch(/from public\.prospects\s+where id = p_prospect_id\s+for update/i)
+  })
+
+  it('is SECURITY INVOKER (no service-role escalation) with EXECUTE granted to authenticated', () => {
+    const s = sql()
+    expect(s).toContain('security invoker')
+    expect(s).not.toContain('security definer')
+    expect(s).toContain('grant execute on function public.ensure_priced_deal(uuid) to authenticated')
+  })
+
+  it('inserts the single-source $179,000 standard price and only when no deal exists', () => {
+    const s = sql()
+    expect(s).toContain(String(TERRITORY_STANDARD_PRICE)) // pins the SQL literal to the TS constant
+    expect(s).toMatch(/if v_deal_id is null then[\s\S]*insert into public\.deals/i)
+  })
+
+  it('moveProspectStage calls the RPC, not a bare inline select+insert', () => {
+    const actions = codeOnly(read('src/app/(app)/pipeline/actions.ts'))
+    expect(actions).toContain("supabase.rpc('ensure_priced_deal'")
+    // The old racy inline insert must be gone.
+    expect(actions).not.toMatch(/from\('deals'\)\s*\.insert/)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Token cleanliness (Hard Rule 8) on the new surfaces
 // ─────────────────────────────────────────────────────────────────────────────
 
