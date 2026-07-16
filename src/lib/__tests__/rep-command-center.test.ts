@@ -151,15 +151,59 @@ describe('computeRepCommandCenterMetrics', () => {
     expect(a.discountByReason.other).toBe(0)
   })
 
-  it('a closed prospect with NO deals row contributes list price to net and is not discounted', () => {
+  it('a closed prospect with NO deals row keeps the total complete but flags the price as a DATA GAP, not a confirmed close', () => {
     const inputs = baseInputs()
     inputs.prospects = [
       prospect({ id: 'p1', funded_won_at: '2026-07-01T00:00:00Z', stage: STAGE.FUNDED_WON }),
     ]
     const [a] = computeRepCommandCenterMetrics(inputs, NOW)
+    // Total stays complete — we do NOT silently drop the dollars…
     expect(a.netRevenue).toBe(TERRITORY_STANDARD_PRICE)
+    // …but the assumed price is surfaced as unconfirmed, never a real discount.
     expect(a.discountedCount).toBe(0)
     expect(a.deals[0].price).toBe(TERRITORY_STANDARD_PRICE)
+    expect(a.deals[0].priceConfirmed).toBe(false)
+    expect(a.dataGapCount).toBe(1)
+    expect(a.dataGapRevenue).toBe(TERRITORY_STANDARD_PRICE)
+    // An assumed price yields no confirmed $/addressable sample either.
+    expect(a.avgPricePerAddressable).toBeNull()
+  })
+
+  it('a deal row with a NULL territory_price is ALSO a data gap (not a confirmed $179k close)', () => {
+    const inputs = baseInputs()
+    inputs.prospects = [
+      prospect({ id: 'p1', funded_won_at: '2026-07-01T00:00:00Z', stage: STAGE.FUNDED_WON }),
+    ]
+    inputs.deals = [
+      { id: 'd1', prospect_id: 'p1', territory_id: null, territory_price: null, discount_reason: null, created_at: '2026-06-20T00:00:00Z' },
+    ]
+    const [a] = computeRepCommandCenterMetrics(inputs, NOW)
+    expect(a.netRevenue).toBe(TERRITORY_STANDARD_PRICE)
+    expect(a.deals[0].priceConfirmed).toBe(false)
+    expect(a.deals[0].discounted).toBe(false)
+    expect(a.dataGapCount).toBe(1)
+    expect(a.dataGapRevenue).toBe(TERRITORY_STANDARD_PRICE)
+  })
+
+  it('a deal with a real non-null territory_price (at list OR discounted) is CONFIRMED and contributes zero data gap', () => {
+    const inputs = baseInputs()
+    inputs.prospects = [
+      prospect({ id: 'p1', funded_won_at: '2026-07-01T00:00:00Z', stage: STAGE.FUNDED_WON }),
+      prospect({ id: 'p2', funded_won_at: '2026-07-02T00:00:00Z', stage: STAGE.FUNDED_WON }),
+    ]
+    inputs.deals = [
+      // at list
+      { id: 'd1', prospect_id: 'p1', territory_id: null, territory_price: 179000, discount_reason: null, created_at: '2026-06-20T00:00:00Z' },
+      // discounted
+      { id: 'd2', prospect_id: 'p2', territory_id: null, territory_price: 150000, discount_reason: 'strategic_deal', created_at: '2026-06-20T00:00:00Z' },
+    ]
+    const [a] = computeRepCommandCenterMetrics(inputs, NOW)
+    const byId = Object.fromEntries(a.deals.map((d) => [d.dealId, d]))
+    expect(byId.d1.priceConfirmed).toBe(true)
+    expect(byId.d2.priceConfirmed).toBe(true)
+    expect(a.dataGapCount).toBe(0)
+    expect(a.dataGapRevenue).toBe(0)
+    expect(a.netRevenue).toBe(179000 + 150000)
   })
 
   it('uses the MOST RECENT deal per prospect (latest created_at wins)', () => {

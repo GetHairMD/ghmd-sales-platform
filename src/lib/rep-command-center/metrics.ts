@@ -125,8 +125,22 @@ export interface RepDealDetail {
   prospectName: string
   practiceName: string | null
   territoryName: string | null
-  /** Actual deals.territory_price (list-price fallback when the deal row carries none). */
+  /**
+   * The price counted toward net for this close. Either the real
+   * `deals.territory_price` (when `priceConfirmed`) or the $179,000 list-price
+   * ASSUMPTION used when no price is on record (see `priceConfirmed`).
+   */
   price: number
+  /**
+   * TRUE only when a deal row exists AND its `territory_price` is non-null — i.e.
+   * `price` is a confirmed figure. FALSE when the price was ASSUMED because the
+   * prospect has no deal row, or the deal's `territory_price` is NULL (a real,
+   * allowed schema state — see the migration's economics-CHECK null comment).
+   * The Gross-vs-Net split exists to show real discount reality, so "no price on
+   * record" must read as a data gap, NOT as a confirmed $179,000 zero-discount
+   * close. An assumed price is never marked `discounted`.
+   */
+  priceConfirmed: boolean
   discounted: boolean
   discountReason: DiscountReason | null
   /** prospects.created_at → funded_won_at, whole days. */
@@ -150,6 +164,18 @@ export interface RepMetrics {
   /** Σ actual deals.territory_price over closes (spec §4D "Net" — discount-aware). */
   netRevenue: number
   discountedCount: number
+  /**
+   * Closes whose price was ASSUMED (no deal row / NULL territory_price), i.e. the
+   * count of `deals` with `priceConfirmed === false`. These still contribute to
+   * `netRevenue` (the total stays complete) but their dollars are unconfirmed —
+   * surfaced so a reader never mistakes a data gap for a real $179,000 close.
+   */
+  dataGapCount: number
+  /**
+   * Dollars inside `netRevenue` that come from assumed prices (dataGapCount ×
+   * $179,000). Subtract from `netRevenue` for the confirmed-only figure.
+   */
+  dataGapRevenue: number
   /** % of closes below list; null when there are no closes. */
   discountFrequencyPct: number | null
   discountByReason: Record<DiscountReason, number>
@@ -361,18 +387,33 @@ export function computeRepCommandCenterMetrics(
     const discountByReason = emptyReasonBreakdown()
     let netRevenue = 0
     let discountedCount = 0
+    let dataGapCount = 0
+    let dataGapRevenue = 0
     const cycleDays: number[] = []
     const pricePerAddressableSamples: number[] = []
     const dealDetails: RepDealDetail[] = []
 
     for (const p of closed) {
       const deal = latestDealByProspect.get(p.id)
-      const price = deal?.territory_price ?? TERRITORY_STANDARD_PRICE
-      const discounted = price < TERRITORY_STANDARD_PRICE
+      // A confirmed price requires a deal row AND a non-null territory_price.
+      // Missing deal row OR NULL territory_price → the $179,000 figure is an
+      // ASSUMPTION, not a confirmed close (`??` alone would hide that). Both are
+      // still counted in netRevenue so the total stays complete; the gap is
+      // surfaced via priceConfirmed / dataGapCount / dataGapRevenue instead.
+      const confirmedPrice = deal?.territory_price ?? null
+      const priceConfirmed = confirmedPrice !== null
+      const price = confirmedPrice ?? TERRITORY_STANDARD_PRICE
+      // Only a CONFIRMED price can be "discounted" — an assumed list price is a
+      // data gap, never a real zero/negative discount signal.
+      const discounted = priceConfirmed && price < TERRITORY_STANDARD_PRICE
       const reason = discounted && isDiscountReason(deal?.discount_reason)
         ? deal.discount_reason
         : null
       netRevenue += price
+      if (!priceConfirmed) {
+        dataGapCount += 1
+        dataGapRevenue += price
+      }
       if (discounted) {
         discountedCount += 1
         // A discounted deal always carries a reason at the DB (CHECK); 'other'
@@ -385,8 +426,10 @@ export function computeRepCommandCenterMetrics(
 
       const territory = deal?.territory_id ? territoryById.get(deal.territory_id) : undefined
       const addressable = territory?.addressable_patients_primary ?? null
+      // Only a confirmed price yields a real $/addressable figure — an assumed
+      // list price would fabricate the normalized number just as it would net.
       const perAddressable =
-        addressable !== null && addressable > 0 ? price / addressable : null
+        priceConfirmed && addressable !== null && addressable > 0 ? price / addressable : null
       if (perAddressable !== null) pricePerAddressableSamples.push(perAddressable)
 
       dealDetails.push({
@@ -395,6 +438,7 @@ export function computeRepCommandCenterMetrics(
         practiceName: p.practice_name,
         territoryName: territory?.name ?? null,
         price,
+        priceConfirmed,
         discounted,
         discountReason: reason,
         cycleDays: cycle !== null ? Math.round(cycle) : null,
@@ -436,6 +480,8 @@ export function computeRepCommandCenterMetrics(
       grossRevenue: closed.length * TERRITORY_STANDARD_PRICE,
       netRevenue,
       discountedCount,
+      dataGapCount,
+      dataGapRevenue,
       discountFrequencyPct: pct(discountedCount, closed.length),
       discountByReason,
       avgCycleDays: avg(cycleDays),
