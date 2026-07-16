@@ -87,14 +87,7 @@ export async function middleware(request: NextRequest) {
       const url = request.nextUrl.clone()
       // Any path with no route matches — Next serves the real static 404 document.
       url.pathname = '/__not-found__'
-      const rewritten = NextResponse.rewrite(url)
-      // Next echoes `x-middleware-rewrite` on the CLIENT response, but ONLY when a
-      // rewrite fired — so it would appear on /rep-command-center and on no ordinary
-      // 404, handing a rep with devtools the exact tell §4D forbids. Netlify's edge
-      // has already consumed the header to perform the routing by the time the response
-      // is assembled, so deleting it here strips the leak without affecting the rewrite.
-      rewritten.headers.delete('x-middleware-rewrite')
-      return rewritten
+      return NextResponse.rewrite(url)
     }
   }
 
