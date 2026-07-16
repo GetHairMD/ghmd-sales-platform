@@ -1,11 +1,15 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { Gauge, type LucideIcon } from 'lucide-react'
 import { cn } from '@/design/cn'
 import Logo from '@/components/brand/Logo'
 import { BRAND_LINE } from '@/design/brand'
 import type { Designation } from '@/lib/auth/internal-role'
-import { navItemsFor, isActive } from './nav-items'
+import { navItemsFor, isActive, type NavItem } from './nav-items'
+// TYPE-ONLY import (erased at build): concealed-nav is a server-only module and
+// must never be bundled client-side — its VALUES arrive via the prop below.
+import type { ConcealedNavItem } from './concealed-nav'
 
 /**
  * Persistent left sidebar (spec §4B) — dark surface, GHMD reversed lockup +
@@ -14,10 +18,39 @@ import { navItemsFor, isActive } from './nav-items'
  *
  * `designation` (resolved server-side via getViewerDesignation, threaded through
  * AppShell) gates exec-only items — reps never receive them in the rendered list.
+ *
+ * `concealedItems` (spec §4D): exec-only destinations whose existence is hidden
+ * from non-executives. Resolved server-side (AppShell → concealedNavItemsFor) and
+ * received here as data — this file deliberately contains none of their labels or
+ * hrefs, so nothing about them ships in any viewer's JS bundle. Only the generic
+ * icon map below is client code.
  */
-export default function Sidebar({ designation }: { designation: Designation | null }) {
+
+/** Generic icon lookup for concealed items (an icon component in the bundle reveals nothing). */
+const CONCEALED_ICONS: Record<ConcealedNavItem['iconKey'], LucideIcon> = {
+  gauge: Gauge,
+}
+
+export default function Sidebar({
+  designation,
+  concealedItems = [],
+}: {
+  designation: Designation | null
+  concealedItems?: ConcealedNavItem[]
+}) {
   const pathname = usePathname()
-  const items = navItemsFor(designation)
+  const baseItems = navItemsFor(designation)
+  // Concealed items render between the live destinations and the coming-soon
+  // tail, so the disabled "Soon" badges stay last for every viewer.
+  const items: NavItem[] = [
+    ...baseItems.filter((i) => !i.comingSoon),
+    ...concealedItems.map((c) => ({
+      label: c.label,
+      href: c.href,
+      icon: CONCEALED_ICONS[c.iconKey] ?? Gauge,
+    })),
+    ...baseItems.filter((i) => i.comingSoon),
+  ]
 
   return (
     <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-bg-dark text-text-inverse md:flex">
