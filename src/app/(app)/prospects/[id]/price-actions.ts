@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
-import { viewerIsExecutive } from '@/lib/auth/internal-role'
 import { TERRITORY_STANDARD_PRICE } from '@/components/proposal/constants'
 import { isDiscountReason, type DiscountReason } from '@/lib/rep-command-center/metrics'
 
@@ -43,14 +42,41 @@ export async function setTerritoryPrice(
   priceInput: number,
   discountReasonInput?: string | null,
 ): Promise<SetPriceResult> {
-  // ── Auth: executive only ────────────────────────────────────────────────────
+  // ── Auth: caller must hold a designation authorized to set/authorize pricing ──
+  // Gate on MEMBERSHIP in discount_authorizing_designations — the registry that governs
+  // who may authorize discounts (Hard Rule 6, Trace-extensible) — NOT a hardcoded
+  // 'executive' string. Behaviour is identical today (the registry holds exactly
+  // 'executive'), but this stays correct the moment Trace adds a designation, and it is
+  // the honest check: the registry, not the literal 'executive', is the source of truth.
+  //
+  // Read via the SERVICE client (the registry has no client grants). This runs on EVERY
+  // invocation, so — now that territory_price UPDATE is client-revoked and this is the
+  // only price-write path — every price change is re-validated against CURRENT
+  // authorization state, closing the trigger's "unrelated-update" re-validation gap.
   const supabase = createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'Not signed in.' }
-  if (!(await viewerIsExecutive())) {
-    return { ok: false, error: 'Executive access required to set a territory price.' }
+
+  const service = createServiceClient()
+  const { data: iu, error: iuErr } = await service
+    .from('internal_users')
+    .select('designation')
+    .eq('user_id', user.id)
+    .maybeSingle()
+  if (iuErr) return { ok: false, error: iuErr.message }
+  if (!iu?.designation) {
+    return { ok: false, error: 'Not authorized to set a territory price.' }
+  }
+  const { data: authorizing, error: regErr } = await service
+    .from('discount_authorizing_designations')
+    .select('designation')
+    .eq('designation', iu.designation)
+    .maybeSingle()
+  if (regErr) return { ok: false, error: regErr.message }
+  if (!authorizing) {
+    return { ok: false, error: 'Your role is not authorized to set territory prices.' }
   }
 
   // ── Validate the price ──────────────────────────────────────────────────────
@@ -73,8 +99,8 @@ export async function setTerritoryPrice(
   }
   // At or above list: no discount, so both discount columns are cleared.
 
-  // ── Write via service-role (discount columns are client-locked) ─────────────
-  const service = createServiceClient()
+  // ── Write via service-role (discount + territory_price columns are client-locked) ──
+  // Reuses the `service` client created for the auth check above.
   const patch = {
     territory_price: price,
     discount_reason: discountReason,

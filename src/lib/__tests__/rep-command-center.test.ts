@@ -639,9 +639,13 @@ describe('setTerritoryPrice — non-destructive on repeat customers', () => {
     expect(s).toMatch(/multiple deals/i)
   })
 
-  it('still exec-gated and self-stamps the authorizer (unchanged boundary)', () => {
+  it('gates on discount_authorizing_designations membership (not a hardcoded executive) and self-stamps', () => {
     const s = src()
-    expect(s).toContain('viewerIsExecutive')
+    // Registry-driven gate: read the caller's designation and confirm it's in the registry.
+    expect(s).toContain("from('discount_authorizing_designations')")
+    expect(s).toContain("from('internal_users')")
+    expect(s).not.toContain('viewerIsExecutive')
+    // Authorizer is still self-stamped from the calling user, never client input.
     expect(s).toMatch(/discount_authorized_by:\s*belowList \? user\.id : null/)
   })
 })
