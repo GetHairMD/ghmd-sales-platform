@@ -158,14 +158,30 @@ export interface RepMetrics {
   name: string
   tenureDays: number
   assignedCount: number
-  closedCount: number
-  /** closedCount × $179,000 list (spec §4D "Gross"). */
-  grossRevenue: number
-  /** Σ actual deals.territory_price over closes (spec §4D "Net" — discount-aware). */
-  netRevenue: number
-  discountedCount: number
   /**
-   * DEFENSIVE FALLBACK — expected to always be 0 in practice. Counts closes whose
+   * Distinct CUSTOMERS closed (prospects with funded_won_at set). This is the count
+   * closing rates are computed against — closing a repeat customer's 2nd territory is
+   * not a new "win" in rate terms.
+   */
+  distinctCustomersClosed: number
+  /**
+   * Total DEALS closed across those customers — a repeat customer with 3 territory
+   * purchases contributes 3. This is the revenue-driving-activity count and the basis
+   * for grossRevenue. Distinct from distinctCustomersClosed on purpose (a customer can
+   * own multiple deals); never collapse the two.
+   */
+  totalDealsClosed: number
+  /** totalDealsClosed × $179,000 list (spec §4D "Gross") — per DEAL, not per customer. */
+  grossRevenue: number
+  /** Σ actual deals.territory_price over ALL closed deals (spec §4D "Net" — discount-aware). */
+  netRevenue: number
+  /** Discounted DEALS (below list), across all closed deals. */
+  discountedCount: number
+  /** % of closed DEALS below list; null when there are no closed deals. */
+  discountFrequencyPct: number | null
+  discountByReason: Record<DiscountReason, number>
+  /**
+   * DEFENSIVE FALLBACK — expected to always be 0 in practice. Counts closed deals whose
    * price was ASSUMED (no deal row / NULL territory_price, `priceConfirmed === false`).
    * The database now FORBIDS that state at close: stamp_prospect_funded_won() rejects
    * the Funded/Won crossing unless a priced deals row exists, and deals.territory_price
@@ -177,9 +193,6 @@ export interface RepMetrics {
   dataGapCount: number
   /** Dollars inside `netRevenue` from assumed prices. See dataGapCount — expected 0. */
   dataGapRevenue: number
-  /** % of closes below list; null when there are no closes. */
-  discountFrequencyPct: number | null
-  discountByReason: Record<DiscountReason, number>
   /** Avg prospects.created_at → funded_won_at, days; null when no closes. */
   avgCycleDays: number | null
   /** won ÷ ALL assigned (spec: "overall"); null when nothing assigned. */
@@ -310,14 +323,22 @@ export function computeRepCommandCenterMetrics(
     outreachTouches,
   } = inputs
 
-  // Latest deal per prospect (created_at desc, id as a deterministic tiebreak).
-  const latestDealByProspect = new Map<string, DealMetricRow>()
+  // ALL deals per prospect, oldest-first. A prospects row is a durable CUSTOMER
+  // record that accumulates deals over time (GHMD has repeat customers who bought
+  // 1–3 more territories) — so revenue must sum EVERY deal, not just the latest.
+  // (The prior latest-deal-only map silently dropped all but the newest, undercounting
+  // multi-territory customers; corrected here.)
+  const dealsByProspect = new Map<string, DealMetricRow[]>()
   for (const d of deals) {
-    const cur = latestDealByProspect.get(d.prospect_id)
-    if (!cur || d.created_at > cur.created_at || (d.created_at === cur.created_at && d.id > cur.id)) {
-      latestDealByProspect.set(d.prospect_id, d)
-    }
+    const list = dealsByProspect.get(d.prospect_id)
+    if (list) list.push(d)
+    else dealsByProspect.set(d.prospect_id, [d])
   }
+  dealsByProspect.forEach((list) => {
+    list.sort((x: DealMetricRow, y: DealMetricRow) =>
+      x.created_at !== y.created_at ? (x.created_at < y.created_at ? -1 : 1) : x.id < y.id ? -1 : 1,
+    )
+  })
 
   const territoryById = new Map(territories.map((t) => [t.id, t]))
 
@@ -384,10 +405,13 @@ export function computeRepCommandCenterMetrics(
       (p) => (p.stage !== null && p.stage >= STAGE.PROPOSAL_SENT) || p.funded_won_at !== null,
     )
 
-    // Per-close deal economics.
+    // Deal economics are PER DEAL — a customer can own several territories, and each
+    // is real revenue. Deal-cycle time is a per-CUSTOMER fact (created → funded_won),
+    // counted once per customer, not once per deal.
     const discountByReason = emptyReasonBreakdown()
     let netRevenue = 0
     let discountedCount = 0
+    let totalDealsClosed = 0
     let dataGapCount = 0
     let dataGapRevenue = 0
     const cycleDays: number[] = []
@@ -395,58 +419,61 @@ export function computeRepCommandCenterMetrics(
     const dealDetails: RepDealDetail[] = []
 
     for (const p of closed) {
-      const deal = latestDealByProspect.get(p.id)
-      // A confirmed price requires a deal row AND a non-null territory_price.
-      // Missing deal row OR NULL territory_price → the $179,000 figure is an
-      // ASSUMPTION, not a confirmed close (`??` alone would hide that). Both are
-      // still counted in netRevenue so the total stays complete; the gap is
-      // surfaced via priceConfirmed / dataGapCount / dataGapRevenue instead.
-      const confirmedPrice = deal?.territory_price ?? null
-      const priceConfirmed = confirmedPrice !== null
-      const price = confirmedPrice ?? TERRITORY_STANDARD_PRICE
-      // Only a CONFIRMED price can be "discounted" — an assumed list price is a
-      // data gap, never a real zero/negative discount signal.
-      const discounted = priceConfirmed && price < TERRITORY_STANDARD_PRICE
-      const reason = discounted && isDiscountReason(deal?.discount_reason)
-        ? deal.discount_reason
-        : null
-      netRevenue += price
-      if (!priceConfirmed) {
-        dataGapCount += 1
-        dataGapRevenue += price
-      }
-      if (discounted) {
-        discountedCount += 1
-        // A discounted deal always carries a reason at the DB (CHECK); 'other'
-        // here only if the read row somehow lacks one (defensive, not expected).
-        discountByReason[reason ?? 'other'] += 1
-      }
-
+      // Customer-level: cycle time counted once, whatever the deal count.
       const cycle = p.funded_won_at ? daysBetween(p.created_at, p.funded_won_at) : null
       if (cycle !== null) cycleDays.push(cycle)
 
-      const territory = deal?.territory_id ? territoryById.get(deal.territory_id) : undefined
-      const addressable = territory?.addressable_patients_primary ?? null
-      // Only a confirmed price yields a real $/addressable figure — an assumed
-      // list price would fabricate the normalized number just as it would net.
-      const perAddressable =
-        priceConfirmed && addressable !== null && addressable > 0 ? price / addressable : null
-      if (perAddressable !== null) pricePerAddressableSamples.push(perAddressable)
+      // Iterate EVERY deal this customer owns. The DB invariant guarantees a closed
+      // customer has ≥1 priced deal; the `[null]` branch is a defensive fallback for a
+      // should-not-occur closed customer with no deal row (surfaced via priceConfirmed).
+      const customerDeals = dealsByProspect.get(p.id) ?? []
+      const dealsForCustomer: (DealMetricRow | null)[] =
+        customerDeals.length > 0 ? customerDeals : [null]
 
-      dealDetails.push({
-        dealId: deal?.id ?? p.id,
-        prospectName: p.full_name,
-        practiceName: p.practice_name,
-        territoryName: territory?.name ?? null,
-        price,
-        priceConfirmed,
-        discounted,
-        discountReason: reason,
-        cycleDays: cycle !== null ? Math.round(cycle) : null,
-        addressable,
-        pricePerAddressable: perAddressable,
-        closedAt: p.funded_won_at as string,
-      })
+      for (const deal of dealsForCustomer) {
+        totalDealsClosed += 1
+        // A confirmed price requires a deal row AND a non-null territory_price.
+        const confirmedPrice = deal?.territory_price ?? null
+        const priceConfirmed = confirmedPrice !== null
+        const price = confirmedPrice ?? TERRITORY_STANDARD_PRICE
+        // Only a CONFIRMED price can be "discounted" — an assumed list price is a data
+        // gap, never a real discount signal.
+        const discounted = priceConfirmed && price < TERRITORY_STANDARD_PRICE
+        const reason =
+          discounted && isDiscountReason(deal?.discount_reason) ? deal.discount_reason : null
+        netRevenue += price
+        if (!priceConfirmed) {
+          dataGapCount += 1
+          dataGapRevenue += price
+        }
+        if (discounted) {
+          discountedCount += 1
+          // A discounted deal always carries a reason at the DB (CHECK); 'other' here
+          // only if the read row somehow lacks one (defensive, not expected).
+          discountByReason[reason ?? 'other'] += 1
+        }
+
+        const territory = deal?.territory_id ? territoryById.get(deal.territory_id) : undefined
+        const addressable = territory?.addressable_patients_primary ?? null
+        const perAddressable =
+          priceConfirmed && addressable !== null && addressable > 0 ? price / addressable : null
+        if (perAddressable !== null) pricePerAddressableSamples.push(perAddressable)
+
+        dealDetails.push({
+          dealId: deal?.id ?? p.id,
+          prospectName: p.full_name,
+          practiceName: p.practice_name,
+          territoryName: territory?.name ?? null,
+          price,
+          priceConfirmed,
+          discounted,
+          discountReason: reason,
+          cycleDays: cycle !== null ? Math.round(cycle) : null,
+          addressable,
+          pricePerAddressable: perAddressable,
+          closedAt: p.funded_won_at as string,
+        })
+      }
     }
     dealDetails.sort((a, b) => (a.closedAt < b.closedAt ? 1 : -1))
 
@@ -477,15 +504,20 @@ export function computeRepCommandCenterMetrics(
       name: repDisplayName(rep.full_name),
       tenureDays: tenure !== null ? Math.floor(tenure) : 0,
       assignedCount: assigned.length,
-      closedCount: closed.length,
-      grossRevenue: closed.length * TERRITORY_STANDARD_PRICE,
+      // Distinct customers vs total deals — genuinely different once customers repeat.
+      distinctCustomersClosed: closed.length,
+      totalDealsClosed,
+      // Gross is per DEAL (each territory sold at list), so it scales with repeat purchases.
+      grossRevenue: totalDealsClosed * TERRITORY_STANDARD_PRICE,
       netRevenue,
       discountedCount,
       dataGapCount,
       dataGapRevenue,
-      discountFrequencyPct: pct(discountedCount, closed.length),
+      // Discount frequency is per DEAL (% of closed deals below list).
+      discountFrequencyPct: pct(discountedCount, totalDealsClosed),
       discountByReason,
       avgCycleDays: avg(cycleDays),
+      // Closing rates are per CUSTOMER (a repeat sale is not a new "win" in rate terms).
       closingRateOverallPct: pct(closed.length, assigned.length),
       closingRateQualifiedPct: pct(closed.length, reachedProposal.length),
       reachedProposalCount: reachedProposal.length,

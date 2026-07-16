@@ -114,9 +114,13 @@ function RepCard({ rep, onOpenDeals }: { rep: RepMetrics; onOpenDeals: (rep: Rep
 
       <div className="space-y-1.5">
         <MetricRow
-          label="Closes"
-          value={`${rep.closedCount} · ${fmtPct(rep.closingRateOverallPct)} overall`}
-          hint="Funded/Won closes; rate = won ÷ all assigned"
+          label="Customers closed"
+          value={
+            rep.totalDealsClosed === rep.distinctCustomersClosed
+              ? `${rep.distinctCustomersClosed} · ${fmtPct(rep.closingRateOverallPct)} overall`
+              : `${rep.distinctCustomersClosed} · ${rep.totalDealsClosed} deals · ${fmtPct(rep.closingRateOverallPct)} overall`
+          }
+          hint="Distinct customers won (rate = customers won ÷ all assigned). A repeat customer's extra territories add to 'deals' but not to customers."
         />
         <MetricRow
           label="Closing rate (stage-qualified)"
@@ -214,12 +218,13 @@ export default function RepCommandCenterView({ reps }: { reps: RepMetrics[] }) {
 
   const totals = reps.reduce(
     (acc, r) => ({
-      closes: acc.closes + r.closedCount,
+      customers: acc.customers + r.distinctCustomersClosed,
+      deals: acc.deals + r.totalDealsClosed,
       gross: acc.gross + r.grossRevenue,
       net: acc.net + r.netRevenue,
       discounted: acc.discounted + r.discountedCount,
     }),
-    { closes: 0, gross: 0, net: 0, discounted: 0 },
+    { customers: 0, deals: 0, gross: 0, net: 0, discounted: 0 },
   )
 
   return (
@@ -232,8 +237,11 @@ export default function RepCommandCenterView({ reps }: { reps: RepMetrics[] }) {
           icon={<Users className="h-4 w-4 text-text-muted" aria-hidden="true" />}
         />
         <StatCard
-          label="Closes"
-          value={totals.closes}
+          label="Customers closed"
+          value={totals.customers}
+          sublabel={
+            totals.deals === totals.customers ? undefined : `${totals.deals} deals total`
+          }
           icon={<Gauge className="h-4 w-4 text-text-muted" aria-hidden="true" />}
         />
         <StatCard
@@ -244,7 +252,7 @@ export default function RepCommandCenterView({ reps }: { reps: RepMetrics[] }) {
           accent={totals.net < totals.gross}
         />
         <StatCard
-          label="Discounted closes"
+          label="Discounted deals"
           value={totals.discounted}
           sublabel={`${usd.format(totals.gross - totals.net)} total discount given`}
           icon={<Clock3 className="h-4 w-4 text-text-muted" aria-hidden="true" />}
@@ -270,7 +278,11 @@ export default function RepCommandCenterView({ reps }: { reps: RepMetrics[] }) {
         open={openRep !== null}
         onClose={() => setOpenRep(null)}
         title={openRep ? openRep.name : ''}
-        subtitle={openRep ? `${openRep.closedCount} closed · net ${usd.format(openRep.netRevenue)}` : undefined}
+        subtitle={
+          openRep
+            ? `${openRep.distinctCustomersClosed} customer${openRep.distinctCustomersClosed === 1 ? '' : 's'} · ${openRep.totalDealsClosed} deal${openRep.totalDealsClosed === 1 ? '' : 's'} · net ${usd.format(openRep.netRevenue)}`
+            : undefined
+        }
       >
         {openRep && (
           <ul className="space-y-4">

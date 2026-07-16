@@ -82,23 +82,35 @@ export async function setTerritoryPrice(
     discount_authorized_by: belowList ? user.id : null,
   }
 
-  const { data: existing, error: readErr } = await service
+  // A prospect is a durable CUSTOMER record that can own several deals (repeat territory
+  // purchases). This action must NEVER silently overwrite the wrong one:
+  //   • 0 deals → INSERT the first.
+  //   • exactly 1 deal → UPDATE it (correcting the customer's single deal — today's case).
+  //   • ≥2 deals → REFUSE. There is no unambiguous "the" deal to correct, and picking the
+  //     latest would silently destroy another territory's price/discount history. The
+  //     follow-up feature adds explicit per-deal targeting (correct-by-id) and an
+  //     add-a-new-deal mode; until then, fail closed rather than lose data.
+  const { data: existingDeals, error: readErr } = await service
     .from('deals')
     .select('id')
     .eq('prospect_id', prospectId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+    .order('created_at', { ascending: true })
   if (readErr) return { ok: false, error: readErr.message }
 
-  if (existing) {
-    const { error: updErr } = await service.from('deals').update(patch).eq('id', existing.id)
-    if (updErr) return { ok: false, error: updErr.message }
-  } else {
+  if (!existingDeals || existingDeals.length === 0) {
     const { error: insErr } = await service
       .from('deals')
       .insert({ prospect_id: prospectId, ...patch })
     if (insErr) return { ok: false, error: insErr.message }
+  } else if (existingDeals.length === 1) {
+    const { error: updErr } = await service.from('deals').update(patch).eq('id', existingDeals[0].id)
+    if (updErr) return { ok: false, error: updErr.message }
+  } else {
+    return {
+      ok: false,
+      error:
+        'This customer has multiple deals. Editing a specific deal (and adding a new territory) is coming in the deal-history view — this action will not overwrite an unspecified one.',
+    }
   }
 
   revalidatePath(`/prospects/${prospectId}`)

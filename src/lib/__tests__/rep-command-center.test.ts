@@ -104,7 +104,8 @@ describe('computeRepCommandCenterMetrics', () => {
     const [a, b] = computeRepCommandCenterMetrics(baseInputs(), NOW)
     expect(a.repId).toBe(REP_A)
     expect(a.assignedCount).toBe(0)
-    expect(a.closedCount).toBe(0)
+    expect(a.distinctCustomersClosed).toBe(0)
+    expect(a.totalDealsClosed).toBe(0)
     expect(a.grossRevenue).toBe(0)
     expect(a.netRevenue).toBe(0)
     expect(a.closingRateOverallPct).toBeNull()
@@ -142,13 +143,42 @@ describe('computeRepCommandCenterMetrics', () => {
       { id: 'd2', prospect_id: 'p2', territory_id: null, territory_price: 179000, discount_reason: null, created_at: '2026-06-20T00:00:00Z' },
     ]
     const [a] = computeRepCommandCenterMetrics(inputs, NOW)
-    expect(a.closedCount).toBe(2)
+    expect(a.distinctCustomersClosed).toBe(2)
+    expect(a.totalDealsClosed).toBe(2)
     expect(a.grossRevenue).toBe(2 * TERRITORY_STANDARD_PRICE)
     expect(a.netRevenue).toBe(150000 + 179000)
     expect(a.discountedCount).toBe(1)
     expect(a.discountFrequencyPct).toBe(50)
     expect(a.discountByReason.strategic_deal).toBe(1)
     expect(a.discountByReason.other).toBe(0)
+  })
+
+  it('a REPEAT customer with multiple deals: sums ALL deals into net/gross, counts 1 customer / N deals', () => {
+    const inputs = baseInputs()
+    inputs.prospects = [
+      // one customer, closed, who bought 3 territories over time
+      prospect({ id: 'p1', funded_won_at: '2026-07-01T00:00:00Z', stage: STAGE.FUNDED_WON }),
+    ]
+    inputs.deals = [
+      { id: 'd1', prospect_id: 'p1', territory_id: null, territory_price: 179000, discount_reason: null, created_at: '2026-05-01T00:00:00Z' },
+      { id: 'd2', prospect_id: 'p1', territory_id: null, territory_price: 150000, discount_reason: 'multi_territory', created_at: '2026-06-01T00:00:00Z' },
+      { id: 'd3', prospect_id: 'p1', territory_id: null, territory_price: 179000, discount_reason: null, created_at: '2026-07-01T00:00:00Z' },
+    ]
+    const [a] = computeRepCommandCenterMetrics(inputs, NOW)
+    // 1 distinct customer, 3 deals — never collapsed.
+    expect(a.distinctCustomersClosed).toBe(1)
+    expect(a.totalDealsClosed).toBe(3)
+    // Net sums EVERY deal (the old latest-only map would have returned just 179000).
+    expect(a.netRevenue).toBe(179000 + 150000 + 179000)
+    // Gross is per deal.
+    expect(a.grossRevenue).toBe(3 * TERRITORY_STANDARD_PRICE)
+    // Discount frequency is per deal: 1 of 3.
+    expect(a.discountedCount).toBe(1)
+    expect(a.discountFrequencyPct).toBeCloseTo(100 / 3, 6)
+    expect(a.discountByReason.multi_territory).toBe(1)
+    // Drill-down lists all three deals; closing rate still counts ONE customer.
+    expect(a.deals).toHaveLength(3)
+    expect(a.closingRateOverallPct).toBe(100) // 1 customer won ÷ 1 assigned
   })
 
   // ── DEFENSIVE-FALLBACK cases ────────────────────────────────────────────────
@@ -214,7 +244,7 @@ describe('computeRepCommandCenterMetrics', () => {
     expect(a.netRevenue).toBe(179000 + 150000)
   })
 
-  it('uses the MOST RECENT deal per prospect (latest created_at wins)', () => {
+  it('counts EVERY deal a customer owns — not just the latest (the bug this corrects)', () => {
     const inputs = baseInputs()
     inputs.prospects = [
       prospect({ id: 'p1', funded_won_at: '2026-07-01T00:00:00Z', stage: STAGE.FUNDED_WON }),
@@ -224,9 +254,15 @@ describe('computeRepCommandCenterMetrics', () => {
       { id: 'd-new', prospect_id: 'p1', territory_id: null, territory_price: 160000, discount_reason: 'speed_to_close', created_at: '2026-06-25T00:00:00Z' },
     ]
     const [a] = computeRepCommandCenterMetrics(inputs, NOW)
-    expect(a.netRevenue).toBe(160000)
-    expect(a.deals[0].dealId).toBe('d-new')
-    expect(a.deals[0].discountReason).toBe('speed_to_close')
+    // Both deals sum — the prior latest-only map would have returned 160000.
+    expect(a.netRevenue).toBe(179000 + 160000)
+    expect(a.totalDealsClosed).toBe(2)
+    expect(a.distinctCustomersClosed).toBe(1)
+    const ids = a.deals.map((d) => d.dealId).sort()
+    expect(ids).toEqual(['d-new', 'd-old'])
+    // The discounted one is present with its reason.
+    expect(a.deals.find((d) => d.dealId === 'd-new')?.discountReason).toBe('speed_to_close')
+    expect(a.deals.find((d) => d.dealId === 'd-old')?.discounted).toBe(false)
   })
 
   it('computes BOTH closing-rate variants — overall and stage-qualified — as different figures', () => {
@@ -299,7 +335,8 @@ describe('computeRepCommandCenterMetrics', () => {
       }),
     ]
     const [a] = computeRepCommandCenterMetrics(inputs, NOW)
-    expect(a.closedCount).toBe(1)
+    expect(a.distinctCustomersClosed).toBe(1)
+    expect(a.totalDealsClosed).toBe(1)
     expect(a.grossRevenue).toBe(TERRITORY_STANDARD_PRICE)
   })
 
@@ -573,6 +610,39 @@ describe('§4D concealment boundary', () => {
     const src = codeOnly(read(VIEW)).toLowerCase()
     expect(src).not.toContain('management tip')
     expect(src).not.toContain('coming soon')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// setTerritoryPrice guard (source-scan — the action can't be imported here because
+// it uses @/ aliases with no vitest alias config; same idiom as
+// stage-selector-gate-parity's scan of moveProspectStage). Live-DB simulation of the
+// 0/1/≥2-deal branches is done in the PR's adversarial pass.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('setTerritoryPrice — non-destructive on repeat customers', () => {
+  const PRICE_ACTIONS = 'src/app/(app)/prospects/[id]/price-actions.ts'
+  const src = () => codeOnly(read(PRICE_ACTIONS))
+
+  it('reads ALL of a prospect\'s deals (no latest-only .maybeSingle collapse on the write target)', () => {
+    const s = src()
+    // The write-target read must NOT reduce to a single row and then blindly update it.
+    expect(s).not.toMatch(/from\('deals'\)[\s\S]{0,160}maybeSingle\(\)/)
+    expect(s).toContain("existingDeals")
+  })
+
+  it('branches 0→insert, 1→update, ≥2→refuse (never silently overwrites an unspecified deal)', () => {
+    const s = src()
+    expect(s).toContain('existingDeals.length === 0')
+    expect(s).toContain('existingDeals.length === 1')
+    // The ≥2 case returns an error rather than writing.
+    expect(s).toMatch(/multiple deals/i)
+  })
+
+  it('still exec-gated and self-stamps the authorizer (unchanged boundary)', () => {
+    const s = src()
+    expect(s).toContain('viewerIsExecutive')
+    expect(s).toMatch(/discount_authorized_by:\s*belowList \? user\.id : null/)
   })
 })
 
