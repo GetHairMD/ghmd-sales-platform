@@ -1,8 +1,11 @@
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/service';
 import { notFound } from 'next/navigation';
 import { isDealStatus } from '@/lib/pipeline-stages';
+import { isDiscountReason } from '@/lib/rep-command-center/metrics';
 import { getProspectTimelineSources } from '@/lib/dashboard/data';
 import { getViewerDesignation } from '@/lib/auth/internal-role';
+import TerritoryPriceControl from './TerritoryPriceControl';
 import { buildTimeline } from '@/lib/proposal/timeline';
 import { resolveProspectTerritory } from '@/lib/territories/v3-display';
 import { isQualificationRecommendation } from '@/lib/qualification/recommendation';
@@ -139,6 +142,32 @@ export default async function ProspectDetailPage({ params }: { params: { id: str
       />
     ) : null;
 
+  // Executive-only territory-price / discount entry (§4D). Built ONLY in the exec
+  // branch, so a rep session never constructs it. The current price/reason are read
+  // via the SERVICE client because the discount columns are revoked from every client
+  // column-grant (migration 20260716120000) — an exec's own authenticated client
+  // cannot select discount_reason. Same server-role-behind-the-exec-gate pattern as
+  // the Rep Command Center.
+  let territoryPriceControl: React.ReactNode = null;
+  if (isExecutive) {
+    const service = createServiceClient();
+    const { data: priceRow } = await service
+      .from('deals')
+      .select('territory_price, discount_reason')
+      .eq('prospect_id', params.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const reasonRaw = priceRow?.discount_reason ?? null;
+    territoryPriceControl = (
+      <TerritoryPriceControl
+        prospectId={params.id}
+        currentPrice={priceRow?.territory_price != null ? Number(priceRow.territory_price) : null}
+        currentReason={isDiscountReason(reasonRaw) ? reasonRaw : null}
+      />
+    );
+  }
+
   const dr: DealRoomProspect = {
     id: prospect.id,
     full_name: prospect.full_name,
@@ -169,6 +198,8 @@ export default async function ProspectDetailPage({ params }: { params: { id: str
       // Exec-only detail (scores / enrichment / rep-call grades). Rendered ONLY inside
       // this executive branch — never constructed for a rep session.
       qualificationExecDetail={isExecutive ? <QualificationExecDetail prospectId={params.id} /> : null}
+      // Exec-only territory-price / discount entry (§4D). Null for reps.
+      territoryPriceControl={territoryPriceControl}
     />
   );
 }

@@ -165,16 +165,17 @@ export interface RepMetrics {
   netRevenue: number
   discountedCount: number
   /**
-   * Closes whose price was ASSUMED (no deal row / NULL territory_price), i.e. the
-   * count of `deals` with `priceConfirmed === false`. These still contribute to
-   * `netRevenue` (the total stays complete) but their dollars are unconfirmed —
-   * surfaced so a reader never mistakes a data gap for a real $179,000 close.
+   * DEFENSIVE FALLBACK — expected to always be 0 in practice. Counts closes whose
+   * price was ASSUMED (no deal row / NULL territory_price, `priceConfirmed === false`).
+   * The database now FORBIDS that state at close: stamp_prospect_funded_won() rejects
+   * the Funded/Won crossing unless a priced deals row exists, and deals.territory_price
+   * is NOT NULL (migration 20260716140000). These fields are kept — and still computed —
+   * only so this pure function stays honest if a should-not-occur row ever reaches it
+   * (e.g. legacy/out-of-band data); the Rep Command Center UI no longer renders a
+   * warning for them (see RepCommandCenterView.tsx), because the state can't occur.
    */
   dataGapCount: number
-  /**
-   * Dollars inside `netRevenue` that come from assumed prices (dataGapCount ×
-   * $179,000). Subtract from `netRevenue` for the confirmed-only figure.
-   */
+  /** Dollars inside `netRevenue` from assumed prices. See dataGapCount — expected 0. */
   dataGapRevenue: number
   /** % of closes below list; null when there are no closes. */
   discountFrequencyPct: number | null

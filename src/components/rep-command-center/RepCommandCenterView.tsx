@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertTriangle, BadgeDollarSign, Clock3, Flame, Gauge, Share2, Users } from 'lucide-react'
+import { BadgeDollarSign, Clock3, Flame, Gauge, Share2, Users } from 'lucide-react'
 import Card from '@/components/ui/Card'
 import EmptyState from '@/components/ui/EmptyState'
 import StatCard from '@/components/ui/StatCard'
@@ -102,18 +102,13 @@ function RepCard({ rep, onOpenDeals }: { rep: RepMetrics; onOpenDeals: (rep: Rep
           >
             {usd.format(rep.netRevenue)}
           </p>
-          {/* Data-gap disclosure: assumed-price closes are in the total but
-              unconfirmed — surface them so Net never reads as all-confirmed. */}
-          {rep.dataGapCount > 0 && (
-            <p
-              className="mt-1 flex items-center gap-1 text-[0.6875rem] leading-snug text-warning"
-              title="Closes with no price on record fall back to the $179,000 list price. That amount is assumed, not confirmed, and is not counted as a discount."
-            >
-              <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
-              {usd.format(rep.dataGapRevenue)} unconfirmed · {rep.dataGapCount}{' '}
-              {rep.dataGapCount === 1 ? 'deal' : 'deals'} with no price on record
-            </p>
-          )}
+          {/* NO data-gap disclosure here by design: the database now FORBIDS a
+              Funded/Won prospect without a recorded price (migration
+              20260716140000 — stamp_prospect_funded_won() rejects the crossing,
+              and deals.territory_price is NOT NULL). So a close always carries a
+              real recorded price; there is no assumed-price state left to warn
+              about. The rep.dataGapCount/dataGapRevenue fields are kept as a
+              defensive fallback in the metrics layer only (see metrics.ts). */}
         </div>
       </div>
 
@@ -288,31 +283,17 @@ export default function RepCommandCenterView({ reps }: { reps: RepMetrics[] }) {
                       <p className="truncate text-xs text-text-muted">{deal.practiceName}</p>
                     )}
                   </div>
-                  <div className="shrink-0 text-right">
-                    <p
-                      className={cn(
-                        'font-heading text-sm font-bold',
-                        !deal.priceConfirmed
-                          ? 'text-warning'
-                          : deal.discounted
-                            ? 'text-accent'
-                            : 'text-text',
-                      )}
-                    >
-                      {usd.format(deal.price)}
-                    </p>
-                    {/* An assumed list price (no deal row / NULL territory_price)
-                        must read as unconfirmed, not as a real close. */}
-                    {!deal.priceConfirmed && (
-                      <span
-                        className="mt-0.5 inline-flex items-center gap-1 text-[0.625rem] font-medium uppercase tracking-caps text-warning"
-                        title="No price on record — this is the $179,000 list-price assumption, not a confirmed figure."
-                      >
-                        <AlertTriangle className="h-2.5 w-2.5" aria-hidden="true" />
-                        Assumed
-                      </span>
+                  {/* No "assumed price" tag: the DB forbids a close without a
+                      recorded price (migration 20260716140000), so every drilled-in
+                      deal carries a real figure — discounted or at list. */}
+                  <p
+                    className={cn(
+                      'shrink-0 font-heading text-sm font-bold',
+                      deal.discounted ? 'text-accent' : 'text-text',
                     )}
-                  </div>
+                  >
+                    {usd.format(deal.price)}
+                  </p>
                 </div>
                 <dl className="mt-2 space-y-1 text-xs text-text-muted">
                   {deal.territoryName && (

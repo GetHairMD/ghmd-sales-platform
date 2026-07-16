@@ -151,15 +151,23 @@ describe('computeRepCommandCenterMetrics', () => {
     expect(a.discountByReason.other).toBe(0)
   })
 
-  it('a closed prospect with NO deals row keeps the total complete but flags the price as a DATA GAP, not a confirmed close', () => {
+  // ── DEFENSIVE-FALLBACK cases ────────────────────────────────────────────────
+  // The database now FORBIDS a Funded/Won prospect without a recorded price
+  // (migration 20260716140000: stamp_prospect_funded_won() rejects the crossing,
+  // deals.territory_price is NOT NULL). So neither of the next two states can occur
+  // in real data, and the RCC UI no longer warns about them. These tests pin the
+  // PURE function's honest handling if a should-not-occur row ever reaches it anyway
+  // (legacy/out-of-band): it must NOT silently present an assumed price as a
+  // confirmed close — priceConfirmed:false and the dataGap fields still reflect it.
+  it('DEFENSIVE (DB-forbidden state): a closed prospect with NO deals row is flagged priceConfirmed:false, never a confirmed close', () => {
     const inputs = baseInputs()
     inputs.prospects = [
       prospect({ id: 'p1', funded_won_at: '2026-07-01T00:00:00Z', stage: STAGE.FUNDED_WON }),
     ]
     const [a] = computeRepCommandCenterMetrics(inputs, NOW)
-    // Total stays complete — we do NOT silently drop the dollars…
+    // Total stays complete — the fallback does not silently drop the dollars…
     expect(a.netRevenue).toBe(TERRITORY_STANDARD_PRICE)
-    // …but the assumed price is surfaced as unconfirmed, never a real discount.
+    // …but the assumed price is marked unconfirmed, never a real discount.
     expect(a.discountedCount).toBe(0)
     expect(a.deals[0].price).toBe(TERRITORY_STANDARD_PRICE)
     expect(a.deals[0].priceConfirmed).toBe(false)
@@ -169,7 +177,7 @@ describe('computeRepCommandCenterMetrics', () => {
     expect(a.avgPricePerAddressable).toBeNull()
   })
 
-  it('a deal row with a NULL territory_price is ALSO a data gap (not a confirmed $179k close)', () => {
+  it('DEFENSIVE (DB-forbidden state): a deal row with a NULL territory_price is flagged priceConfirmed:false, not a confirmed $179k close', () => {
     const inputs = baseInputs()
     inputs.prospects = [
       prospect({ id: 'p1', funded_won_at: '2026-07-01T00:00:00Z', stage: STAGE.FUNDED_WON }),

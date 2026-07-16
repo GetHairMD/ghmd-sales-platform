@@ -48,18 +48,13 @@ interface DealRow {
 export async function getRepCommandCenterData(nowMs: number = Date.now()): Promise<RepCommandCenterData> {
   const db = createServiceClient()
 
-  const [
-    { data: reps },
-    { data: prospects },
-    { data: deals },
-    { data: territories },
-    { data: proposalEvents },
-    { data: resourceShares },
-    { data: resourceOpens },
-    { data: selfScores },
-    { data: execGrades },
-    { data: touches },
-  ] = await Promise.all([
+  // Each entry is [label, PostgREST result]. We check EVERY result's `error` below
+  // and throw on the first failure — a broken query (RLS misconfig, transient
+  // outage, schema drift) must NOT degrade to an empty view that is
+  // indistinguishable from a genuinely-empty book. Throwing surfaces through the
+  // page's server-component error handling instead of silently under-reporting
+  // executive-facing revenue/performance numbers.
+  const results = await Promise.all([
     // Scope: reps only (§4D — executives are graders, not graded).
     db
       .from('internal_users')
@@ -84,6 +79,38 @@ export async function getRepCommandCenterData(nowMs: number = Date.now()): Promi
     db.from('rep_call_grades').select('prospect_id, total_score'),
     db.from('outreach_touches').select('prospect_id, touch_date'),
   ])
+
+  const labels = [
+    'internal_users',
+    'prospects',
+    'deals',
+    'territories',
+    'proposal_events',
+    'resource_shares',
+    'resource_engagement_events',
+    'call_scores',
+    'rep_call_grades',
+    'outreach_touches',
+  ] as const
+  const failures = results
+    .map((r, i) => (r.error ? `${labels[i]}: ${r.error.message}` : null))
+    .filter((m): m is string => m !== null)
+  if (failures.length > 0) {
+    throw new Error(`getRepCommandCenterData: query failure(s) — ${failures.join('; ')}`)
+  }
+
+  const [
+    { data: reps },
+    { data: prospects },
+    { data: deals },
+    { data: territories },
+    { data: proposalEvents },
+    { data: resourceShares },
+    { data: resourceOpens },
+    { data: selfScores },
+    { data: execGrades },
+    { data: touches },
+  ] = results
 
   const dealRows: DealMetricRow[] = ((deals ?? []) as DealRow[]).map((d) => ({
     id: d.id,
