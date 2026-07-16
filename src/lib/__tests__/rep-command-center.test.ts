@@ -707,10 +707,11 @@ describe('ensure_priced_deal migration — atomic, invoker-scoped backstop', () 
     expect(s).toMatch(/from public\.prospects\s+where id = p_prospect_id\s+for update/i)
   })
 
-  it('is SECURITY INVOKER (no service-role escalation) with EXECUTE granted to authenticated', () => {
+  it('was shipped SECURITY INVOKER with EXECUTE to authenticated (superseded to DEFINER in Round 8)', () => {
     const s = sql()
+    // This is the AS-SHIPPED Round-6 file (supersede-not-edit). Round 8 converts the LIVE
+    // function to SECURITY DEFINER — see the Round-8 migration scan below for current state.
     expect(s).toContain('security invoker')
-    expect(s).not.toContain('security definer')
     expect(s).toContain('grant execute on function public.ensure_priced_deal(uuid) to authenticated')
   })
 
@@ -725,6 +726,41 @@ describe('ensure_priced_deal migration — atomic, invoker-scoped backstop', () 
     expect(actions).toContain("supabase.rpc('ensure_priced_deal'")
     // The old racy inline insert must be gone.
     expect(actions).not.toMatch(/from\('deals'\)\s*\.insert/)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Round 8 — remove the raw client INSERT grant on deals (revenue fabrication),
+// and convert ensure_priced_deal to DEFINER so it still inserts afterward.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('revoke_deals_insert_grant migration (Round 8)', () => {
+  function migrationPathR8(): string {
+    const dir = 'supabase/migrations'
+    const hit = readdirSync(join(process.cwd(), dir)).find((f) =>
+      f.endsWith('_revoke_deals_insert_grant.sql'),
+    )
+    if (!hit) throw new Error('revoke_deals_insert_grant migration not found')
+    return `${dir}/${hit}`
+  }
+  const sql = () => sqlCodeOnly(read(migrationPathR8()))
+
+  it('revokes authenticated INSERT on deals — column-by-column AND table-level', () => {
+    const s = sql()
+    expect(s).toMatch(/revoke insert \(%s\) on public\.deals from authenticated/i)
+    expect(s).toMatch(/revoke insert on public\.deals from authenticated/i)
+  })
+
+  it('converts ensure_priced_deal to SECURITY DEFINER, EXECUTE to authenticated but NOT anon', () => {
+    const s = sql()
+    expect(s).toMatch(/create or replace function public\.ensure_priced_deal/i)
+    expect(s).toContain('security definer')
+    expect(s).toMatch(/set search_path = ''/)
+    expect(s).toContain('grant execute on function public.ensure_priced_deal(uuid) to authenticated')
+    // anon MUST be revoked explicitly — under DEFINER an anon caller would insert as owner.
+    expect(s).toMatch(/revoke all on function public\.ensure_priced_deal\(uuid\) from public, anon/)
+    // The insert-only-when-zero-deals guard is preserved (unchanged safety property).
+    expect(s).toMatch(/if v_deal_id is null then[\s\S]*insert into public\.deals/i)
   })
 })
 
