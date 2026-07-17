@@ -7,8 +7,12 @@
  * (licensee ≠ FDD trigger) retired them. Every consumer imports from here — never hardcode
  * a stage number or label inline again.
  *
- * `stage` is a 1-based position (prospects.stage integer, default 1). `deal_status` is an
- * orthogonal health dimension — a deal can be stage 10 (Funded / Won) and still be stalled.
+ * `stage` is a 1-based position. MULTI-DEAL MODEL (2026-07-16, partial revision of
+ * decision #53 item A): deals.stage is the AUTHORITATIVE per-territory position;
+ * prospects.stage is a DERIVED customer-level roll-up (MAX over non-lost deals,
+ * trigger-maintained — migration 20260716260000). A prospect with no deals keeps
+ * direct-write semantics. `deal_status` is an orthogonal health dimension, deal-scoped
+ * the same way (deals.deal_status authoritative, prospects.deal_status derived).
  */
 
 export interface PipelineStage {

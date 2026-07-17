@@ -22,10 +22,16 @@ export default function DealStatusSelector({
   async function handleChange(newStatus: DealStatus) {
     setSaving(true)
     const supabase = createClient()
-    const { error } = await supabase
-      .from('prospects')
-      .update({ deal_status: newStatus })
-      .eq('id', prospectId)
+    // Multi-deal build: prospects.deal_status is DERIVED once deals exist, so a
+    // direct prospects update would be clobbered by the next derivation pass.
+    // set_customer_deal_status() routes the write correctly (no deals → prospects
+    // directly; deals → every non-lost deal, roll-up re-derived) and is
+    // executive-gated in the database — a rep's change is now rejected loudly
+    // instead of silently no-oping under RLS as the old direct update did.
+    const { error } = await supabase.rpc('set_customer_deal_status', {
+      p_prospect_id: prospectId,
+      p_status: newStatus,
+    })
     if (!error) setStatus(newStatus)
     setSaving(false)
   }
