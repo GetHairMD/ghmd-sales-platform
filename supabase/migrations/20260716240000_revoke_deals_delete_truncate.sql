@@ -1,0 +1,29 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- §4D Round 9 — remove the destructive DELETE/TRUNCATE grant on deals.
+--
+-- Supabase project: ghmd-sales-platform (cprltmwwldbxcsunsafl). NIP never touched.
+--
+-- THE HOLE (flagged by Round 8, confirmed live by Chat): `authenticated` holds
+-- table-level DELETE and TRUNCATE on deals, and the single internal_users_all RLS policy
+-- has no ownership predicate — so any rep can DELETE any deal row (RLS USING is true for
+-- every internal user), and TRUNCATE bypasses RLS entirely, letting a client wipe the
+-- whole table. This is a DESTRUCTIVE class, distinct from Round 8's fabrication fix
+-- (creating rows); deals are supersede-never-delete by design (same norm as
+-- ops.decision_log), so no client role should ever delete or truncate them.
+--
+-- THE FIX: revoke both from authenticated. Unlike Round 8's INSERT (which had column-level
+-- grants needing a column-by-column revoke), DELETE and TRUNCATE are TABLE-LEVEL-ONLY
+-- privileges in PostgreSQL — there is no column granularity for them (column privileges
+-- exist only for SELECT/INSERT/UPDATE/REFERENCES), so a single table-level revoke is
+-- complete. Verified live before/after via information_schema.role_table_grants.
+--
+-- service_role is unaffected — it holds its own independent grant set (DELETE, INSERT,
+-- SELECT, UPDATE, TRUNCATE, …), not the authenticated grant; administrative/service-role
+-- deal correction, if ever needed, continues to work. No path in src/** deletes or
+-- truncates deals (verified: zero .delete() calls, zero raw DELETE/TRUNCATE).
+--
+-- New migration; 120000/140000/160000/180000/200000/220000 are applied and NOT edited
+-- (supersede-not-edit continues).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+revoke delete, truncate on public.deals from authenticated;

@@ -765,6 +765,26 @@ describe('revoke_deals_insert_grant migration (Round 8)', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Round 9 — remove the destructive DELETE/TRUNCATE grant on deals.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('revoke_deals_delete_truncate migration (Round 9)', () => {
+  function migrationPathR9(): string {
+    const dir = 'supabase/migrations'
+    const hit = readdirSync(join(process.cwd(), dir)).find((f) =>
+      f.endsWith('_revoke_deals_delete_truncate.sql'),
+    )
+    if (!hit) throw new Error('revoke_deals_delete_truncate migration not found')
+    return `${dir}/${hit}`
+  }
+
+  it('revokes DELETE and TRUNCATE on deals from authenticated (table-level, no column form)', () => {
+    const s = sqlCodeOnly(read(migrationPathR9()))
+    expect(s).toMatch(/revoke delete, truncate on public\.deals from authenticated/i)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Token cleanliness (Hard Rule 8) on the new surfaces
 // ─────────────────────────────────────────────────────────────────────────────
 
