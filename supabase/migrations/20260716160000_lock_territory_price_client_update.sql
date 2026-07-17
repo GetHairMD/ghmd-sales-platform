@@ -1,0 +1,47 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- §4D Round 5 — close the territory_price client-write bypass of discount governance.
+--
+-- Supabase project: ghmd-sales-platform (cprltmwwldbxcsunsafl). NIP never touched.
+--
+-- THE HOLE (verified live, not inferred): Round 1 (20260716120000 §6) locked
+-- discount_reason / discount_authorized_by out of the authenticated column grants,
+-- but LEFT territory_price granted for UPDATE. Combined with:
+--   • the single `internal_users_all` RLS policy on deals (ALL commands, true for any
+--     internal user — reps pass identically to execs), and
+--   • validate_deal_discount_authorization() only firing when discount_authorized_by
+--     is set/changed (an UPDATE of territory_price alone never enters its guard), and
+--   • deals_discount_requires_authorization_check comparing to 179000 with NO reference
+--     to the previously-authorized price,
+-- any rep could UPDATE territory_price on an ALREADY-discounted deal to a still-lower
+-- value: no new authorization, no trigger fire, and the CHECK is trivially satisfied by
+-- the pre-existing (unrelated-amount) discount_reason/discount_authorized_by. A current,
+-- validly-authorized discount could be silently DEEPENED by a non-authorizer.
+--
+-- THE FIX (grant layer, same root-cause pattern as the discount pair in Round 1 and
+-- funded_won_at in E-1 — NOT a weaker RLS/trigger patch): revoke authenticated UPDATE
+-- on territory_price. The ONLY remaining path to change an existing deal's price is then
+-- the executive-gated, service-role-backed setTerritoryPrice action.
+--
+-- WHY UPDATE ONLY (not INSERT/SELECT):
+--   • INSERT(territory_price) stays — moveProspectStage()'s standard-price backstop
+--     INSERTs a new $179k deal as the authenticated user (verified: it never UPDATEs
+--     territory_price), and a below-list INSERT is already blocked by the economics
+--     CHECK (needs the discount pair the client cannot set). So INSERT is not a bypass.
+--   • SELECT(territory_price) stays — legitimate authenticated reads (e.g. the proposal
+--     page) display the price.
+-- Audited every .from('deals') write in src/**: exactly two — setTerritoryPrice
+-- (service-role, bypasses grants) and the moveProspectStage INSERT (INSERT grant kept).
+-- No legitimate client UPDATE of territory_price exists, so this revoke breaks nothing.
+--
+-- SIDE EFFECT (deliberate, see PR body): funneling every price change through
+-- setTerritoryPrice — which re-checks the caller's pricing authorization on EVERY
+-- invocation — means price changes are now re-validated against CURRENT authorization
+-- state, not merely when discount_authorized_by itself changes. This closes the
+-- trigger's "doesn't re-validate on unrelated updates" gap by removing the unguarded
+-- update path entirely, rather than adding trigger complexity.
+--
+-- New migration; 20260716120000 / 20260716140000 are applied and NOT edited
+-- (supersede-not-edit, per the E-3 gate-fix precedent).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+revoke update (territory_price) on public.deals from authenticated;

@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import {
   FUNDING_PREQUAL_GATE_STAGE,
+  STAGE,
   crossesQualificationGate,
   FIRST_STAGE,
   LAST_STAGE,
@@ -94,6 +95,28 @@ export async function moveProspectStage(
   if (crossesPrequal) {
     if (!confirmed.prequal) return { ok: false, requiresConfirm: 'prequal' }
     update.skipped_funding_prequal = true
+  }
+
+  // ── No Funded/Won without a recorded price (Trace's invariant) ──────────────
+  // stamp_prospect_funded_won() REJECTS the stage→Funded/Won crossing unless a priced
+  // deals row exists (migration 20260716140000). Record the standard price DELIBERATELY,
+  // when a prospect first crosses into Funded/Won with no deal — never as a silent trigger
+  // insert. An executive who negotiated a discount created the deal at the negotiated price
+  // earlier via the discount-entry action, so we auto-fill ONLY when no deal exists and
+  // never overwrite it.
+  //
+  // This goes through the ensure_priced_deal() RPC (migration 20260716180000) rather than
+  // an inline select-then-insert: the RPC locks the prospect row FOR UPDATE and does the
+  // check+insert inside ONE transaction, so two concurrent closes of the same prospect
+  // (double-click / retry / two sessions) cannot both insert a backstop deal. A bare
+  // client-side select+insert here was a check-then-act race (there is deliberately no
+  // unique constraint on deals.prospect_id — multi-territory customers, Round 4). Runs
+  // before the stage update below so the trigger's guard is satisfied when it fires.
+  if (p.stage < STAGE.FUNDED_WON && targetStage >= STAGE.FUNDED_WON) {
+    const { error: ensureErr } = await supabase.rpc('ensure_priced_deal', {
+      p_prospect_id: prospectId,
+    })
+    if (ensureErr) return { ok: false, error: ensureErr.message }
   }
 
   const { error: uErr } = await supabase.from('prospects').update(update).eq('id', prospectId)

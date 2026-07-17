@@ -1,4 +1,5 @@
 import type { Designation } from '@/lib/auth/internal-role'
+import { concealedNavItemsFor } from './concealed-nav'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import BottomTabBar from './BottomTabBar'
@@ -17,6 +18,11 @@ import BottomTabBar from './BottomTabBar'
  * `designation` is resolved server-side in the (app) layout (getViewerDesignation)
  * and threaded to the Sidebar (exec-only nav items) and the TopBar (exec-only
  * "New Territory" quick-add) so exec-only affordances never reach a rep's markup.
+ *
+ * CONCEALED nav (spec §4D): concealedNavItemsFor() is resolved HERE — in a server
+ * component — and passed to the Sidebar as a plain prop. For any non-executive it
+ * is [], so the concealed labels/hrefs never enter the rep's HTML, RSC payload, or
+ * bundles (see concealed-nav.ts for why nav-items.ts cannot carry these).
  */
 export default function AppShell({
   children,
@@ -27,7 +33,7 @@ export default function AppShell({
 }) {
   return (
     <div className="flex min-h-screen bg-bg">
-      <Sidebar designation={designation} />
+      <Sidebar designation={designation} concealedItems={concealedNavItemsFor(designation)} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar designation={designation} />
         {/* pb-16 clears the mobile BottomTabBar; removed at md+. */}
