@@ -12,6 +12,7 @@ import { isQualificationRecommendation } from '@/lib/qualification/recommendatio
 import LeadTerritoryArtifact from '@/components/territory/LeadTerritoryArtifact';
 import QualificationExecDetail from '@/components/qualification/QualificationExecDetail';
 import type { QualificationReviewView } from '@/components/qualification/QualificationReviewPanel';
+import DealHistoryPanel, { type DealHistoryRow } from '@/components/deals/DealHistoryPanel';
 import DealRoom, { type DealRoomProspect } from './DealRoom';
 
 /** Territory shape fetched via the prospect's most-recent deal (the authoritative link). */
@@ -35,6 +36,7 @@ export default async function ProspectDetailPage({ params }: { params: { id: str
     { data: prospect, error },
     { data: activities },
     { data: deal },
+    { data: allDeals },
     { data: reservedTerritory },
     timelineSources,
     designation,
@@ -60,6 +62,17 @@ export default async function ProspectDetailPage({ params }: { params: { id: str
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
+    // §6 — the FULL deal list for the history panel (multi-deal build). The
+    // single-deal read above stays: it feeds the header chip / territory artifact,
+    // which genuinely wants one "primary territory" summary (most-recent deal),
+    // per the resolveProspectTerritory call-site review the brief required.
+    // Discount columns are NOT selected here — they are client-revoked; the
+    // exec-only enrichment below reads them via the service client.
+    supabase
+      .from('deals')
+      .select('id, stage, deal_status, territory_price, funded_won_at, created_at, territory_id, territories(name)')
+      .eq('prospect_id', params.id)
+      .order('created_at', { ascending: true }),
     // reserved_for is a dead column (never populated); queried only to flag a future
     // disagreement with the authoritative deal link (§D / AC8) — not used as a source.
     supabase.from('territories').select('id').eq('reserved_for', params.id).limit(1).maybeSingle(),
@@ -168,6 +181,87 @@ export default async function ProspectDetailPage({ params }: { params: { id: str
     );
   }
 
+  // ── §6/§7 — deal-history panel + add-another-territory ─────────────────────
+  // Base rows come from the viewer's own authenticated client (RLS/grants apply).
+  // Discount facts are exec-only enrichment via the service client — the columns
+  // are revoked from every client grant (20260716120000 §6), same pattern as
+  // TerritoryPriceControl above.
+  type AllDealRow = {
+    id: string;
+    stage: number;
+    deal_status: string;
+    territory_price: number;
+    funded_won_at: string | null;
+    created_at: string;
+    territory_id: string | null;
+    territories: { name: string } | { name: string }[] | null;
+  };
+  const discountByDeal = new Map<string, { reason: string | null; authorizer: string | null }>();
+  if (isExecutive && (allDeals ?? []).length > 0) {
+    const service = createServiceClient();
+    const { data: discountRows } = await service
+      .from('deals')
+      .select('id, discount_reason, discount_authorized_by')
+      .eq('prospect_id', params.id);
+    const authorizerIds = Array.from(
+      new Set(
+        (discountRows ?? [])
+          .map((r) => r.discount_authorized_by as string | null)
+          .filter((v): v is string => v != null),
+      ),
+    );
+    const nameById = new Map<string, string>();
+    if (authorizerIds.length > 0) {
+      const { data: authorizers } = await service
+        .from('internal_users')
+        .select('user_id, full_name')
+        .in('user_id', authorizerIds);
+      for (const a of authorizers ?? []) {
+        if (a.full_name) nameById.set(a.user_id, a.full_name);
+      }
+    }
+    for (const r of discountRows ?? []) {
+      discountByDeal.set(r.id, {
+        reason: (r.discount_reason as string | null) ?? null,
+        authorizer: r.discount_authorized_by
+          ? (nameById.get(r.discount_authorized_by) ?? 'Unknown authorizer')
+          : null,
+      });
+    }
+  }
+  const dealHistoryRows: DealHistoryRow[] = ((allDeals ?? []) as AllDealRow[]).map((d) => {
+    const tRow = Array.isArray(d.territories) ? (d.territories[0] ?? null) : d.territories;
+    return {
+      id: d.id,
+      stage: d.stage,
+      deal_status: d.deal_status,
+      territory_price: Number(d.territory_price),
+      funded_won_at: d.funded_won_at,
+      created_at: d.created_at,
+      territory_name: tRow?.name ?? null,
+      discount_reason: discountByDeal.get(d.id)?.reason ?? null,
+      discount_authorizer_name: discountByDeal.get(d.id)?.authorizer ?? null,
+    };
+  });
+
+  // §7 gate for the add-another affordance: assigned rep or executive. The
+  // database re-enforces this inside create_territory_deal() — this only decides
+  // whether the button is enabled or visibly disabled (never an unhandled error).
+  const {
+    data: { user: viewer },
+  } = await supabase.auth.getUser();
+  const canAddTerritory =
+    isExecutive || (designation === 'rep' && viewer?.id != null && prospect.assigned_rep_id === viewer.id);
+
+  const dealHistoryPanel = (
+    <DealHistoryPanel
+      prospectId={params.id}
+      deals={dealHistoryRows}
+      isExecutive={isExecutive}
+      canAddTerritory={canAddTerritory}
+    />
+  );
+
   const dr: DealRoomProspect = {
     id: prospect.id,
     full_name: prospect.full_name,
@@ -200,6 +294,9 @@ export default async function ProspectDetailPage({ params }: { params: { id: str
       qualificationExecDetail={isExecutive ? <QualificationExecDetail prospectId={params.id} /> : null}
       // Exec-only territory-price / discount entry (§4D). Null for reps.
       territoryPriceControl={territoryPriceControl}
+      // §6/§7 — multi-deal history + add-another-territory (all viewers; controls
+      // inside are exec/assigned-rep gated).
+      dealHistoryPanel={dealHistoryPanel}
     />
   );
 }

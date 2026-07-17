@@ -1,0 +1,20 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Multi-Deal UI (PR-B) — SELECT grants for the two deals columns added by
+-- 20260716260000.
+--
+-- Supabase project: ghmd-sales-platform (cprltmwwldbxcsunsafl). NIP never touched.
+--
+-- WHY: 20260716120000 §6 replaced the table-level deals SELECT grant with an
+-- enumerated column-level grant (so the discount pair could be excluded). Columns
+-- added AFTER that enumeration — deal_status and funded_won_at (20260716260000)
+-- — therefore have NO authenticated SELECT grant, per that migration's own
+-- maintenance note ("any future deals column the app must read/write via the
+-- authenticated client needs an explicit column grant here-after").
+--
+-- The deal-history panel (/prospects/[id]) and the territory picker read both
+-- columns through the user's own authenticated client (active/stalled/lost
+-- distinction, per-deal close date, competitive-deal warning badge). SELECT
+-- only — the write surface stays exactly as 20260716260000 §12 left it (no
+-- INSERT/UPDATE/DELETE; every write goes through the SECURITY DEFINER RPCs).
+-- The discount pair stays excluded from every client grant (Round 1 stands).
+grant select (deal_status, funded_won_at) on public.deals to authenticated;

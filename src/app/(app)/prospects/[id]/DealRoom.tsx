@@ -83,6 +83,7 @@ export default function DealRoom({
   qualificationReview,
   qualificationExecDetail = null,
   territoryPriceControl = null,
+  dealHistoryPanel = null,
 }: {
   prospect: DealRoomProspect;
   territory: { name: string; addressable_patients_primary: number | null } | null;
@@ -95,6 +96,8 @@ export default function DealRoom({
   qualificationExecDetail?: React.ReactNode;
   /** Exec-only territory-price / discount entry node (§4D); null for reps. */
   territoryPriceControl?: React.ReactNode;
+  /** Multi-deal history + add-another-territory (§6/§7); rendered for every viewer. */
+  dealHistoryPanel?: React.ReactNode;
 }) {
   const [tab, setTab] = useState('action');
 
@@ -211,6 +214,10 @@ export default function DealRoom({
                 {/* Exec-only: record/negotiate the territory price BEFORE close. The
                     close (StageSelector above) is DB-blocked until a price exists. */}
                 {territoryPriceControl}
+                {/* §6/§7 — every territory negotiation this customer holds, with
+                    per-deal controls (exec) and add-another-territory (assigned
+                    rep or exec). */}
+                {dealHistoryPanel}
                 {prospect.stage >= STAGE.DISCOVERY_CALL_MET && (
                   <>
                     <QualificationReviewPanel
