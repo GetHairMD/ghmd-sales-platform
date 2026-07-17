@@ -7,14 +7,16 @@
  * modules (unit-tested); this file only fetches and shapes.
  */
 import { createServiceClient } from '../supabase/service'
-import { PIPELINE_STAGES, STAGE } from '../pipeline-stages'
+import { PIPELINE_STAGES, STAGE, stageLabel } from '../pipeline-stages'
 import {
   aggregateEngagement,
   computeEngagementFeed,
   computeHotLeads,
+  computeMultiDealFeed,
   computeResourceFeed,
   type FeedItem,
   type HotLead,
+  type MultiDealRow,
   type ProposalEventRow,
   type ProposalSessionRow,
   type ProspectDisplay,
@@ -71,6 +73,7 @@ export async function getDashboardData(
     { data: resourceShares },
     { data: resourceAssets },
     { data: internalUsers },
+    { data: dealRows },
   ] = await Promise.all([
     db
       .from('prospects')
@@ -85,6 +88,9 @@ export async function getDashboardData(
     // Service-role read bypasses internal_users' self_read RLS, so exec attribution can
     // resolve any rep's name directly — no SECURITY DEFINER helper needed here.
     db.from('internal_users').select('user_id, full_name'),
+    // Multi-deal feed source (brief §8): every non-lost deal + its territory name.
+    // Role-scoping happens in computeMultiDealFeed (rep-own vs exec-all, fail closed).
+    db.from('deals').select('prospect_id, stage, deal_status, funded_won_at, territories(name)'),
   ])
 
   const rows = (prospects ?? []) as ProspectRow[]
@@ -152,10 +158,38 @@ export async function getDashboardData(
     viewer,
   })
 
-  // Merge the proposal-engagement and resource-open items into one heat-sorted feed.
-  // computeEngagementFeed is asked for a generous slice so the merge is fair, then the
-  // combined list is re-sorted and capped to the display limit.
-  const feed = [...computeEngagementFeed(engagements, nowMs, 24), ...resourceFeed]
+  // Multi-deal feed contribution (brief §8): a Funded/Won customer's in-flight
+  // second negotiation must not go invisible just because the customer-level
+  // stage stays at 11. Same role-scoping as the resource feed.
+  type DealFeedRaw = {
+    prospect_id: string
+    stage: number
+    deal_status: string
+    funded_won_at: string | null
+    territories: { name: string } | { name: string }[] | null
+  }
+  const multiDealRows: MultiDealRow[] = ((dealRows ?? []) as DealFeedRaw[]).map((d) => {
+    const t = Array.isArray(d.territories) ? (d.territories[0] ?? null) : d.territories
+    return {
+      prospect_id: d.prospect_id,
+      stage: d.stage,
+      deal_status: d.deal_status,
+      funded_won_at: d.funded_won_at,
+      territory_name: t?.name ?? null,
+    }
+  })
+  const multiDealFeed = computeMultiDealFeed({
+    deals: multiDealRows,
+    prospectById,
+    stageLabelFor: stageLabel,
+    fundedWonStage: STAGE.FUNDED_WON,
+    viewer,
+  })
+
+  // Merge the proposal-engagement, resource-open, and multi-deal items into one
+  // heat-sorted feed. computeEngagementFeed is asked for a generous slice so the
+  // merge is fair, then the combined list is re-sorted and capped to the display limit.
+  const feed = [...computeEngagementFeed(engagements, nowMs, 24), ...resourceFeed, ...multiDealFeed]
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 12)
 

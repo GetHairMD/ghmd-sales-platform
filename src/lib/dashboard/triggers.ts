@@ -260,9 +260,11 @@ export interface FeedItem {
   priority: FeedPriority
   /**
    * Feed category tag (spec §4B). ENGAGEMENT = proposal-engagement signals;
-   * RESOURCE = Resource Library tracked-link opens (E-3). Both heat-sort into one feed.
+   * RESOURCE = Resource Library tracked-link opens (E-3); DEAL = multi-deal
+   * pipeline signals (a Funded/Won customer's in-flight second negotiation —
+   * brief §8). All heat-sort into one feed.
    */
-  category: 'ENGAGEMENT' | 'RESOURCE'
+  category: 'ENGAGEMENT' | 'RESOURCE' | 'DEAL'
   action: string
   weight: number
 }
@@ -404,6 +406,88 @@ export function computeResourceFeed(args: {
       weight,
     })
   }
+
+  return items.sort((a, b) => b.weight - a.weight).slice(0, limit)
+}
+
+// ── Multi-deal feed (brief §8 — the second negotiation must not go invisible) ─
+
+/** A deals row projection for the multi-deal feed. */
+export interface MultiDealRow {
+  prospect_id: string
+  stage: number
+  deal_status: string
+  funded_won_at: string | null
+  territory_name: string | null
+}
+
+/** Multi-deal signal weight: a live second negotiation on an already-won customer
+ *  is a strong follow-up (above a single resource open, below a stalled-deal alarm
+ *  or a financing CTA click at 100+). */
+const MULTI_DEAL_WEIGHT = 90
+
+/**
+ * Brief §8: because prospects.stage stays at the customer's MAX (a Funded/Won
+ * customer with a second in-flight deal still reads stage 11), the main Pipeline
+ * board never surfaces the second negotiation on its own — BY DESIGN. This feed
+ * item is what closes that gap: one item per Funded/Won customer per ACTIVE deal
+ * sitting below the customer's leading stage, e.g.
+ *   "Dr. X (Funded/Won — Territory A) has an active deal on Territory B — Proposal Sent."
+ *
+ * Role-scoping mirrors computeResourceFeed exactly: a rep sees only their own
+ * prospects' items; an executive sees all. A null viewer yields nothing (fail
+ * closed). Lost/stalled second deals are deliberately excluded — 'active' is the
+ * brief's wording, and a stalled second deal already surfaces through the
+ * customer-level stalled machinery once derivation marks it.
+ */
+export function computeMultiDealFeed(args: {
+  deals: MultiDealRow[]
+  prospectById: Record<string, ResourceProspect>
+  stageLabelFor: (stage: number) => string
+  fundedWonStage: number
+  viewer: ResourceViewer
+  limit?: number
+}): FeedItem[] {
+  const { deals, prospectById, stageLabelFor, fundedWonStage, viewer, limit = 12 } = args
+  if (viewer.designation === null) return [] // fail closed
+
+  const isExec = viewer.designation === 'executive'
+
+  // Group non-lost deals per prospect, find the leading (max) stage.
+  const byProspect = new Map<string, MultiDealRow[]>()
+  for (const d of deals) {
+    if (d.deal_status === 'lost') continue
+    const list = byProspect.get(d.prospect_id)
+    if (list) list.push(d)
+    else byProspect.set(d.prospect_id, [d])
+  }
+
+  const items: FeedItem[] = []
+  byProspect.forEach((rows, prospectId) => {
+    const prospect = prospectById[prospectId]
+    if (!prospect) return // unknown/lost prospect — not on a heat surface
+    if (!isExec && prospect.assignedRepId !== viewer.userId) return
+
+    const leading = rows.reduce((m, d) => Math.max(m, d.stage), 0)
+    if (leading < fundedWonStage) return // not a Funded/Won customer
+
+    const wonName =
+      rows.find((d) => d.stage === leading)?.territory_name ?? 'their won territory'
+
+    for (const d of rows) {
+      if (d.deal_status !== 'active') continue
+      if (d.stage >= leading) continue // the won deal itself (or a co-leader)
+      const where = d.territory_name ?? 'an unnamed territory'
+      items.push({
+        prospectId,
+        who: prospect.who,
+        priority: priorityFor(MULTI_DEAL_WEIGHT),
+        category: 'DEAL',
+        action: `(Funded/Won — ${wonName}) has an active deal on ${where} — ${stageLabelFor(d.stage)}`,
+        weight: MULTI_DEAL_WEIGHT,
+      })
+    }
+  })
 
   return items.sort((a, b) => b.weight - a.weight).slice(0, limit)
 }
