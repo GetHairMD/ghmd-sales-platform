@@ -96,6 +96,7 @@ CI and deploy-preview pass.
 16. At the end of every session, before closing: run git checkout main && git merge --ff-only origin/main to fast-forward local main to match remote. If --ff-only refuses, stop and report — do not force. This ensures local never falls behind cloud sessions.
 17. No task marked complete without citing a tool result from this session.
 18. Subagents and Coder never write to ops.decision_log — Chat only, at phase close. Coder reports entry content and squash SHA to Chat for the write.
+19. GHMD-CRM-003 (docs/GHMD-CRM-003.md, v1.0, decision #177) governs architecture and delivery order. Session E (SALES-OS-SPEC) is frozen — never resume E-4/E-5. No feature work outside the CRM-003 phase plan. Phase 0 security containment precedes all Phase 1 foundation work.
 
 ## Branch / Git Hygiene
 

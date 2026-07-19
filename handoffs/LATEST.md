@@ -1,12 +1,13 @@
-# GHMD Sales Platform — Handoff v2.54
+# GHMD Sales Platform — Handoff v2.55
 
-Date: 2026-07-17 | Prepared by: Coder (content briefed by Chat) | Purpose: record this
-cycle's capability-stack portability attempt — PR #145 committed a 13-plugin
-`enabledPlugins` block to `.claude/settings.json` to make Coder's secret-free tooling
-available to any environment opening this repo — and its outcome (decision #176): the
-config is live on `main` but confirmed **non-functional** in a real `claude.ai/code`
-session. This does **not** close the underlying question of how cloud sessions source
-plugins; that remains open. Supersedes v2.53.
+Date: 2026-07-18 | Prepared by: Coder (content briefed by Chat) | Purpose: record the
+adoption of **GHMD-CRM-003 v1.0 — APPROVED** as the governing architecture and delivery
+document for this platform (decisions #177 and #178), and the repo-governance alignment
+that implements it: the SALES-OS-SPEC **Session E queue is FROZEN**, delivery order is
+now CRM-003's Phase 0–4 plan, and the "12-stage pipeline" Locked Technical Fact is
+amended to note its supersession by the ten-stage Opportunity workflow at Phase 1
+cutover. Without this alignment, standing session-start protocol would have routed the
+next Coder session straight into superseded work (CRM-003 §10). Supersedes v2.54.
 
 > **State facts are never read from this file.** Main HEAD, decision-log tip, open
 > PRs, and security-advisor status are derived live at every session start (git,
@@ -17,16 +18,24 @@ plugins; that remains open. Supersedes v2.53.
 
 ## What to do first (next session)
 
-**The multi-deal thread that dominated the last two cycles is now fully resolved.**
-It shipped, deployed, and is logged — remove it from any "what's next" framing.
+**The program has pivoted.** GHMD-CRM-003 v1.0 is approved and governing. Read
+`docs/GHMD-CRM-003.md` before scoping anything. Delivery order no longer comes from
+SALES-OS-SPEC.
 
-1. **Session E's next module.** Unchanged from v2.51/v2.52: E-3 was module 3 of 4
-   (decision #159). Per `docs/SALES-OS-SPEC.md` §4C the next module *would be*
-   **E-4, the Email & SMS Template Gallery** (§4C item 5). Naming it here is
-   orientation only — **Sprint Discipline still requires confirming the current
-   module with Trace at session start. Do not infer authorization from position
-   in the queue.**
-2. **Multi-deal architecture — RESOLVED this cycle.** Was v2.52's standing-queue
+1. **Session E is FROZEN — do not resume it.** This reverses v2.51/v2.52/v2.54's
+   standing orientation toward **E-4 (Email & SMS Template Gallery)**. E-4, E-5, and
+   any successors are frozen per GHMD-CRM-003 (decision #177). `docs/SALES-OS-SPEC.md`
+   remains accurate for the **live legacy system as deployed** until Phase 1 cutover,
+   but it no longer defines delivery order. **Next authorized work: Sprint 0.1, the
+   Phase 0 emergency containment wave (PR-0a, PR-0b, PR-0g, PR-0d-interim; ultrareview
+   tier), brief to be issued by Chat.** Sprint Discipline is unchanged — confirm the
+   sprint with Trace at session start; do not infer authorization from position in a
+   queue.
+2. **A v1.1 administrative consolidation of CRM-003 precedes Sprint 0.1** (Chat
+   drafts; administrative acknowledgment by Trace/Bruce). It is consolidation, not
+   reopened architecture — one genuine decision inside it is already ruled (#178).
+   See "Sol's post-approval review" below for its contents.
+3. **Multi-deal architecture — RESOLVED (prior cycle).** Was v2.52's standing-queue
    item ("deliberately deferred since Round 4 of PR #139... still not scoped or
    started"). It has now shipped in full: PR #142 (schema + governed write paths,
    `dcfa932`) and PR #143 (UI: deal-history panel, territory picker,
@@ -34,7 +43,7 @@ It shipped, deployed, and is logged — remove it from any "what's next" framing
    independently confirmed live in production. Decision #175 logged. Nothing
    further required to close this thread — see Standing Queue for the residuals
    it left behind, which are accepted, not open work.
-3. **Capability-stack cloud-portability is still an open question (decision #176).**
+4. **Capability-stack cloud-portability is still an open question (decision #176).**
    PR #145's config is live on `main` but was confirmed **non-functional** in a real
    `claude.ai/code` session — `hookify` and `remember`, two of the 13 committed
    plugins, both returned "Unknown skill," and the tested session's plugin/skill
@@ -45,7 +54,86 @@ It shipped, deployed, and is logged — remove it from any "what's next" framing
    appear to read a repo's committed `.claude/settings.json` `enabledPlugins` the way
    local Desktop does. **Do not assume "merged" means "working" here.**
 
+## What happened this cycle — GHMD-CRM-003 v1.0
+
+**The v0.99 correction pass** was executed by Chat, adjudicating the Sol 5.6 review of
+2026-07-17. Ten of Sol's corrections were accepted as written. Correction **#2** was
+accepted under Trace's **"Reading A"** reclassification — the hardcoded-UUID
+authorization mechanism is reclassified as *implementation detail written into the
+decision text*, replaced by a governed `authority_assignments` table; **the business
+rule is unchanged** (named-individual authority — Trace or Bruce specifically — never
+designation-tested, expansion only by deliberate future sign-off). Corrections **#1**
+and **#7** were accepted with modification. Chat added four items of its own:
+
+- the **#136/#137 revision prerequisite for PR-0a** — the `ops.decision_log` entry
+  revising those standing decisions must land before or with PR-0a, never a migration
+  that silently contradicts the log;
+- the **`gate_decision_for_pr` CI-dependency caveat** — its public executability may be
+  load-bearing for the Second-Opinion Gate workflow; verify how
+  `.github/workflows/second-opinion-gate.yml` authenticates **before** any revoke;
+- the **preview-login redesign inside PR-0c** — the QA-exec hostname-guard model is
+  premised on the single-Supabase-project topology that environment separation
+  dissolves;
+- **this repo-governance alignment** (CRM-003 §10).
+
+**T-1 executed:** GHMD-CRM-001 reference material transcribed into Appendix A with five
+inline discrepancy flags, all resolving in favor of CRM-003.
+
+**§12 items 2 and 5 resolved** with counsel input obtained by Trace. *Retention:* the
+2-year figure is a **minimum**, not an auto-delete trigger, and applies **only to deals
+that do not close**; all closed-deal records live permanently in Box; system default is
+**never auto-delete** anywhere. *New proposal content:* **Option A** — fresh off-system
+counsel review for every new claim/ROI/earnings-adjacent item, with a Phase 2
+submission-UI gate.
+
+**v1.0 approved in full: Trace Herchman 2026-07-18 7:16 PM, Bruce Vermeulen 2026-07-18
+7:20 PM.** GHMD-CRM-003 supersedes GHMD-CRM-001 and GHMD-CRM-002 effective that date.
+
+### Sol's post-approval review (2026-07-18)
+
+Verdict: **treat v1.0 as approved; do not reopen architecture.** Eleven residual items
+were adjudicated by Chat. **Top residual risk is migration/cutover** — there is no
+governing migration strategy yet, and CRM-001 §17 has not been transcribed.
+
+Disposition: a **v1.1 administrative consolidation** is planned, carrying —
+
+- CRM-001 §2 decision register as Appendix A.0;
+- CRM-001 §17 migration baseline plus a governing migration section;
+- a canonical ER diagram;
+- a harmonized Appendix A with historical redline;
+- the full named-person authority gate matrix, including #178;
+- Sol's simplified auth-guard rule folded into PR-0a's spec — bypass permitted **only**
+  in explicit local dev with synthetic data; **every hosted Netlify context fails
+  deployment if enabled**;
+- PITR + a timed restore test + the Pilot Runbook as **hard preconditions before the
+  first real lead**;
+- a channel-consent-compatible Contact schema note;
+- the `authority_assignments` write path hardened to migration/DB-owner or one
+  dedicated audited admin procedure — **no general service-role endpoint**;
+- a retention-operations addendum for PR-0i: Box retention-policy configuration, legal-
+  hold mechanism, the narrowly-controlled counsel-directed deletion path, and Contact
+  correction/deletion-request handling. **The last item gets a Rick Dahlson check when
+  the PR-0i retention runbook is drafted — not improvised.**
+
 ## What shipped this cycle
+
+### PR (this one) — Sprint G: commit GHMD-CRM-003 v1.0 + docs-alignment [standard tier]
+
+Docs-only; no code paths, migrations, schema, or UI. Five files:
+
+- `docs/GHMD-CRM-003.md` — the signed governing document, committed **byte-for-byte**.
+  Integrity verified before commit: sha256
+  `a02b3ba9d3918cc8b2f5f4c9181ef5e5221eccf527743d484ca68cb03e1e4ccb`, 63620 bytes.
+- `docs/SALES-OS-SPEC.md` — governance-notice banner added below the header block; E-4
+  and E-5 marked `FROZEN per GHMD-CRM-003 (decision #177)` individually. **Nothing
+  deleted** — the queue is history and stays legible.
+- `docs/AGENTS.md` — new **Canonical Documents** list (CRM-003 added as governing;
+  SALES-OS-SPEC annotated "live legacy system only; Session E queue frozen"); the
+  12-stage Locked Technical Fact **amended, not deleted**; delivery-order line added.
+- `CLAUDE.md` — standing rule **19** added. No existing rule renumbered.
+- `handoffs/LATEST.md` — this file.
+
+## Shipped in the prior cycle (v2.54) — carried for context
 
 ### PR #142 — MERGED (`dcfa932`) — Multi-Deal Pipeline Architecture PR-A: deals.stage authoritative, prospects.stage derived, governed deal writes [ultrareview]
 
@@ -201,6 +289,20 @@ Standing Queue.
 
 ## Decisions logged this cycle
 
+Written by Chat (Hard Rule 18 — Coder never writes `ops.decision_log`). **#178 was the
+tip at time of writing; re-derive the live tip at session start, do not cite this file.**
+
+| # | Substance | `related_pr` |
+|---|---|---|
+| #177 | GHMD-CRM-003 v1.0 adoption — governing architecture and delivery document; supersedes GHMD-CRM-001/002 effective 2026-07-18. Status ADOPTED, `residual_risk` **accepted** | — |
+| #178 | Disposition authority split — the Analyst may approve **Not Ready / Nurture**; **Closed Lost requires Trace or Bruce** via `authority_assignments`. Status ADOPTED, `residual_risk` **none** | — |
+
+**A Locked-Fact supersession entry follows this PR's merge** — Chat writes it once the
+squash SHA is reported, covering the 12-stage → ten-stage supersession recorded in
+`docs/AGENTS.md`.
+
+### Logged in the prior cycle (v2.54)
+
 | # | Substance | `related_pr` |
 |---|---|---|
 | #175 | Multi-Deal Pipeline Architecture — PR #142 + PR #143 merged and independently confirmed live in production; partial revision of decision #53 item (A) | 142 |
@@ -214,8 +316,8 @@ Standing Queue.
 | E-3 (Resource Library, structure only) | — | SHIPPED (unchanged) |
 | Deploy-preview QA for PR #136 | Trace, then Coder | Never performed — carry forward unchanged |
 | **Multi-Deal Pipeline Architecture** | — | **SHIPPED this cycle** (PR #142 `dcfa932` + PR #143 `c2f4f99`, decision #175). Was previously the standing "deferred since PR #139 Round 4" item — now complete. Remove from future "what's next" framing. |
-| Session E next module | Trace authorization per #159 | Next *would be* **E-4 (Email & SMS Template Gallery, §4C.5)** — **not confirmed, confirm with Trace at session start** |
-| E-5 blocked on a Trace call | Trace | Webinar registration source (Calendly vs. Zoom webhook) still undecided |
+| **Session E queue (E-4, E-5, successors)** | — | **FROZEN per GHMD-CRM-003 (decision #177).** Supersedes the prior "next module *would be* E-4" framing. No session may resume it. Not deleted from `docs/SALES-OS-SPEC.md` — kept as history |
+| E-5's undecided webinar registration source (Calendly vs. Zoom webhook) | — | **Moot while E-5 is frozen.** Retained only so the open question isn't lost if Events is ever revived under the CRM-003 phase plan |
 | **No DB-level exclusivity on a still-available territory pre-close** | future Coder/Trace | Two different prospects can each hold an active deal on the same `available` territory today — confirmed live evidence (the `MDFIX` fixture's Territory Beta deliberately carried two prospects' active deals for QA). The territory picker surfaces this as a non-blocking badge by deliberate design (brief §5), not an oversight. Revisit only if this becomes a real commercial conflict in practice. |
 | **Second deal-close does not re-ring the E-1 bell** | Trace (a call, not a bug) | The Community Board celebration/bell keys off `prospects.funded_won_at`'s *first* transition only. A repeat customer's second (or third) territory close is silent on the bell/scoreboard. Flagged, accepted, in decision #175 — revisit only if the business wants every close celebrated, not just a customer's first. |
 | **No per-deal qualification-review artifact** | future Coder, if ever needed | A second deal's qualification-gate crossing re-checks the *customer-level* `proceed` review (which passes) — there's no schema for a distinct per-territory qualification decision. Deliberately not invented this cycle (brief said flag, don't silently build). |
@@ -236,6 +338,36 @@ Standing Queue.
 | **`supabase` plugin: pure-OAuth include/exclude policy call** | Chat/Trace | PR #145 verified `supabase`'s MCP server is remote-OAuth with zero local secret — structurally eligible for inclusion, but deliberately excluded from PR #145 pending a Trace decision (touches `ops.decision_log` infra exposure). Still undecided. |
 | **`docs/AGENTS.md` "netlify-skills and typescript-lsp are Project-scoped" wording** | future Coder | Confirmed misleading this cycle — "Project" in Claude Code's UI means keyed to a local path in `~/.claude.json`, not committed to git. Neither plugin is actually repo-portable. Needs a wording fix by PR; not done this cycle, deliberately out of scope for PR #145. |
 
+## Delivery queue — CRM-003 order (replaces the Session E queue)
+
+Session E is frozen (this PR). Work proceeds in this order:
+
+1. **v1.1 administrative consolidation of CRM-003** — Chat drafts; administrative
+   acknowledgment by Trace/Bruce. Consolidation, not reopened architecture; the one
+   genuine decision inside it is already ruled (#178).
+2. **Sprint 0.1 — Phase 0 emergency containment wave** — PR-0a (restore authentication
+   + deployment guard), PR-0b (revoke anon/authenticated writes on PostGIS system
+   objects), PR-0g (credential review and rotation — **rotations performed by Trace
+   directly in the respective consoles, never through an agent session**; Coder only
+   verifies no secrets remain in repo history), PR-0d-interim (triage of accidental
+   anon-executable privileged functions). **Tier: ultrareview.**
+3. **Sprint 0.2 — environment separation** (PR-0c), then the rest of §7 per CRM-003.
+
+**Phase 1 is preceded by three specs**, none optional: the **Schema Contract**, the
+**Permission & Audit Matrix**, and the **Migration & Cutover Brief**.
+
+## Standing — unchanged by this cycle
+
+- **Legal flags #68/#71 are untouched** and continue to **independently block live
+  prospect sends**, regardless of anything CRM-003 authorizes.
+- **`AUTH_GATE_DISABLED` remains the deliberate standing state** until PR-0a supersedes
+  #136/#137 with its own decision-log entry. It is a choice, not a lapse.
+
+## Session close
+
+This handoff update satisfies the session-close rule for the **2026-07-18 Chat session**
+(decision-log writes #177 and #178).
+
 ## Carried forward — still true, do not "fix" these
 
 - **Retired QA Rep A UUID (`de190bae-…`)** still appears in two files on purpose
@@ -252,6 +384,10 @@ Standing Queue.
 
 Unchanged: deliberate, ongoing decision (#136/#137), not a lapsed oversight.
 Still live in production. Continue noting it every go-live-readiness session.
+**CRM-003 §4 and §7.1 now put an end date on it:** PR-0a restores authentication and
+fails closed in a real-data context, and its decision-log entry revising #136/#137 is a
+stated **prerequisite** for that PR — the log entry lands before or with the migration,
+never after.
 
 ## Agent Roles
 
