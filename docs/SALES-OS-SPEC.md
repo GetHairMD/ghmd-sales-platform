@@ -6,6 +6,13 @@
 **Repo:** GetHairMD/ghmd-sales-platform · **Design reference:** gethairmd.biz (hausauerghmd Netlify project) + NIP design language & app shell · **Date:** 2026-07-04
 **Rule 0 applies. Squash-merge only. Tokens from `src/design/tokens.ts` — raw Tailwind grays/blues are build failures.**
 
+> **GOVERNANCE NOTICE (2026-07-18):** GHMD-CRM-003 v1.0 (`docs/GHMD-CRM-003.md`,
+> decision #177) is now the governing architecture and delivery document. This
+> spec remains accurate for the LIVE legacy system as deployed, until Phase 1
+> cutover. The Session E delivery queue (E-4 Email & SMS Template Gallery, E-5
+> and any successors) is **FROZEN** — do not resume it. All delivery order is
+> defined by CRM-003's Phase 0–4 plan and four readiness milestones.
+
 ---
 
 ## 1. Problem Statement
@@ -172,6 +179,6 @@ All numeric territory/scenario values compute from formula-v2 (`/lib/addressable
 - **Session B (proposal p1):** data model migration; gate + session logging; sections 1–5 incl. calculator + mobile demand-table treatment.
 - **Session C (proposal p2):** sections 6–19; Wistia + Calendly; scarcity banner; event instrumentation.
 - **Session D:** `/dashboard` + trigger notifications; **proposal generator flow** (rep selects prospect → formula-v2 computes → slug + access code minted → ready-to-send email/SMS copy on one screen); **auto-logged prospect timeline** on `/prospects/[id]` (proposal events + Calendly webhook + tracked-link opens; manual notes optional); 390px QA sweep; parity review vs hausauerghmd; retire clone.
-- **Session E (Sales OS):** Scoreboard + Bell Ringing events; Community Board; Resource Library with tracked share links; email/SMS template gallery with merge fields; Events module + tracked prospect invites (RSVP → timeline + feed); objection playbook seeded from proposal FAQ content.
+- **Session E (Sales OS):** Scoreboard + Bell Ringing events; Community Board; Resource Library with tracked share links; **E-4** email/SMS template gallery with merge fields — **FROZEN per GHMD-CRM-003 (decision #177)**; **E-5** Events module + tracked prospect invites (RSVP → timeline + feed) — **FROZEN per GHMD-CRM-003 (decision #177)**; objection playbook seeded from proposal FAQ content.
 - **Backlog (P2):** Demo Mode guided tour; kanban pipeline; AI pre-meeting brief (one-tap prospect one-pager: practice snapshot, territory numbers, engagement heat, suggested talking points — candidate for Claude API once core ships); Insights.
 Each session: one repo, decision-log entries via sanctioned path only.

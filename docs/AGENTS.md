@@ -54,7 +54,7 @@ Does NOT:
 - CUSTOMERS_NEEDED = 62. Single source: lib/addressable-market-constants.ts.
 - Penetration scenarios: 0.5% / 1% / 2%, computed on render, not stored. Labels: Conservative / Base / Upside.
 - PTI5 not stored server-side — compute-vs-store decision deferred.
-- 12-stage pipeline (pipeline-stages.ts, single source of truth): New Lead → Contacted → Discovery Call Scheduled → Discovery Call Met → Qualification Review → Proposal Sent → Validation → Funding Pre-Qualified → Contract Sent → Contract Signed → Funded/Won → Implementation Handoff Scheduled. No LOI stage, no FDD stage. Qualification Review inserted per decision #110 (its stage-advancement gate enforcement lands with the PR3 UI).
+- Pipeline stages: 12 (LIVE legacy system — accurate as deployed). SUPERSEDED at Phase 1 cutover by the ten-stage Opportunity workflow defined in docs/GHMD-CRM-003.md §3 (decision #177; supersession entry to follow on this PR's merge). Until cutover, the 12-stage model governs the deployed code; the ten-stage model governs all new Phase 1+ design work. The 12 stages (pipeline-stages.ts, single source of truth): New Lead → Contacted → Discovery Call Scheduled → Discovery Call Met → Qualification Review → Proposal Sent → Validation → Funding Pre-Qualified → Contract Sent → Contract Signed → Funded/Won → Implementation Handoff Scheduled. No LOI stage, no FDD stage. Qualification Review inserted per decision #110 (its stage-advancement gate enforcement lands with the PR3 UI).
 - Deal health separate from stage: prospects.deal_status (active|stalled|lost).
 - Funding gate is soft by explicit decision. Revisit only with skip-rate data.
 - Test conventions: vitest, pure-function + source-scan style. No RTL/jsdom — deliberate.
@@ -184,6 +184,18 @@ Coder  →  Pilot:   GitHub UI ops only if CLI/MCP unavailable (QA is Coder brow
 ```
 
 **The session handoff** (`handoffs/LATEST.md`) is narrative-only: what shipped and why, judgment calls, residual risks, deferrals, and the decision queue. It does not state volatile state facts — main HEAD, decision-log tip, open PRs, and advisor status are derived live at session start (git, `ops.decision_log`, `get_advisors`), never read from the handoff.
+
+**Delivery order is governed by docs/GHMD-CRM-003.md Phase 0–4 plan. Next authorized work: Sprint 0.1 (Phase 0 emergency containment wave), brief to be issued by Chat.**
+
+### Canonical Documents
+
+Read at session start, in this order:
+
+- `CLAUDE.md` — standing rules, repo identity, hard boundaries.
+- `handoffs/LATEST.md` — current sprint narrative, blockers, decision queue (standing rule #11).
+- `docs/GHMD-CRM-003.md` — **governing architecture and delivery document** (v1.0, approved 2026-07-18 by Trace Herchman and Bruce Vermeulen; decision #177). Supersedes GHMD-CRM-001 and GHMD-CRM-002. Defines the target Account/Contact/Opportunity data model, the ten-stage Opportunity workflow, the Phase 0–4 delivery order, and the four readiness milestones.
+- `docs/AGENTS.md` — this file: role definitions, Locked Technical Facts, gate discipline.
+- `docs/SALES-OS-SPEC.md` — live legacy system only; Session E queue frozen per CRM-003.
 
 **Session-close handoff rule:** Any session that merges a PR to main or writes to `ops.decision_log` must end with either (a) a handoff append/update PR, or (b) an explicit in-session statement that no handoff update is needed and why. A session that does neither is incomplete. The next session's bootstrap treats a handoff that is missing narrative for merged PRs as a flag-and-report condition (not a silent-reconcile condition).
 
