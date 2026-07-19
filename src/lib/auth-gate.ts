@@ -21,6 +21,38 @@ export function isAuthGateDisabled(value: string | undefined): boolean {
 }
 
 /**
+ * Signature-authenticated webhook endpoints (PR-0a).
+ *
+ * These are NOT session-authenticated and cannot be: the caller is an external
+ * service (Calendly), which has no Supabase session and never will. Session
+ * auth is the wrong control for them entirely — a gated webhook is not a secure
+ * webhook, it is a permanently broken one (the middleware would 307 it to
+ * /login and the sender would see a redirect, not a result).
+ *
+ * The actual control is per-request HMAC signature verification inside the
+ * handler, which fails closed twice over:
+ *   • `/api/calendly/webhook` refuses with 503 while CALENDLY_WEBHOOK_SIGNING_KEY
+ *     is unprovisioned — it never trusts an unsigned body (route.ts:30-38);
+ *   • once provisioned, a bad/absent signature is rejected 401 (route.ts:44-47).
+ *
+ * Listing it here therefore widens no real surface — it restores the reachability
+ * the endpoint had before PR-0a and needs in order to function at all. Adding a
+ * NEW entry to this list is a security decision: it must be an endpoint that
+ * authenticates every request by cryptographic signature, verified in-handler,
+ * failing closed when the secret is absent. Do not add anything session-shaped.
+ *
+ * Exact-match only (plus optional trailing slash) — deliberately NOT a
+ * `startsWith` prefix, so this can never accidentally expose sibling paths under
+ * /api/calendly/.
+ */
+const SIGNED_WEBHOOK_PATHS = ['/api/calendly/webhook'] as const
+
+function isSignedWebhookPath(pathname: string): boolean {
+  const normalized = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
+  return SIGNED_WEBHOOK_PATHS.includes(normalized as (typeof SIGNED_WEBHOOK_PATHS)[number])
+}
+
+/**
  * Prospect-facing pages are publicly accessible — no auth required.
  * Trailing slashes are load-bearing:
  *   • '/p/'          → the gated /p/[slug] render (never matches /pipeline etc).
@@ -38,7 +70,8 @@ export function isPublicPath(pathname: string): boolean {
     pathname.startsWith('/login') ||
     pathname.startsWith('/proposals/') ||
     pathname.startsWith('/p/') ||
-    pathname.startsWith('/r/')
+    pathname.startsWith('/r/') ||
+    isSignedWebhookPath(pathname)
   )
 }
 

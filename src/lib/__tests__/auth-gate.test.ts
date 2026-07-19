@@ -53,6 +53,11 @@ describe('isPublicPath — unauthenticated-reachable prefixes', () => {
     '/proposals/abc-123',
     '/p/some-slug',
     '/r/deadbeefcafe', // E-3 tracked-link route — a prospect opens it unauthenticated
+    // PR-0a: signature-authenticated webhook. Calendly holds no Supabase session,
+    // so a session-gated webhook could never succeed — the HMAC check in the
+    // handler is its real control.
+    '/api/calendly/webhook',
+    '/api/calendly/webhook/',
   ]
   for (const p of publicPaths) {
     it(`treats ${p} as public`, () => {
@@ -68,6 +73,14 @@ describe('isPublicPath — unauthenticated-reachable prefixes', () => {
     '/pipeline',
     '/territories/abc',
     '/prospects',
+    // PR-0a over-match traps: the webhook entry is EXACT-match, not a prefix.
+    // None of these sibling/lookalike paths may inherit its public status.
+    '/api/calendly',
+    '/api/calendly/',
+    '/api/calendly/webhook/secrets',
+    '/api/calendly/webhook-admin',
+    '/api/calendlyX/webhook',
+    '/api/territories', // an ordinary internal API route stays gated
   ]
   for (const p of gatedPaths) {
     it(`treats ${p} as gated`, () => {

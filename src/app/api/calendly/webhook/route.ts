@@ -12,6 +12,12 @@
  * endpoint refuses all requests with 503 — it never trusts an unsigned body and
  * never fabricates a secret. Once the secret is provisioned the guard opens with
  * no code change. Reported to Chat for the decision-log/provisioning note.
+ *
+ * AUTH (PR-0a): this path is listed in SIGNED_WEBHOOK_PATHS in `@/lib/auth-gate`,
+ * so the restored middleware auth gate does NOT redirect it to /login. That is
+ * required, not a gap — Calendly has no Supabase session, so a session-gated
+ * webhook could never succeed. Authentication here is the HMAC check below, which
+ * fails closed both while unprovisioned (503) and on a bad signature (401).
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import {
