@@ -13,13 +13,15 @@
  * fail-closed; they just fail closed toward different safe states. See the
  * header of `src/lib/deployment-guard.ts` for why.
  */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   DEPLOYMENT_REFUSED_MESSAGE,
   isAuthGateVarPresent,
   isHostedBuild,
   shouldRefuseDeployment,
-} from '../deployment-guard'
+} from '../deployment-guard.mjs'
 
 describe('isHostedBuild', () => {
   it('is true for the NETLIFY=true that Netlify actually sets', () => {
@@ -108,6 +110,51 @@ describe('shouldRefuseDeployment', () => {
         AUTH_GATE_DISABLED: 'true',
       }),
     ).toBe(true)
+  })
+})
+
+/**
+ * Enforcement-wiring regression tests.
+ *
+ * The predicate being correct is worthless if nothing calls it. PR-0a's first
+ * implementation put enforcement solely in the `prebuild` npm hook, which npm
+ * skips entirely under ignore-scripts — a guard that is never invoked never gets
+ * to fail closed. These tests pin the wiring itself so that regression cannot
+ * happen silently again.
+ *
+ * They assert on file contents rather than importing next.config.mjs, because
+ * importing it would execute `enforceDeploymentGuard` (and `process.exit`) in
+ * the test process.
+ */
+describe('enforcement wiring — next.config.mjs is the control', () => {
+  const repoRoot = join(__dirname, '..', '..', '..')
+  const nextConfig = readFileSync(join(repoRoot, 'next.config.mjs'), 'utf8')
+
+  it('next.config.mjs imports the guard from the single shared module', () => {
+    expect(nextConfig).toContain('deployment-guard.mjs')
+    expect(nextConfig).toMatch(/import\s*\{[^}]*enforceDeploymentGuard[^}]*\}/)
+  })
+
+  it('next.config.mjs actually CALLS the guard, not merely imports it', () => {
+    expect(nextConfig).toMatch(/enforceDeploymentGuard\s*\(\s*process\.env\s*\)/)
+  })
+
+  it('the guard call sits at module scope, above the exported config', () => {
+    const callIndex = nextConfig.indexOf('enforceDeploymentGuard(process.env)')
+    const exportIndex = nextConfig.indexOf('export default')
+    expect(callIndex).toBeGreaterThan(-1)
+    expect(exportIndex).toBeGreaterThan(-1)
+    // Must run on import, before Next consumes the config.
+    expect(callIndex).toBeLessThan(exportIndex)
+  })
+
+  it('the prebuild hook is retained as the early-warning trip-wire', () => {
+    const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    expect(pkg.scripts.prebuild).toContain('check-deployment-guard')
+    // ...and the build script itself is still what netlify.toml invokes.
+    expect(pkg.scripts.build).toContain('next build')
   })
 })
 
