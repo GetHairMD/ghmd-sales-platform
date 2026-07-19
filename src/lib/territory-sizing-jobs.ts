@@ -461,7 +461,19 @@ export async function triggerSizingJob(jobId: string): Promise<{ triggered: bool
     // "authenticated". See the scope note above: the platform's 202 precedes execution and
     // hides the handler's verdict. The detail string says so explicitly so no caller (or
     // future reader) mistakes this for confirmation that the job actually started.
-    if (res.status === 202 || res.ok) {
+    // STRICTLY 202, never a general 2xx. Netlify Background Functions always
+    // acknowledge with 202, so any other success status means something OTHER than
+    // the function answered — a rewrite, a proxy, a redirected path, a wrong
+    // endpoint. Accepting those and then reporting "accepted (202)" would claim
+    // more than the platform confirmed, which is exactly what this contract
+    // forbids (Second-Opinion Gate finding, PR #151; `|| res.ok` also made the
+    // `=== 202` test redundant, since res.ok already covers 200-299).
+    //
+    // Fail-closed and safe in both directions: if the function genuinely did run
+    // despite an odd status, the job leaves 'queued' under its own steam and the
+    // watchdog never fires; if it did not, the caller is correctly told the
+    // trigger was not confirmed and the job stays retriable.
+    if (res.status === 202) {
       return { triggered: true, detail: TRIGGER_ACCEPTED_DETAIL }
     }
     return { triggered: false, detail: `background function returned HTTP ${res.status}` }

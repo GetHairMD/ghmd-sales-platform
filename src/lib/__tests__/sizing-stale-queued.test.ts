@@ -28,6 +28,7 @@ import {
   TRIGGER_ACCEPTED_DETAIL,
   getSizingJob,
   isStaleQueued,
+  triggerSizingJob,
   type SizingJobRow,
 } from '../territory-sizing-jobs'
 
@@ -336,6 +337,74 @@ describe('honest trigger semantics', () => {
     expect(STALE_QUEUED_DETAIL).toContain('trigger not confirmed')
     expect(STALE_QUEUED_DETAIL).toContain('never started')
     expect(STALE_QUEUED_DETAIL).toContain('secret mismatch')
+  })
+
+  /**
+   * Behavioural coverage of the trigger's status contract (previously only
+   * source-level regex assertions).
+   *
+   * Netlify Background Functions ALWAYS acknowledge with 202. Any other success
+   * status means something other than the function answered — a rewrite, proxy,
+   * redirected path, or wrong endpoint — so accepting a general 2xx and then
+   * reporting "accepted (202)" would claim more than the platform confirmed.
+   */
+  describe('trigger status contract — strictly 202', () => {
+    const FAKE = 'test-only-fake-secret'
+
+    beforeEach(() => {
+      vi.unstubAllEnvs()
+      vi.unstubAllGlobals()
+      vi.stubEnv('URL', 'https://example.test')
+      vi.stubEnv('SIZING_FUNCTION_SECRET', FAKE)
+    })
+
+    function stubFetchStatus(status: number) {
+      const fetchMock = vi.fn().mockResolvedValue({ status, ok: status >= 200 && status < 300 })
+      vi.stubGlobal('fetch', fetchMock)
+      return fetchMock
+    }
+
+    it('202 → triggered:true with the honest accepted-detail', async () => {
+      stubFetchStatus(202)
+      const result = await triggerSizingJob('job-1')
+      expect(result.triggered).toBe(true)
+      expect(result.detail).toBe(TRIGGER_ACCEPTED_DETAIL)
+    })
+
+    // The gate finding: `res.ok` accepted these while the detail still claimed 202.
+    it.each([200, 201, 204])(
+      '%d → triggered:false with the real status in detail (not a false 202 claim)',
+      async (status) => {
+        stubFetchStatus(status)
+        const result = await triggerSizingJob('job-1')
+        expect(result.triggered).toBe(false)
+        expect(result.detail).toBe(`background function returned HTTP ${status}`)
+        expect(result.detail).not.toContain('accepted (202)')
+      },
+    )
+
+    it.each([301, 307, 401, 404, 500])('%d → triggered:false, unchanged behaviour', async (status) => {
+      stubFetchStatus(status)
+      const result = await triggerSizingJob('job-1')
+      expect(result.triggered).toBe(false)
+      expect(result.detail).toBe(`background function returned HTTP ${status}`)
+    })
+
+    it('sends the shared-secret header and does not leak it into the result', async () => {
+      const fetchMock = stubFetchStatus(202)
+      const result = await triggerSizingJob('job-1')
+      const init = fetchMock.mock.calls[0]?.[1] as { headers: Record<string, string> }
+      expect(init.headers['x-sizing-secret']).toBe(FAKE)
+      expect(JSON.stringify(result)).not.toContain(FAKE)
+    })
+
+    it('fails closed without sending when the secret is unprovisioned', async () => {
+      vi.stubEnv('SIZING_FUNCTION_SECRET', '')
+      const fetchMock = stubFetchStatus(202)
+      const result = await triggerSizingJob('job-1')
+      expect(result.triggered).toBe(false)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
   })
 
   it('triggerSizingJob returns the honest detail alongside triggered:true', () => {
