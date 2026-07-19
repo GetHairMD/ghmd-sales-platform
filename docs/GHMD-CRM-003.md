@@ -1,10 +1,18 @@
 # GHMD Sales Platform — Consolidated Master Architecture & Delivery Brief
 
-**Architecture record:** GHMD-CRM-003 · **Version:** **v1.0 — APPROVED**
-**Status:** Approved in full by Trace Herchman (2026-07-18, 7:16 PM) and Bruce
-Vermeulen (2026-07-18, 7:20 PM). **Supersedes GHMD-CRM-001 and GHMD-CRM-002,
-effective 2026-07-18.** This is the governing architecture and delivery document
-for the GHMD Sales Platform.
+**Architecture record:** GHMD-CRM-003 · **Version:** **v1.1 — ADMINISTRATIVE CONSOLIDATION**
+**Status:** v1.0 was approved in full by Trace Herchman (2026-07-18, 7:16 PM) and
+Bruce Vermeulen (2026-07-18, 7:20 PM) and committed to the repository at `75e664c`
+(PR #147). **Supersedes GHMD-CRM-001 and GHMD-CRM-002, effective 2026-07-18.**
+This is the governing architecture and delivery document for the GHMD Sales
+Platform. **v1.1 is an administrative consolidation, not a re-decision** — it
+adds no new architecture and reopens no approved item. Its contents: the eleven
+residual items from Sol 5.6's post-approval review (2026-07-18) as adjudicated by
+Chat, one already-ruled decision (#178, disposition authority split), the CRM-001
+§2 and §17 transcriptions, a governing migration section, the full authority gate
+matrix, and the harmonized Appendix A. v1.1 requires **administrative
+acknowledgment** by Trace and Bruce (§13.6), not a new approval round. Every v1.1
+change is enumerated in §18.
 **Provenance:** GHMD-CRM-001 (original architecture) and GHMD-CRM-002 (Foundation MVP
 and sequencing) are preserved as decision history, not deleted. This document absorbs
 both, plus every correction raised across three rounds of adversarial review, plus the
@@ -64,7 +72,12 @@ plus one mechanism reclassification recorded in this pass:
   automated testing, and make temporary suspension or account recreation unsafe.
   **Named invariant (carries into the Phase 1 Schema Contract):** the
   `authority_assignments` table is itself security-critical — no client role may
-  write it (service-role/migration-only writes), every change audited. Granting a
+  write it, every change audited. **Write path hardened (v1.1):** writes occur
+  only via (a) database migrations executed by the DB owner, or (b) at most one
+  dedicated, audited admin procedure whose caller authorization is itself
+  verified — **no general service-role endpoint may write this table**, because a
+  general endpoint makes every server-side code path a potential authority-grant
+  vector. Granting a
   third person authority is an explicit, logged act with a `granted_by`, which
   enforces the named-individual rule *more* strictly than a hardcode, not less.
 
@@ -159,7 +172,7 @@ approval was already rejected in §2. Contradiction eliminated this pass.)*
 |---|---|---|
 | **Lead Submission** | A thin intake record (source, submitted-by, business name, primary Contact + one contact method, territory interest, rep attribution, disposition) *before* Account/Opportunity creation. **Conversion lifecycle defined this pass (was ambiguous — different developers could have treated this as a temp form, another Prospect table, or a permanent source record; it is a permanent source record):** (1) lead submitted → (2) duplicate candidates evaluated → (3) lead accepted or rejected → (4) existing or new Account selected → (5) existing or new Contact selected → (6) Opportunity created → (7) original lead **permanently linked** to the resulting Account/Contact/Opportunity → (8) attribution and original submission data preserved immutably. | Full duplicate-detection tooling, referral-chain automation. |
 | **Account** | One record per business: name, primary location, owner, restriction level. **Matching corrected this pass (removes the §6/§12 contradiction):** matching on normalized name/domain/phone **proposes** candidates; ambiguous matches route to a review queue. An exact verified email or phone match identifies a likely existing **Contact** — it does **not** automatically establish an Account relationship unless that relationship already exists. Likely matches are presented to an authorized reviewer. **Accounts are never auto-merged.** Every link and merge decision is recorded immutably. Rationale: emails/phones identify people, not businesses — attorneys, lenders, spouses, shared office numbers, and reused numbers make automatic Account linking a cross-Account disclosure risk. | Fuzzy matching, merge UI, multi-location management. |
-| **Contact** | Basic record (name, email, phone, relationship label). **Multiple Contacts per Account/Opportunity from day one.** Minimum consent fields: preferred channel, do-not-contact flag, verification date — full consent *automation* can wait, but the system must record "do not contact this person" before real outreach begins. | Governed role taxonomy, consent automation, portal identity linking. |
+| **Contact** | Basic record (name, email, phone, relationship label). **Multiple Contacts per Account/Opportunity from day one.** Minimum consent fields: preferred channel, do-not-contact flag, verification date — full consent *automation* can wait, but the system must record "do not contact this person" before real outreach begins. **Schema-shape note (v1.1):** model consent per **channel** (email, SMS, phone), not as a single Contact-level boolean — a person who says "no texts" has not said "no email," and SMS consent carries distinct regulatory obligations. Phase 1 may populate only one channel row, but the shape must be per-channel from the first migration so Phase 2/3 outreach doesn't require a schema rework mid-consent-history. | Governed role taxonomy, consent automation, portal identity linking. |
 | **`account_contacts` / `opportunity_contact_roles`** | Explicit relationship tables. A Contact cannot be represented as belonging to only one Account — attorneys, CPAs, lenders, and referral sources span relationships a single foreign key can't express. | Rich role-influence scoring, approval-requirement flags. |
 | **Opportunity** | Account + Territory + owner + basic team + stage + primary next action/owner/due date + restriction flag. **Uniqueness invariant, refined this pass:** at most one active Opportunity per Account/Territory pair, enforced by a partial unique index keyed on a **stable territory identity** (`territory_family_id` or equivalent) that survives future Territory Version creation — not the raw territory row ID, which versioning would silently fork. "Active" stages, the behavior of Not-Ready-Yet, whether an Opportunity may temporarily exist without a Territory, and redraw semantics are **defined in the Phase 1 Schema Contract** (a named required section, not left to per-sprint interpretation). Geometric overlap detection between differently-identified territories is **deferred** to the Territory Versioning gate before Phase 2 — a stable ID is cheap; overlap geometry is real PostGIS work and out of scope for a thin foundation. | Overlap-warning tooling; field-level value/commercial-summary separation beyond a basic restriction flag. |
 | **Opportunity Team Membership** | Minimum fields: `assigned_by`, `assigned_at`, `removed_by`, `removed_at`, `active`. A boolean alone would erase who previously had access. A separate full history table can wait *if* the audit log captures these changes immutably. | Assignment-reason free text, effective-dated role changes. |
@@ -179,7 +192,7 @@ should not wait for a multi-day separation project.
 
 | PR | Closes | Adversarial verification |
 |---|---|---|
-| 0a | Restore authentication + deployment guard, fail closed if `AUTH_GATE_DISABLED` is set in a real-data context. **Prerequisite: the `ops.decision_log` entry revising standing decisions #136/#137 (§4).** | Direct-URL and direct-API tests against every internal route, unauthenticated, confirm redirect/deny |
+| 0a | Restore authentication + deployment guard. **Guard rule (v1.1, simplified per Sol):** the `AUTH_GATE_DISABLED` bypass is permitted **only** in explicit local development against synthetic data; **every hosted Netlify context — production, branch-deploy, deploy-preview, dev — fails the deployment (build aborts) if the variable is set.** No "real-data context" runtime detection: hosted = enforced, period. Simpler to reason about, impossible to misconfigure by data-state drift. **Prerequisite: the `ops.decision_log` entry revising standing decisions #136/#137 (§4).** | Direct-URL and direct-API tests against every internal route, unauthenticated, confirm redirect/deny; a deliberate test deploy with the variable set confirms the build fails closed |
 | 0b | Revoke anonymous/authenticated write privileges on PostGIS system objects (emergency, **tested** migration) | Confirm `anon`/`authenticated` `DELETE`/`INSERT`/`UPDATE`/`TRUNCATE` grants removed; territory-sizing regression suite passes after |
 | 0g *(moved into the emergency wave this pass — it is near-zero-cost, time-sensitive, and has no dependency on environment separation; the repository having been public at any point means credentials may already be harvested regardless of current visibility)* | Credential review and rotation for anything potentially exposed while the repository was public. Rotations performed by Trace directly in the respective consoles — **never through an agent session**; Coder verifies no secrets remain in repository history. | Confirmed rotated; confirmed clean history |
 | 0d-interim *(added this pass)* | Triage of accidental anon-executable privileged functions (`rls_auto_enable`, `st_estimatedextent` variants at minimum). **Precondition: verify the Second-Opinion Gate workflow's authentication path before touching `gate_decision_for_pr`** (§4 caveat). Full audit remains 0d in §7.4. | Revokes confirmed live; gate workflow confirmed still functional on a test PR |
@@ -203,7 +216,7 @@ separated — not assumed to have carried over cleanly.
 | 0e | `deals`/`activities` RLS fix, **documented explicitly as a bridge control** — the own-records-only invariant is durable; the `prospects.assigned_rep_id` enforcement mechanism is not and will be rewritten against Opportunity Team membership in Phase 1 | Rep A cannot read Rep B's deal or note, before and after |
 | 0f | Safe error handling | No raw `permission denied for table X` reaches the browser; protected trace ID in its place |
 | 0h | MFA, unique accounts, session revocation, immediate offboarding, role-eligibility expiration | Offboarding test: access actually revoked, not just flagged |
-| 0i | Backup/restore verified, incident-response ownership and escalation defined, retention rules by record type. **Restore-test scope corrected this pass:** the test must be **timed end-to-end** and must cover Auth, Storage, functions, secrets, Netlify configuration, Box references, and integration configuration — not only PostgreSQL. See §12 item 1 for the corrected RPO/RTO wording. | A real, timed restore test, not a documented intention |
+| 0i | Backup/restore verified, incident-response ownership and escalation defined, retention rules by record type. **Restore-test scope corrected this pass:** the test must be **timed end-to-end** and must cover Auth, Storage, functions, secrets, Netlify configuration, Box references, and integration configuration — not only PostgreSQL. See §12 item 1 for the corrected RPO/RTO wording. **Retention-operations addendum (v1.1):** the PR-0i retention runbook must additionally cover — (a) Box retention-policy configuration implementing §12 item 2 (permanent retention for closed-deal records; never-auto-delete default everywhere); (b) a legal-hold mechanism that suspends any deletion/archival eligibility for named records regardless of age; (c) the narrowly-controlled counsel-directed deletion path — the only route to hard deletion, requiring Executive authorization, counsel direction on record, and separate audit; (d) Contact correction/deletion-request handling (a person asking GHMD to correct or delete their information) — **this sub-item gets a Rick Dahlson review when the runbook is drafted, not an improvised policy**, because request-handling obligations interact with the 506(b) record-preservation duties in §12 item 2. | A real, timed restore test, not a documented intention; retention runbook drafted with the counsel check on (d) recorded |
 
 ## 8. Phases 1–4
 
@@ -229,7 +242,15 @@ Four separate, explicit sign-off gates. None is silently treated as implying the
 1. **Security Containment Complete** — all of §7 closed and verified.
 2. **Foundation MVP Complete** — Phase 1 (§8) shipped and adversarially tested.
 3. **Limited Pilot Ready** — milestones 1 + 2, for a small controlled group, still
-   not the full sales process.
+   not the full sales process. **Hard preconditions (v1.1) — no real lead enters
+   the system before all three are done and evidenced:** (a) **PITR enabled** on
+   the production Supabase project (per §12 item 1's trigger — this milestone is
+   that trigger's latest permissible moment); (b) **the timed, full-scope restore
+   test from PR-0i actually executed**, with the measured duration recorded as
+   the real RTO; (c) **the Pilot Runbook written** — who is in the pilot, what
+   data they may enter, the incident-response path, and the rollback/stop
+   condition. These are sign-off evidence for this milestone, not aspirations
+   attached to it.
 4. **Full Sales Process Ready** — Phase 2 complete, including the Territory
    Versioning gate.
 
@@ -378,6 +399,12 @@ re-decided:
 5. **Trace Herchman approved all §14 items in full, 2026-07-18, 7:16 PM. Bruce
    Vermeulen approved all §14 items in full, 2026-07-18, 7:20 PM. Document is
    v1.0 — APPROVED.**
+6. **v1.1 administrative acknowledgment (pending):** v1.1 (§18) is consolidation,
+   not re-decision — the only genuine decision it carries, the disposition
+   authority split, was already ruled by Trace and recorded as `ops.decision_log`
+   #178 on 2026-07-18. Acknowledgment slots: Trace Herchman — ______ · Bruce
+   Vermeulen — ______. Acknowledgment confirms the consolidation faithfully
+   records what was already decided; it does not reopen §14.
 
 ## 14. Acceptance
 
@@ -434,17 +461,157 @@ reclassification; #1 and #7 accepted with modification; four Chat additions.
 | 19 | **§12 item 5 resolved (counsel via Trace): Option A** — fresh off-system counsel review for every new claim/ROI/earnings-adjacent item before proposal use; Phase 2 backlog gains the counsel-review-required submission gate; standing flags #68/#71 untouched | Trace 2026-07-18 | §12.5, §8, A.8 |
 | 20 | **v1.0 APPROVED:** Trace Herchman approved all §14 items in full 2026-07-18 7:16 PM; Bruce Vermeulen approved all §14 items in full 2026-07-18 7:20 PM. Document supersedes GHMD-CRM-001/002 effective this date. Decision-log adoption entry authorized (written via Chat/Supabase MCP with Trace's confirmation of the literal draft) | Trace + Bruce | §13, §14, header |
 
+## 16. Migration governance (v1.1)
+
+Sol's post-approval review identified migration/cutover as the **top residual
+risk** of the v1.0 program: the architecture defined the target, but no governing
+document owned how existing data gets there. This section closes that gap. The
+CRM-001 §17 baseline (mapping, seven phases, safeguards) is transcribed verbatim
+at **Appendix A.9** and is adopted as the migration baseline. The following
+govern on top of it:
+
+1. **The Migration & Cutover Brief is a required Phase 1 pre-spec.** No Phase 1
+   implementation sprint that writes migration transformations may open until
+   the Migration & Cutover Brief exists and Trace has confirmed it. It joins the
+   Schema Contract and the Permission & Audit Matrix as the three named specs
+   preceding Phase 1 (per the delivery queue in `handoffs/LATEST.md` v2.55).
+   Contents at minimum: the A.9 mapping resolved against the *actual current
+   schema* (the A.9 table predates the multi-deal architecture of PRs #142/#143 —
+   `deals.stage` is now authoritative and `prospects.stage` derived, which
+   changes the `deals` → Opportunity mapping materially); per-table
+   transformation rules; the exception-queue design; reconciliation queries; the
+   cutover freeze/delta/switch/rollback procedure with stop conditions; and the
+   legacy-retirement criteria.
+2. **Legacy-ID preservation is an invariant, not a phase step.** Every migrated
+   record carries source table, source ID, migration batch, and transformation
+   version (A.9 safeguard), and these fields are **immutable after write**. This
+   is what makes decision-history reconstruction and rollback possible; treating
+   it as optional metadata forfeits both.
+3. **Migration writes never bypass audit or governed write paths' invariants.**
+   Migration scripts may use privileged connections, but the records they
+   produce must satisfy every schema invariant the governed paths enforce
+   (single-subject rules, uniqueness invariants, immutability of transitions).
+   A migration that inserts rows the application could never legally create is a
+   defect, not a shortcut.
+4. **The territories FK re-point (§6) is a migration-governed cutover.** The
+   `prospect_id` → `opportunity_id` adapter, dual-read window, and final swap
+   are specified in the Migration & Cutover Brief — never executed as an
+   ordinary sprint task inside a feature PR.
+5. **Reconciliation gates cutover.** The A.9 phase-4 reconciliation (counts,
+   assignments, stages, territory links, notes, proposals, events) must pass
+   with **zero unexplained deltas** — explained deltas are enumerated and
+   accepted by Trace in writing — before phase-6 cutover begins. "Close enough"
+   is not a migration state.
+6. **Dummy data first, real data never migrates twice.** The full migration runs
+   end-to-end against the current (synthetic/QA) dataset as its own acceptance
+   test. Since no real prospect data exists yet (a deliberate standing state),
+   this program has the rare luxury that the *first production migration is also
+   rehearsed on the only data there is* — use it.
+
+## 17. Authority gate matrix (v1.1)
+
+Consolidated from §2, §3, §5, §12, and decision #178. This is the single
+reference for who may approve what, and by which mechanism. Two mechanisms
+exist: **AA** = active `authority_assignments` row for the named gate
+(named-individual; today Trace and Bruce only); **Role** = designation-based
+(deliberately role-scoped per the cited item). Nothing here is new authority —
+every row cites its source.
+
+| Gate | Who approves | Mechanism | Source |
+|---|---|---|---|
+| Qualification complete | Trace or Bruce | AA | §2, §5 |
+| Territory approved | Trace or Bruce | AA | §2, §5 |
+| Proposal ready | Trace or Bruce | AA | §2, §5 |
+| Proposal Review validation sign-off | Trace or Bruce | AA | §3 stage 4 |
+| **Not Ready / Nurture disposition** | **Leif (Analyst) may approve; Trace or Bruce may also approve** | Analyst designation for Leif's path; AA for the executive path | Decision #178 (2026-07-18) |
+| **Closed Lost disposition** | **Trace or Bruce only** | AA | Decision #178 (2026-07-18) |
+| Contract countersignature | One of Trace or Bruce | AA (countersign gate) | §2 / CRM-001 §2 |
+| Provisional-hold extension (each, unlimited after initial 30 days) | Trace or Bruce | AA | §12 item 6 |
+| Funding correction | Executive or Admin | Role | §12 item 7 — deliberately role-based |
+| Sales Complete / delivery acceptance | Operations/Implementation or Executive | Role | §3 stages 9–10 |
+| **Account merge / Account-link approval** *(added v1.1 — the §6 reviewer was previously unnamed)* | Trace or Bruce until a merge-reviewer role is deliberately created | AA | §6 (v1.1 names the reviewer) |
+| **Lead assignment (accept + assign owner)** *(added v1.1)* | Executive intake authority — today Trace or Bruce in practice | Role (Executive) — assignment is operational routing, not a governed named-individual gate | §3 stage 1 |
+| **Marking a record Executive-Restricted** *(added v1.1 — restriction had a read model but no named write authority)* | Trace or Bruce | AA | §12 item 8 (v1.1 names the marker) |
+
+**Note on #178's split:** the Analyst's Not-Ready path is the *only* place a
+designation grants disposition authority, and it is deliberately narrow —
+Not-Ready is reversible nurturing, Closed Lost is a terminal commercial outcome.
+Appendix A.2's inherited "Analyst, Executive, or future authorized manager"
+wording for governed outcomes is superseded by this matrix (redlined at A.2).
+
+## 18. v1.1 change log
+
+Administrative consolidation adjudicated by Chat from Sol 5.6's post-approval
+review (2026-07-18); one item (#178) ruled by Trace. No architectural change; no
+§14 item reopened.
+
+| # | Change | Section |
+|---|---|---|
+| 1 | Header restated: v1.1 administrative consolidation; acknowledgment (not approval) required; §13.6 slot added | header, §13 |
+| 2 | `authority_assignments` write path hardened: migrations/DB-owner or one dedicated audited admin procedure only; no general service-role endpoint | §2 |
+| 3 | Contact consent modeled per-channel (schema shape only; Phase 1 may populate one channel) | §6 |
+| 4 | PR-0a guard rule simplified per Sol: bypass only in local dev with synthetic data; every hosted Netlify context fails the build if `AUTH_GATE_DISABLED` is set | §7.1 |
+| 5 | PR-0i retention-operations addendum: Box retention policies, legal-hold mechanism, counsel-directed deletion path, Contact correction/deletion-request handling with a Rick Dahlson check at runbook drafting | §7.4 |
+| 6 | Milestone 3 hard preconditions: PITR enabled + timed full-scope restore test executed + Pilot Runbook written, all evidenced before any real lead | §9 |
+| 7 | **§16 Migration governance added** — CRM-001 §17 adopted as baseline (transcribed A.9); Migration & Cutover Brief made a required Phase 1 pre-spec; legacy-ID immutability, invariant-respecting migration writes, governed territories FK cutover, zero-unexplained-delta reconciliation gate, dummy-data full rehearsal | §16, A.9 |
+| 8 | **§17 Authority gate matrix added** — consolidated named-person matrix incl. decision #178's split and three previously-unnamed gates (Account merge, lead assignment, Executive-Restricted marking) | §17 |
+| 9 | **Appendix A.0 added** — CRM-001 §2 confirmed-decisions register transcribed verbatim with two supersession redlines | A.0 |
+| 10 | **Appendix A.9 added** — CRM-001 §17 migration strategy transcribed verbatim with one currency note | A.9 |
+| 11 | **Canonical v1.1 ER diagram added** alongside the retained CRM-001 baseline | A.1 |
+| 12 | **Appendix A harmonized** — the five [T-1 flag]s restated as historical redlines: corrected text now primary, CRM-001's original wording preserved as the redline | A.2, A.3 |
+| 13 | Decision #179 recorded (12-stage → ten-stage Locked-Fact supersession at Phase 1 cutover; residual_risk `accepted` — the cutover flip is a future manual act) | — (log reference) |
+
 ---
 
 ## Appendix A — Transcribed reference material from GHMD-CRM-001
 
-> **Status: T-1 COMPLETE (2026-07-18).** Transcribed from `GHMD-CRM-001` v1.1
-> ("Master CRM Foundation Architecture Brief," 2026-07-17), source supplied by
-> Trace. Verbatim except where a v0.99 correction in the main document governs;
-> every such discrepancy is flagged inline with a **[T-1 flag]** rather than
-> silently harmonized. Five flags total: A.2 stage-2/3/4 authority, A.2 stage-4
-> approved-substitute, A.3 approved-substitute role row, A.3 sanitized-shell
-> field list, A.3 named-individual approval scope.
+> **Status: T-1 COMPLETE (2026-07-18); HARMONIZED (v1.1).** Transcribed from
+> `GHMD-CRM-001` v1.1 ("Master CRM Foundation Architecture Brief," 2026-07-17),
+> source supplied by Trace. In v1.0, discrepancies with the main document were
+> marked with inline [T-1 flag]s. **v1.1 harmonizes them:** the corrected text
+> now reads as primary, and CRM-001's original wording is preserved in a
+> **[CRM-001 redline: …]** note — history retained, nothing silently rewritten.
+> The five harmonized points: A.2 stage-2/3/4 authority, A.2 stage-4
+> approved-substitute, A.3 Analyst "approve" verb + approved-substitute role
+> row, A.3 sanitized-shell field list, A.3 Executive approval scope. v1.1 adds
+> A.0 (CRM-001 §2 register) and A.9 (CRM-001 §17 migration baseline).
+
+### A.0 Confirmed-decisions register (CRM-001 §2) — added v1.1
+
+Transcribed verbatim. Two entries carry supersession redlines where later v1.0
+decisions govern.
+
+This brief treats the following as accepted business decisions:
+
+- GetHairMD works with an existing business or practice; a prospect is not a person starting without a current business.
+- One Account may have many Contacts and many Opportunities.
+- Each Opportunity concerns one specific territory.
+- One Account cannot have duplicate active Opportunities for the same territory.
+- Different Accounts may compete for the same territory until it becomes provisionally secured.
+- Account Relationship Owner and Opportunity Owner are separate responsibilities.
+- A new Opportunity defaults to the Account owner, but an authorized reviewer may assign a different Opportunity owner for expertise, geography, workload, or referral arrangements.
+- Multiple GetHairMD team members may participate in one Opportunity.
+- Referrals must be recorded, attributed, governed, and compensated.
+- Reps are independent 1099 representatives and receive narrowly scoped access.
+- Reps may add a lead/deal, conduct the introductory qualification meeting, and add qualification notes. They do not approve qualification, territory analysis, proposals, contracts, funding, Lost, or Not Ready outcomes.
+- An authorized Qualification & Territory Analyst or Executive reviews qualification, territory, and proposal readiness. **[CRM-001 redline: "reviews" stands, but approval authority is narrower than this line implies — main §2/§5: the Analyst recommends; final approval on these gates is Trace or Bruce via `authority_assignments`.]**
+- The current expected Proposal Review participants are the primary sales rep, Leif Isaacson, MBA, and Bruce Vermeulen, CEO. **[CRM-001 redline: the original sentence continued "Approved substitutes may participate when a substitute policy is established" — removed per main §12 item 9; no substitute mechanism exists or is planned at any phase. A required participant's absence reschedules the meeting.]**
+- Proposal generation and delivery occur only after qualification approval.
+- Payment readiness is mandatory before a contract is sent.
+- A fully executed contract creates a temporary provisional territory hold, not a final sale.
+- The territory becomes commercially won after confirmed funding under the approved funding rule.
+- Sales Complete occurs only after equipment delivery and signed delivery acceptance.
+- Both Closed Lost and Not Ready require approval from an authorized reviewer. *(Per main §17's matrix and decision #178: Not Ready — Analyst or Trace/Bruce; Closed Lost — Trace or Bruce only.)*
+- Only one of Trace Herchman or Bruce Vermeulen countersigns a contract.
+- Box and Box Sign are the durable file and signature systems. Only Executives have general Box access; narrowly authorized Finance users may access specifically approved information.
+- QuickBooks Online remains the accounting system. Finance will initially record only that a transaction occurred; detailed transaction terms remain in QuickBooks and/or Box.
+- Mapbox is the target map and territory-editing experience; Supabase/PostGIS is the authoritative geometry store. ArcGIS remains a fallback until parity and manual territory editing are proven.
+- The National Map shows only relevant pipeline territories in gold after the Proposal Review meeting, retains gold with a text change when provisionally secured, and turns green when commercially won. Other internal statuses do not appear.
+- Customers may view approved territory and proposal information but cannot edit it.
+- Detailed rep rankings and performance scores remain Executive/authorized-manager only.
+- The Community area remains curated and non-interactive. Reps may submit but not publish freely.
+- Resources require one-click sharing to a selected Contact with tracking and permission-aware history.
+- AI should make the work highly guided and "spoon-fed," but final consequential decisions remain human.
 
 ### A.1 Core domain model (CRM-001 §7)
 
@@ -480,6 +647,49 @@ erDiagram
 `activity_participants`, `authority_assignments`, and `territory_family_id` — the
 diagram above predates those and is retained as the CRM-001 baseline.)*
 
+**Canonical ER diagram (v1.1)** — the baseline plus every v0.99/v1.0 structural
+addition. This diagram, not the baseline, is the reference for the Phase 1
+Schema Contract:
+
+```mermaid
+erDiagram
+    LEAD_SUBMISSION }o--o| ACCOUNT : "matched or creates"
+    LEAD_SUBMISSION ||--o{ LEAD_DISPOSITION : "dispositioned by"
+    ACCOUNT ||--o{ ACCOUNT_CONTACT : "linked via"
+    CONTACT ||--o{ ACCOUNT_CONTACT : "linked via"
+    ACCOUNT ||--o{ OPPORTUNITY : "pursues"
+    CONTACT ||--o{ OPPORTUNITY_CONTACT_ROLE : "participates"
+    OPPORTUNITY ||--o{ OPPORTUNITY_CONTACT_ROLE : "decision team"
+    OPPORTUNITY ||--o{ OPPORTUNITY_TEAM_MEMBER : "internal team"
+    OPPORTUNITY }o--|| TERRITORY : "targets (unique-active per territory_family_id)"
+    TERRITORY ||--o{ TERRITORY_VERSION : "versioned geometry (Phase 2 gate)"
+    INTERNAL_USER ||--o{ AUTHORITY_ASSIGNMENT : "holds gate authority"
+    APPROVAL }o--|| AUTHORITY_ASSIGNMENT : "authorized by active row"
+    OPPORTUNITY ||--o{ TASK : "requires"
+    OPPORTUNITY ||--o{ MEETING : "holds"
+    OPPORTUNITY ||--o{ NOTE : "documents (one primary subject)"
+    NOTE ||--o{ NOTE_REVISION : "revised by"
+    OPPORTUNITY ||--o{ STAGE_TRANSITION : "changes through (immutable)"
+    OPPORTUNITY ||--o{ APPROVAL : "governed by"
+    OPPORTUNITY ||--o{ ACTIVITY_EVENT : "timeline (primary subject)"
+    ACTIVITY_EVENT ||--o{ ACTIVITY_PARTICIPANT : "participants"
+    CONTACT ||--o{ ACTIVITY_PARTICIPANT : "as contact"
+    INTERNAL_USER ||--o{ ACTIVITY_PARTICIPANT : "as internal user"
+    OPPORTUNITY ||--o{ PROPOSAL : "presents (Phase 2)"
+    PROPOSAL ||--o{ PROPOSAL_VERSION : "immutable versions"
+    PROPOSAL_VERSION ||--o{ PROPOSAL_RECIPIENT : "shared with"
+    OPPORTUNITY ||--o{ CONTRACT : "contracts (Phase 2)"
+    OPPORTUNITY ||--o{ FUNDING_EVENT : "payment readiness (Phase 2)"
+    OPPORTUNITY ||--o| IMPLEMENTATION : "hands off (Phase 2)"
+    IMPLEMENTATION ||--o{ DELIVERY_ACCEPTANCE : "completed by"
+    OPPORTUNITY ||--o{ REFERRAL : "attributed to (Phase 2)"
+    REFERRAL ||--o{ COMPENSATION_EVENT : "earns (structured fields)"
+```
+
+*(Phase annotations mark records deferred past Phase 1 per §6; they appear here
+because the Phase 1 schema must not preclude them. `AUTHORITY_ASSIGNMENT` writes:
+migrations/DB-owner or the single audited admin procedure only — main §2.)*
+
 ### A.2 Ten-stage workflow — full table (CRM-001 §9)
 
 The pipeline contains ten meaningful commercial stages. Contact attempts, scheduled
@@ -489,9 +699,9 @@ evidence/events or checklist items rather than standalone stages.
 | # | Stage | Required entry evidence | Primary authority | Principal system outputs |
 |---|---|---|---|---|
 | 1 | Lead Review | Intake record, source, business and Contact minimums | Executive/intake authority | Duplicate review, Account match, assignment decision |
-| 2 | Qualification | Accepted lead linked to Account, Contact, Opportunity, and territory interest | Assigned rep conducts; Analyst/Executive reviews **[T-1 flag: superseded by main §3/§5 — Analyst recommends; Trace or Bruce approves via `authority_assignments`]** | Qualification meeting, notes, decision-team identification |
-| 3 | Proposal | Qualification approved and territory analysis/version approved | Analyst/Executive **[T-1 flag: superseded by main §3/§5 — Analyst prepares; Trace or Bruce approves]** | Approved proposal draft linked to territory version |
-| 4 | Proposal Review & Validation | Approved proposal delivered; required review meeting prepared/completed | Rep + Analyst + Executive/approved substitute **[T-1 flag: "approved substitute" removed per main §12 item 9 — required participant absent means the meeting is rescheduled; final sign-off Trace or Bruce]** | Validation, objections, decision roles, next actions; territory becomes gold on map after meeting |
+| 2 | Qualification | Accepted lead linked to Account, Contact, Opportunity, and territory interest | Assigned rep conducts; Analyst reviews and recommends; **Trace or Bruce approves** via `authority_assignments` **[CRM-001 redline: originally "Analyst/Executive reviews"]** | Qualification meeting, notes, decision-team identification |
+| 3 | Proposal | Qualification approved and territory analysis/version approved | Analyst prepares; **Trace or Bruce approves** via `authority_assignments` **[CRM-001 redline: originally "Analyst/Executive"]** | Approved proposal draft linked to territory version |
+| 4 | Proposal Review & Validation | Approved proposal delivered; required review meeting prepared/completed | Rep + Analyst as required participants; a required participant’s absence reschedules the meeting; final validation sign-off **Trace or Bruce** **[CRM-001 redline: originally "Rep + Analyst + Executive/approved substitute" — substitute mechanism removed per main §12 item 9]** | Validation, objections, decision roles, next actions; territory becomes gold on map after meeting |
 | 5 | Funding Preparation / Payment Readiness | Proposal Review complete; payment path discussion authorized | Finance/Executive, with customer voluntary action | iLeaseWorks/cash/alternative/blended readiness evidence |
 | 6 | Contracting | Payment Readiness approved or authorized exception | Executive; authorized Finance support | Box Sign request, terms, territory exhibit, countersignature |
 | 7 | Provisionally Secured | Agreement fully executed | Executive/system rule | 30-day hold, alerts, gold map status text change |
@@ -501,10 +711,15 @@ evidence/events or checklist items rather than standalone stages.
 
 Governed outcomes:
 
-- **Not Ready / Nurture** — requires Analyst, Executive, or future authorized manager
-  approval, reason, follow-up date, owner, and reactivation rules.
-- **Closed Lost** — requires the same authorized approval, standardized reason,
-  competitor/territory outcome where known, and preserved history.
+- **Not Ready / Nurture** — may be approved by the Analyst (Leif) or by Trace or
+  Bruce (main §17 matrix, decision #178); requires reason, follow-up date, owner,
+  and reactivation rules. **[CRM-001 redline: originally "Analyst, Executive, or
+  future authorized manager approval."]**
+- **Closed Lost** — requires approval by **Trace or Bruce only**, via
+  `authority_assignments` (main §17 matrix, decision #178); standardized reason,
+  competitor/territory outcome where known, and preserved history. **[CRM-001
+  redline: originally the same "Analyst, Executive, or future authorized manager"
+  authority as Not Ready — the split is decision #178, 2026-07-18.]**
 
 #### A.2.1 Transition mechanics (CRM-001 §9.1)
 
@@ -526,15 +741,16 @@ or rewrite prior transitions.
 | Role | Core authority |
 |---|---|
 | Rep | Submit leads, work assigned Opportunities, conduct qualification, add notes/tasks, prepare for meetings, share approved resources |
-| Qualification & Territory Analyst | Review qualification, analyze/edit territories, prepare/review proposals, join required meetings **[T-1 flag: CRM-001's "approve" verb removed — Analyst recommends only; approval is Trace/Bruce per main §2/§5]** |
-| Executive | Full governed authority, assignment, approvals, exceptions, contracts, restricted deals, Lost/Not Ready, countersignature eligibility **[T-1 flag: for the three §5 gates specifically, "approvals" means an active `authority_assignments` row (today: Trace, Bruce) — not the designation itself]** |
+| Qualification & Territory Analyst | Review qualification, analyze/edit territories, prepare/review proposals, join required meetings; recommends — does not independently approve the three §5 gates (approval: Trace/Bruce). May approve Not Ready/Nurture dispositions (decision #178) **[CRM-001 redline: original row carried an "approve" verb for these duties]** |
+| Executive | Full governed authority, assignment, approvals, exceptions, contracts, restricted deals, Lost/Not Ready, countersignature eligibility. For the AA-mechanism gates in the main §17 matrix, "approvals" means an active `authority_assignments` row (today: Trace, Bruce) — never the designation itself **[CRM-001 redline: original row implied designation-scoped approval authority]** |
 | Finance | Approved payment-readiness/funding queue, transaction confirmation, compensation states, narrowly approved restricted fields |
 | Operations/Implementation | Funded handoff, delivery, training, acceptance, implementation exceptions |
 | Administrator | User lifecycle, role eligibility, configuration, integration health, retention, audit administration without automatic commercial authority |
 | Future authorized manager | Explicitly granted approval and coaching responsibilities; no implicit Executive rights |
 
-**[T-1 flag: CRM-001's "Approved substitute" role row is removed entirely per main
-§12 item 9 — no substitute mechanism exists or is planned at any phase.]**
+**[CRM-001 redline: the original role table contained an "Approved substitute"
+row — removed entirely per main §12 item 9; no substitute mechanism exists or is
+planned at any phase.]**
 
 Legal counsel, CPAs, lenders, spouses, partners, and other external decision
 participants are Contacts. They do not receive internal CRM accounts in the initial
@@ -558,12 +774,12 @@ or Opportunity membership; (5) record restriction level; (6) field-level project
 | Executive-Restricted | Executives; approved Finance receives only explicitly authorized information |
 | Audit-Security | Authorized administrators/executives with logged access |
 
-**[T-1 flag:** CRM-001 §10.3 left the Executive-Restricted sanitized-shell field
-list as "a preimplementation decision" with an existence-only default. Main §12
-item 8 resolves it: presence-only while active (existence for the Territory +
-"restricted — contact Trace or Bruce" marker), plus Account-name disclosure after
-sale; contact details, value, terms, and notes hidden regardless. Main §12 item 8
-governs.**]**
+The Executive-Restricted sanitized shell is: presence-only while active
+(existence for the Territory + "restricted — contact Trace or Bruce" marker),
+plus Account-name disclosure after sale; contact details, value, terms, and notes
+hidden regardless (main §12 item 8; marking authority per the main §17 matrix).
+**[CRM-001 redline: §10.3 originally left this field list as "a preimplementation
+decision" with an existence-only default.]**
 
 **Representative access boundaries (§10.4):** Reps see only assigned
 Accounts/Opportunities and records explicitly shared with their Opportunity team;
@@ -765,3 +981,61 @@ ranking; executive-only coaching; controlled customer follow-up
 drafting/automation.
 **Exit gate:** AI permission isolation, citations, failure fallback, and audit
 tests pass.
+
+### A.9 Migration strategy baseline (CRM-001 §17) — added v1.1
+
+Transcribed verbatim; adopted as the migration baseline and governed by main §16.
+One currency note follows the mapping table.
+
+The migration should be incremental, reconciled, and reversible. It should not
+discard the current build or attempt a prolonged uncontrolled dual-write period.
+
+#### A.9.1 Mapping
+
+| Current source | Target |
+|---|---|
+| `prospects` business/practice fields | Account and Account Location |
+| `prospects` person fields | Primary Contact and Account-Contact link |
+| accepted/current sales pursuit | Opportunity |
+| `deals` | Territory-specific Opportunity state and legacy reference |
+| assigned rep | Opportunity Team membership; Account owner set through explicit migration rule |
+| qualification reviews/notes | Qualification meeting, approval, Note/Revision, Activity Event |
+| `activities` and legacy notes | Note, Note Revision, Activity Event based on verified activity type |
+| territories | Territory plus initial immutable Territory Version |
+| proposal records/events | Proposal, Proposal Version, Recipient, Session and Event |
+| resource shares/events | Contact/Opportunity-linked Resource Share and Engagement Event |
+
+*(Currency note, v1.1: this mapping predates the multi-deal architecture merged
+2026-07-17 — PRs #142/#143, decision #175 — under which `deals.stage` is
+authoritative and `prospects.stage` derived, and one prospect may hold multiple
+territory-specific deals. The `deals` row above understates the mapping: each
+`deals` row is now the primary Opportunity candidate, not merely "state and
+legacy reference." The Migration & Cutover Brief (main §16.1) resolves this
+against the actual current schema; this table is the historical baseline.)*
+
+#### A.9.2 Migration phases
+
+1. **Inventory and profiling** — identify actual values, duplicates, nulls,
+   orphaned references, activity types, authorship quality, and stage usage.
+2. **Schema and permissions in isolated environment** — build new records and
+   adversarial permission tests first.
+3. **Dry-run transformation** — preserve every legacy ID and produce exception
+   queues instead of guessing.
+4. **Reconciliation** — compare source/target counts, financial totals where
+   applicable, assignments, stages, territory links, notes, proposals, and
+   events.
+5. **User acceptance with dummy data** — validate workflows by role and device.
+6. **Controlled cutover** — freeze relevant legacy writes, run final delta,
+   reconcile, switch reads, and retain rollback path.
+7. **Legacy retirement** — keep source tables read-only until sign-off; archive
+   only after retention and rollback requirements are satisfied.
+
+#### A.9.3 Migration safeguards
+
+- No silent drops or guessed authors.
+- Unresolved Account matches enter an authorized review queue.
+- Duplicate Opportunity conflicts are reported before constraints are activated.
+- Every transformed record retains source table, source ID, migration batch, and
+  transformation version.
+- Migration scripts are repeatable and idempotent.
+- Cutover has defined stop conditions and rollback steps.
