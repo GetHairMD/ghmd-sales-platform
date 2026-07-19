@@ -3,45 +3,6 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { shouldRedirectToLogin } from '@/lib/auth-gate'
 import { shouldRefuseServing } from '@/lib/deployment-guard.mjs'
 
-/**
- * ⚠⚠ TEMPORARY DIAGNOSTIC — REMOVE BEFORE MERGE (PR #151). ⚠⚠
- *
- * Answers the Second-Opinion Gate's empirical question, which no amount of code
- * reading can settle: the env lookups in `shouldRefuseServing` are dynamic (proven
- * in the minified bundle), but does Netlify's edge runtime actually POPULATE the
- * environment they read? `NETLIFY` is documented as BUILD metadata; whether it
- * reaches the middleware runtime is an observation, not an inference.
- *
- * Emits BOOLEANS ONLY — never a variable's value. `bypass` reports key PRESENCE,
- * which is exactly what the guard keys on, and discloses nothing an attacker could
- * use beyond the fact that a guard exists.
- *
- * This header is attached to EVERY middleware exit path on purpose: in the worlds
- * where the guard does not fire, the request is served (or redirected), so a probe
- * that only rode the 503 would tell us nothing precisely when we need it most.
- */
-function guardProbe(): string {
-  const present = (k: string) => {
-    const v = process.env[k]
-    return typeof v === 'string' && v.trim() !== ''
-  }
-  const bypass = 'AUTH_GATE_DISABLED' in process.env
-  const refuse = shouldRefuseServing(process.env)
-  // Candidate hosted-discriminators, PRESENCE ONLY (never values). Round 1 proved
-  // netlify=false;bypass=true at edge runtime — env delivery works, but NETLIFY is
-  // build-only metadata and never reaches the serving runtime. We need a marker that
-  // is actually populated here to replace it as the runtime discriminator.
-  const candidates = ['NETLIFY', 'URL', 'DEPLOY_ID', 'CONTEXT', 'SITE_ID', 'SITE_NAME', 'DEPLOY_PRIME_URL', 'NODE_ENV']
-  const markers = candidates.map((k) => `${k}=${present(k)}`).join(',')
-  return `bypass=${bypass};refuse=${refuse};[${markers}]`
-}
-
-/** TEMPORARY (PR #151): stamp the probe on any response leaving middleware. */
-function withProbe(res: NextResponse): NextResponse {
-  res.headers.set('x-guard-probe', guardProbe())
-  return res
-}
-
 export async function middleware(request: NextRequest) {
   // ── RUNTIME SERVE-REFUSAL (PR-0a.1, decision-log #182) ────────────────────
   // MUST be first: before the Supabase client is constructed, before any cookie
@@ -62,12 +23,9 @@ export async function middleware(request: NextRequest) {
   // Local development is unaffected (not a hosted context), preserving the
   // dev-ergonomics carve-out §7.1 explicitly permits.
   if (shouldRefuseServing(process.env)) {
-    // TEMPORARY (PR #151): withProbe wrapper — remove with the rest of the probe.
-    return withProbe(
-      new NextResponse(
-        'Service temporarily unavailable. Please try again later.',
-        { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } },
-      ),
+    return new NextResponse(
+      'Service temporarily unavailable. Please try again later.',
+      { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } },
     )
   }
 
@@ -117,7 +75,7 @@ export async function middleware(request: NextRequest) {
   ) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-    return withProbe(NextResponse.redirect(url)) // TEMPORARY probe wrapper (PR #151)
+    return NextResponse.redirect(url)
   }
 
   // CONCEALED routes (spec §4D, PR #139): for any non-executive, /rep-command-center
@@ -155,11 +113,11 @@ export async function middleware(request: NextRequest) {
       const url = request.nextUrl.clone()
       // Any path with no route matches — Next serves the real static 404 document.
       url.pathname = '/__not-found__'
-      return withProbe(NextResponse.rewrite(url)) // TEMPORARY probe wrapper (PR #151)
+      return NextResponse.rewrite(url)
     }
   }
 
-  return withProbe(supabaseResponse) // TEMPORARY probe wrapper (PR #151)
+  return supabaseResponse
 }
 
 export const config = {
