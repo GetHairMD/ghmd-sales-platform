@@ -33,6 +33,15 @@ export const SIZING_JOBS_TABLE = 'territory_sizing_jobs'
 /** Background Function that runs the compute out-of-band (Netlify `-background` suffix). */
 export const SIZING_BACKGROUND_FUNCTION = 'size-territory-background'
 
+/**
+ * `detail` returned alongside `triggered: true`. Says what a 202 actually means:
+ * the platform accepted the invocation. It is NOT confirmation that the function
+ * ran, nor that it authenticated — Background Functions ack before executing and
+ * discard the handler's Response. Pinned in tests so the honesty can't regress.
+ */
+export const TRIGGER_ACCEPTED_DETAIL =
+  'invocation accepted (202); execution and auth not confirmed by the response'
+
 export interface SizingJobInput {
   center?: IsochroneCenter | null
   territoryId?: string | null
@@ -86,20 +95,115 @@ export async function createSizingJob(
   return { jobId: (data as { id: string }).id }
 }
 
-/** Read a job row by id (the poll path). Returns null when not found. */
+const JOB_COLUMNS =
+  'id, status, input_center_lat, input_center_lng, input_territory_id, requested_by, result, error, timing, created_at, started_at, finished_at'
+
+/**
+ * How long a job may sit at 'queued' before a read treats it as never-started.
+ *
+ * Safely conservative. `runSizingJob` claims the row — queued → running, stamping
+ * `started_at` — as its FIRST action, before resolving inputs or calling anything
+ * external. So a job that ever began executing is 'running', never 'queued', and a
+ * long compute (a dense metro can run for minutes) cannot false-positive here: it
+ * left 'queued' within milliseconds of starting. The trigger fires the function
+ * within seconds of enqueue, so five minutes is orders of magnitude of headroom.
+ */
+export const SIZING_STALE_QUEUED_MS = 5 * 60 * 1000
+
+/** Operator-facing explanation stamped on a stale-queued job. Pinned in tests. */
+export const STALE_QUEUED_DETAIL =
+  'trigger not confirmed — job never started (possible sizing secret mismatch or function failure)'
+
+/**
+ * Has this job been sitting at 'queued' long enough to conclude it never started?
+ *
+ * Pure, so the boundary is exhaustively testable. Only ever true for 'queued' —
+ * running/succeeded/failed rows are never candidates.
+ */
+export function isStaleQueued(job: SizingJobRow, nowMs: number): boolean {
+  if (job.status !== 'queued') return false
+  const queuedAtMs = Date.parse(job.created_at)
+  if (!Number.isFinite(queuedAtMs)) return false
+  return nowMs - queuedAtMs > SIZING_STALE_QUEUED_MS
+}
+
+/**
+ * Read a job row by id (the poll path). Returns null when not found.
+ *
+ * ── STALE-QUEUED WATCHDOG (Second-Opinion Gate finding, PR #151) ─────────────
+ * Netlify Background Functions 202-acknowledge before executing and discard the
+ * handler's Response, so `triggerSizingJob` cannot observe an auth refusal (or any
+ * other handler-level failure). Without this, a refused invocation leaves the job
+ * at 'queued' FOREVER while the caller was told `triggered: true` — invisible
+ * unless someone reads Netlify function logs. That is the exact silent-stall shape
+ * this module already has P0 history with.
+ *
+ * This closes it at READ time, lazily — no scheduler, no new infrastructure. Every
+ * status read in the app funnels through this function (the poll endpoint, the
+ * approve route, the scouting-report route, the verify script), so placing the
+ * detection here covers all of them at once rather than at four call sites.
+ *
+ * Marking the row 'failed' (rather than computing a transient flag) is deliberate:
+ * it makes the existing retry UX work — a failed job is re-runnable, whereas a
+ * cosmetic flag would leave the row stuck at 'queued' and un-actionable.
+ *
+ * SAFETY PROPERTIES:
+ *  • Guarded: the UPDATE matches `.eq('status','queued')`, so it can only ever move
+ *    a still-queued row. A job that starts concurrently is claimed by
+ *    `runSizingJob` and this write no-ops.
+ *  • Idempotent under concurrent polls: two simultaneous readers both filter on
+ *    'queued'; the loser updates zero rows and simply re-reads.
+ *  • Non-fatal: any failure of the watchdog write is swallowed and the original row
+ *    returned. A monitoring convenience must never break the read path.
+ *  • Involves no secret. It infers nothing about *why* the job never started.
+ *  • `runSizingJob` calls this function internally right after claiming the row,
+ *    when status is already 'running' — so the watchdog cannot interfere with a
+ *    job that is legitimately executing.
+ */
 export async function getSizingJob(
   client: SupabaseClient,
   jobId: string,
+  nowMs: number = Date.now(),
 ): Promise<SizingJobRow | null> {
   const { data, error } = await client
     .from(SIZING_JOBS_TABLE)
-    .select(
-      'id, status, input_center_lat, input_center_lng, input_territory_id, requested_by, result, error, timing, created_at, started_at, finished_at',
-    )
+    .select(JOB_COLUMNS)
     .eq('id', jobId)
     .maybeSingle()
   if (error || !data) return null
-  return data as SizingJobRow
+
+  const job = data as SizingJobRow
+  if (!isStaleQueued(job, nowMs)) return job
+
+  try {
+    const stamped = new Date(nowMs).toISOString()
+    const { data: updated } = await client
+      .from(SIZING_JOBS_TABLE)
+      .update({
+        status: 'failed',
+        error: { message: 'Sizing job never started', detail: STALE_QUEUED_DETAIL },
+        finished_at: stamped,
+        updated_at: stamped,
+      })
+      .eq('id', jobId)
+      // Only a still-queued row transitions — never clobbers a job that just started.
+      .eq('status', 'queued')
+      .select(JOB_COLUMNS)
+
+    if (updated && updated.length > 0) return updated[0] as SizingJobRow
+
+    // Lost the race (another poll marked it, or runSizingJob claimed it): re-read
+    // so the caller sees the authoritative current state rather than our stale copy.
+    const { data: fresh } = await client
+      .from(SIZING_JOBS_TABLE)
+      .select(JOB_COLUMNS)
+      .eq('id', jobId)
+      .maybeSingle()
+    return (fresh as SizingJobRow | null) ?? job
+  } catch {
+    // Watchdog is best-effort. Never let it break a read.
+    return job
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -288,6 +392,19 @@ export async function triggerSizingJob(jobId: string): Promise<{ triggered: bool
     // Netlify's edge. If anything (e.g. the app auth middleware) redirects the path, we must
     // SEE it as a non-2xx here rather than have fetch transparently follow it to /login and
     // report a bogus success — the failure mode that left jobs stuck 'queued' invisibly.
+    //
+    // ⚠ SCOPE OF THE STATUS CHECK BELOW (Second-Opinion Gate finding, PR #151).
+    // The non-2xx check catches EDGE-level failures only — redirects, 404s, a missing
+    // function. It CANNOT observe handler-level outcomes: Netlify Background Functions
+    // 202-acknowledge the invocation *before* executing and then discard whatever the
+    // handler returns. So the handler's 401 (bad secret) and 503 (unprovisioned) never
+    // reach this code — a refused invocation is indistinguishable here from a successful
+    // one. Do not add logic that tries to read an auth outcome from this response; there
+    // is nothing to read.
+    //
+    // The residual silent-failure window that creates — triggered, refused, job sits at
+    // 'queued' forever — is closed at READ time by the stale-queued watchdog in
+    // `getSizingJob`, not here.
     const res = await fetch(`${origin}/.netlify/functions/${SIZING_BACKGROUND_FUNCTION}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', [SIZING_SECRET_HEADER]: secret },
@@ -296,7 +413,14 @@ export async function triggerSizingJob(jobId: string): Promise<{ triggered: bool
     })
     // A Background Function accepts the POST and returns 202. Treat only a real 2xx/202 as
     // triggered; surface anything else (redirect status, 4xx/5xx) in detail for observability.
-    if (res.status === 202 || res.ok) return { triggered: true }
+    //
+    // `triggered: true` here means ACCEPTED FOR INVOCATION — not "ran", and not
+    // "authenticated". See the scope note above: the platform's 202 precedes execution and
+    // hides the handler's verdict. The detail string says so explicitly so no caller (or
+    // future reader) mistakes this for confirmation that the job actually started.
+    if (res.status === 202 || res.ok) {
+      return { triggered: true, detail: TRIGGER_ACCEPTED_DETAIL }
+    }
     return { triggered: false, detail: `background function returned HTTP ${res.status}` }
   } catch (err) {
     return { triggered: false, detail: err instanceof Error ? err.message : 'trigger fetch failed' }

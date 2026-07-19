@@ -44,6 +44,23 @@ export default async function handler(req: Request): Promise<Response> {
   // degrades to "no auth required"), 401 on absent/wrong header. Neither
   // response reveals the secret, the header name's expected value, or which
   // check failed beyond a generic reason code.
+  //
+  // ⚠ WHAT THE 401/503 ACTUALLY DO WHEN DEPLOYED (Second-Opinion Gate, PR #151).
+  // Nothing. Netlify Background Functions 202-acknowledge the invocation BEFORE
+  // executing this handler and then DISCARD whatever Response it returns — see
+  // the note at the top of this file. So no deployed caller ever observes these
+  // status codes; they are unit-test-facing semantics only, and they document
+  // intent for the next reader.
+  //
+  // The DEPLOYED protection is refusal-to-execute: returning early here means the
+  // sizing compute, the service-role client, and every external API call simply
+  // never happen. That is the real security property, and it is unaffected by the
+  // response being swallowed — an attacker gets 202 either way and learns nothing.
+  //
+  // The one deployed-visible signal is the console.warn below (Netlify function
+  // logs). Because logs are a poor operational tripwire, the silent-stall window
+  // this creates — invoked, refused, job sits at 'queued' forever — is closed at
+  // READ time by the stale-queued watchdog in `getSizingJob`.
   const auth = authorizeSizingRequest(req.headers.get(SIZING_SECRET_HEADER))
   if (!auth.ok) {
     if (auth.status === 503) {
