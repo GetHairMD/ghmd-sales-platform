@@ -289,10 +289,15 @@ describe('runtime serve-refusal', () => {
 
   describe('middleware wiring', () => {
     const repoRoot = join(__dirname, '..', '..', '..')
-    const mw = readFileSync(join(repoRoot, 'src', 'middleware.ts'), 'utf8')
+    const mwFull = readFileSync(join(repoRoot, 'src', 'middleware.ts'), 'utf8')
+    // Anchor every positional assertion to the middleware FUNCTION BODY, not the
+    // whole file. Helpers defined above the function (e.g. the temporary PR #151
+    // guard probe) also reference shouldRefuseServing, so a file-wide indexOf
+    // would silently measure the wrong occurrence and assert nothing meaningful.
+    const mw = mwFull.slice(mwFull.indexOf('export async function middleware'))
 
     it('middleware imports and calls the shared predicate', () => {
-      expect(mw).toMatch(/import\s*\{[^}]*shouldRefuseServing[^}]*\}/)
+      expect(mwFull).toMatch(/import\s*\{[^}]*shouldRefuseServing[^}]*\}/)
       expect(mw).toMatch(/shouldRefuseServing\s*\(\s*process\.env\s*\)/)
     })
 
@@ -313,12 +318,8 @@ describe('runtime serve-refusal', () => {
     it('responds 503 and leaks no environment detail', () => {
       expect(mw).toMatch(/status:\s*503/)
       // The response body must not name the variable an attacker would target.
-      const responseBlock = mw.slice(
-        mw.indexOf('shouldRefuseServing(process.env)'),
-        mw.indexOf('let supabaseResponse'),
-      )
-      expect(responseBlock).toMatch(/Service temporarily unavailable/)
-      const bodyString = responseBlock.match(/'([^']*unavailable[^']*)'/)?.[1] ?? ''
+      const bodyString = mw.match(/'([^']*unavailable[^']*)'/)?.[1] ?? ''
+      expect(bodyString).toMatch(/Service temporarily unavailable/)
       expect(bodyString).not.toContain('AUTH_GATE_DISABLED')
       expect(bodyString).not.toContain('NETLIFY')
     })
