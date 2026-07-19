@@ -21,10 +21,19 @@ import { shouldRefuseServing } from '@/lib/deployment-guard.mjs'
  * that only rode the 503 would tell us nothing precisely when we need it most.
  */
 function guardProbe(): string {
-  const netlify = typeof process.env.NETLIFY === 'string' && process.env.NETLIFY.trim() !== ''
+  const present = (k: string) => {
+    const v = process.env[k]
+    return typeof v === 'string' && v.trim() !== ''
+  }
   const bypass = 'AUTH_GATE_DISABLED' in process.env
   const refuse = shouldRefuseServing(process.env)
-  return `netlify=${netlify};bypass=${bypass};refuse=${refuse}`
+  // Candidate hosted-discriminators, PRESENCE ONLY (never values). Round 1 proved
+  // netlify=false;bypass=true at edge runtime — env delivery works, but NETLIFY is
+  // build-only metadata and never reaches the serving runtime. We need a marker that
+  // is actually populated here to replace it as the runtime discriminator.
+  const candidates = ['NETLIFY', 'URL', 'DEPLOY_ID', 'CONTEXT', 'SITE_ID', 'SITE_NAME', 'DEPLOY_PRIME_URL', 'NODE_ENV']
+  const markers = candidates.map((k) => `${k}=${present(k)}`).join(',')
+  return `bypass=${bypass};refuse=${refuse};[${markers}]`
 }
 
 /** TEMPORARY (PR #151): stamp the probe on any response leaving middleware. */
