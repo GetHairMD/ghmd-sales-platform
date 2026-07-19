@@ -105,6 +105,33 @@ export function shouldRefuseDeployment(env) {
 }
 
 /**
+ * RUNTIME serve-refusal decision (PR-0a.1, closes decision-log #182).
+ *
+ * Deliberately the SAME predicate as `shouldRefuseDeployment` — hosted context
+ * plus the variable present — exposed under a serving-oriented name so the
+ * middleware call site reads honestly. It is an alias, not a copy: a security
+ * control must never have two definitions that can drift.
+ *
+ * WHY A RUNTIME CHECK EXISTS AT ALL: both build-time trip-wires evaluate only
+ * when a build runs. A pre-built artifact pushed via the Netlify API never runs
+ * our build, so nothing would have refused it. This check moves the question
+ * from "was this built safely?" to "is this serving safely?", which is the one
+ * that actually protects users.
+ *
+ * KNOWN LIMIT, stated rather than implied: this cannot protect a ROLLBACK to a
+ * deploy that predates the code containing it. Old bundles carry old behaviour;
+ * no code we ship today can execute inside an artifact built before it existed.
+ * That residual is operational (Netlify deploy protection / pruning stale
+ * deploys), not something any commit can close.
+ *
+ * @param {Record<string, string | undefined>} env
+ * @returns {boolean}
+ */
+export function shouldRefuseServing(env) {
+  return shouldRefuseDeployment(env)
+}
+
+/**
  * Shared refusal output. Used by both trip-wires so the operator sees the same
  * remediation text wherever the build dies.
  * @returns {void}

@@ -1,8 +1,34 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { shouldRedirectToLogin } from '@/lib/auth-gate'
+import { shouldRefuseServing } from '@/lib/deployment-guard.mjs'
 
 export async function middleware(request: NextRequest) {
+  // ── RUNTIME SERVE-REFUSAL (PR-0a.1, decision-log #182) ────────────────────
+  // MUST be first: before the Supabase client is constructed, before any cookie
+  // or session work, before any network call.
+  //
+  // The PR-0a build guard refuses to BUILD a hosted deploy carrying
+  // AUTH_GATE_DISABLED. But a build-time control only fires when a build runs —
+  // a pre-built artifact pushed through the Netlify API never runs it. This
+  // check asks the question that actually protects users: is this *serving*
+  // safely? If a hosted context is somehow serving with the bypass present, the
+  // app refuses to serve at all rather than serving unauthenticated.
+  //
+  // The response is a neutral maintenance 503: no stack trace, no environment
+  // details, and deliberately no mention of AUTH_GATE_DISABLED — an attacker
+  // probing the site learns only that it is unavailable, not which
+  // misconfiguration would open it.
+  //
+  // Local development is unaffected (not a hosted context), preserving the
+  // dev-ergonomics carve-out §7.1 explicitly permits.
+  if (shouldRefuseServing(process.env)) {
+    return new NextResponse(
+      'Service temporarily unavailable. Please try again later.',
+      { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } },
+    )
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(

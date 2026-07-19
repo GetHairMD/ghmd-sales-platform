@@ -25,6 +25,7 @@ import { makeCensusTigerDeps, type CensusTigerStats } from './census-tiger'
 import { sizeDriveTimeTerritory } from './territory-sizing-v3'
 import { readFreshBlockGroups, upsertBlockGroups } from './census-bg-cache'
 import type { PolygonalGeometry } from './geometry'
+import { SIZING_SECRET_ENV, SIZING_SECRET_HEADER } from './sizing-function-auth'
 import creditTable from '../../data/experian-credit-share-by-state.json'
 
 export const SIZING_JOBS_TABLE = 'territory_sizing_jobs'
@@ -263,6 +264,25 @@ function siteOrigin(): string | null {
 export async function triggerSizingJob(jobId: string): Promise<{ triggered: boolean; detail?: string }> {
   const origin = siteOrigin()
   if (!origin) return { triggered: false, detail: 'no site origin env (URL/DEPLOY_PRIME_URL) available' }
+
+  // PR-0a.1 (#181): the Background Function now requires a shared secret. This is
+  // the ONLY code path that HTTP-POSTs it — both callers (POST /api/territories/size
+  // and POST /api/territory-scouting/reports) funnel through here — so the header
+  // is attached once, at the single chokepoint.
+  //
+  // Server-only: this module is imported exclusively by route handlers and the
+  // function itself, and the variable is deliberately NOT NEXT_PUBLIC_-prefixed,
+  // so Next cannot inline it into a client bundle.
+  //
+  // If the secret is unprovisioned we do NOT send the header — the function will
+  // answer 503 and the job stays 'queued' and retriable, which is the same
+  // observable failure shape as any other trigger failure. Failing closed here
+  // matches the function side; it never silently proceeds unauthenticated.
+  const secret = process.env[SIZING_SECRET_ENV]
+  if (!secret) {
+    return { triggered: false, detail: 'sizing function secret not provisioned' }
+  }
+
   try {
     // `redirect: 'manual'` is load-bearing: this internal call re-enters the site through
     // Netlify's edge. If anything (e.g. the app auth middleware) redirects the path, we must
@@ -270,7 +290,7 @@ export async function triggerSizingJob(jobId: string): Promise<{ triggered: bool
     // report a bogus success — the failure mode that left jobs stuck 'queued' invisibly.
     const res = await fetch(`${origin}/.netlify/functions/${SIZING_BACKGROUND_FUNCTION}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', [SIZING_SECRET_HEADER]: secret },
       body: JSON.stringify({ jobId }),
       redirect: 'manual',
     })

@@ -19,6 +19,7 @@
 
 import { createServiceClient } from '../../src/lib/supabase/service'
 import { runSizingJob } from '../../src/lib/territory-sizing-jobs'
+import { SIZING_SECRET_HEADER, authorizeSizingRequest } from '../../src/lib/sizing-function-auth'
 
 // This is a modern Netlify Function (ESM `.mts`, `export default`): it is invoked with the
 // Web `Request` API — NOT the legacy `(event)` lambda shape whose `event.body` was a string.
@@ -26,6 +27,38 @@ import { runSizingJob } from '../../src/lib/territory-sizing-jobs'
 // `Request` (a global) because @netlify/functions is not a dependency and the app tsconfig
 // does not compile .mts. A Background Function's response is ignored (Netlify returns 202).
 export default async function handler(req: Request): Promise<Response> {
+  // ── AUTH GATE (PR-0a.1, decision-log #181) ────────────────────────────────
+  // MUST be the first thing in this handler. Netlify Background Functions are
+  // publicly invocable at /.netlify/functions/<name>, and the app middleware
+  // cannot protect this path — its matcher excludes `.netlify` deliberately
+  // (removing that exclusion is what caused the P0 where every sizing job stuck
+  // at 'queued'). Without this check, any unauthenticated caller with a valid
+  // job UUID could trigger billable Census/Mapbox compute against a SERVICE-ROLE
+  // client and overwrite that job row.
+  //
+  // ⚠ ORDERING IS LOAD-BEARING: this runs before the body is parsed, before any
+  // job-row read, before createServiceClient(), and before any external API
+  // call. An unauthorized request must cost us nothing and touch nothing.
+  //
+  // Fails closed both ways: 503 when the secret is unprovisioned (never
+  // degrades to "no auth required"), 401 on absent/wrong header. Neither
+  // response reveals the secret, the header name's expected value, or which
+  // check failed beyond a generic reason code.
+  const auth = authorizeSizingRequest(req.headers.get(SIZING_SECRET_HEADER))
+  if (!auth.ok) {
+    if (auth.status === 503) {
+      console.warn(
+        '[size-territory-background] refusing: shared secret is not provisioned (blocked-pending-provisioning).',
+      )
+    } else {
+      console.warn('[size-territory-background] refusing: unauthorized request.')
+    }
+    return new Response(JSON.stringify({ ok: false, reason: auth.reason }), {
+      status: auth.status,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+
   let jobId: string | undefined
   try {
     const body = (await req.json()) as { jobId?: string } | null
