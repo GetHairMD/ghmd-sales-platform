@@ -47,9 +47,40 @@ export function isAuthGateDisabled(value: string | undefined): boolean {
  */
 const SIGNED_WEBHOOK_PATHS = ['/api/calendly/webhook'] as const
 
+/**
+ * Drop a single trailing slash so exact-match comparisons are slash-insensitive.
+ * '/' is returned unchanged — it is the root path, not a trailing separator.
+ */
+function stripTrailingSlash(pathname: string): string {
+  return pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
+}
+
 function isSignedWebhookPath(pathname: string): boolean {
-  const normalized = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
-  return SIGNED_WEBHOOK_PATHS.includes(normalized as (typeof SIGNED_WEBHOOK_PATHS)[number])
+  return SIGNED_WEBHOOK_PATHS.includes(
+    stripTrailingSlash(pathname) as (typeof SIGNED_WEBHOOK_PATHS)[number],
+  )
+}
+
+/**
+ * The sign-in page itself, EXACT-match (plus optional trailing slash).
+ *
+ * Deliberately not `startsWith('/login')`. That prefix also matched
+ * '/login-admin', '/loginfoo', '/login/internal-api' and '/login-api/keys',
+ * silently making any such future route publicly reachable — flagged by the
+ * Second-Opinion Gate on PR #150 and fixed here. No `/login` sub-route or
+ * auth-callback route exists today (only `src/app/login/page.tsx`), and nothing
+ * in the codebase links to a '/login/' subpath, so exact matching breaks no
+ * current flow.
+ *
+ * The redirect target in `src/middleware.ts` is exactly '/login', so the gate
+ * stays self-consistent: the one path it sends people to is the one path it
+ * lets through.
+ *
+ * If a genuine sub-route is ever needed (an OAuth callback, say), add it here
+ * explicitly. Do NOT reintroduce the prefix.
+ */
+function isLoginPath(pathname: string): boolean {
+  return stripTrailingSlash(pathname) === '/login'
 }
 
 /**
@@ -64,10 +95,16 @@ function isSignedWebhookPath(pathname: string): boolean {
  *                      '/resources'.startsWith('/r/') is false.
  * The BARE '/proposals' index is REP-facing (engagement stats) and must stay
  * auth-gated like /dashboard — startsWith('/proposals/') excludes it exactly.
+ *
+ * '/login' is the one entry that is NOT a prefix match — it is a single static
+ * page with no dynamic segment beneath it, so it is exact-matched via
+ * isLoginPath(). The three prefixes above each terminate in a slash precisely
+ * because they front a dynamic segment ([slug]/[prospectId]/[token]); that
+ * trailing slash is what bounds them. '/login' had no such bound.
  */
 export function isPublicPath(pathname: string): boolean {
   return (
-    pathname.startsWith('/login') ||
+    isLoginPath(pathname) ||
     pathname.startsWith('/proposals/') ||
     pathname.startsWith('/p/') ||
     pathname.startsWith('/r/') ||

@@ -81,6 +81,13 @@ describe('isPublicPath — unauthenticated-reachable prefixes', () => {
     '/api/calendly/webhook-admin',
     '/api/calendlyX/webhook',
     '/api/territories', // an ordinary internal API route stays gated
+    // PR #150 gate finding: '/login' was startsWith-matched, so every one of
+    // these evaluated PUBLIC. Same over-match class as the Calendly traps above
+    // — a sibling path must never inherit the sign-in page's public status.
+    '/login-admin',
+    '/loginfoo',
+    '/login/internal-api',
+    '/login-api/keys',
   ]
   for (const p of gatedPaths) {
     it(`treats ${p} as gated`, () => {
