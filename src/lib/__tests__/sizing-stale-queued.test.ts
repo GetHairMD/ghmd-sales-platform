@@ -13,7 +13,15 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+// The watchdog WRITE always routes through the service client (PR #151 gate fix),
+// independent of whichever client the caller used for the READ. Mocked here so the
+// two can be asserted separately.
+const serviceClientFactory = vi.fn()
+vi.mock('../supabase/service', () => ({
+  createServiceClient: () => serviceClientFactory(),
+}))
 import {
   SIZING_STALE_QUEUED_MS,
   STALE_QUEUED_DETAIL,
@@ -97,7 +105,11 @@ describe('isStaleQueued — threshold semantics', () => {
  * Fake PostgREST-ish client. Records calls so we can assert the guard filters and
  * prove the watchdog actually fires through the REAL read path.
  */
-function makeClient(row: SizingJobRow | null, updateResult: SizingJobRow[] = []) {
+function makeClient(
+  row: SizingJobRow | null,
+  updateResult: SizingJobRow[] = [],
+  updateError: { message: string } | null = null,
+) {
   const calls = { selects: 0, updates: 0, updatePayload: null as unknown, filters: [] as string[] }
 
   const builder = (mode: 'select' | 'update') => {
@@ -105,7 +117,9 @@ function makeClient(row: SizingJobRow | null, updateResult: SizingJobRow[] = [])
     const self = () => chain
     chain.select = () => {
       if (mode === 'update') {
-        return Promise.resolve({ data: updateResult, error: null })
+        // supabase-js reports API/RLS/database failures HERE, in `error`, without
+        // throwing. Modelling that faithfully is the whole point of this fixture.
+        return Promise.resolve({ data: updateError ? null : updateResult, error: updateError })
       }
       return chain
     }
@@ -136,17 +150,33 @@ function makeClient(row: SizingJobRow | null, updateResult: SizingJobRow[] = [])
 }
 
 describe('getSizingJob — watchdog wired into the REAL read path', () => {
+  beforeEach(() => {
+    serviceClientFactory.mockReset()
+  })
+
+  /**
+   * Most tests care about the watchdog's behaviour, not about which client did the
+   * write, so they point the service factory at the SAME fake client the read uses.
+   * The dedicated separation test below overrides this with two distinct clients.
+   */
+  function wire(client: ReturnType<typeof makeClient>) {
+    serviceClientFactory.mockReturnValue(client)
+    return client
+  }
+
   it('returns a fresh queued job untouched, with no write attempted', async () => {
-    const client = makeClient(aged(60_000))
+    const client = wire(makeClient(aged(60_000)))
     const result = await getSizingJob(client as never, 'job-1', NOW)
     expect(result?.status).toBe('queued')
     expect(client.calls.updates).toBe(0)
+    // The service client must not even be constructed when there is nothing to do.
+    expect(serviceClientFactory).not.toHaveBeenCalled()
   })
 
   it.each(['running', 'succeeded', 'failed'] as const)(
     'never writes for a %s row',
     async (status) => {
-      const client = makeClient(aged(SIZING_STALE_QUEUED_MS * 10, { status }))
+      const client = wire(makeClient(aged(SIZING_STALE_QUEUED_MS * 10, { status })))
       const result = await getSizingJob(client as never, 'job-1', NOW)
       expect(result?.status).toBe(status)
       expect(client.calls.updates).toBe(0)
@@ -160,7 +190,7 @@ describe('getSizingJob — watchdog wired into the REAL read path', () => {
   it('marks a stale-queued job FAILED through the real read path', async () => {
     const stale = aged(SIZING_STALE_QUEUED_MS + 60_000)
     const failed = { ...stale, status: 'failed' as const }
-    const client = makeClient(stale, [failed])
+    const client = wire(makeClient(stale, [failed]))
 
     const result = await getSizingJob(client as never, 'job-1', NOW)
 
@@ -177,7 +207,7 @@ describe('getSizingJob — watchdog wired into the REAL read path', () => {
   })
 
   it('guards the write to still-queued rows only — cannot clobber a job that just started', async () => {
-    const client = makeClient(aged(SIZING_STALE_QUEUED_MS + 60_000), [])
+    const client = wire(makeClient(aged(SIZING_STALE_QUEUED_MS + 60_000), []))
     await getSizingJob(client as never, 'job-1', NOW)
     // The UPDATE must filter on BOTH the id and status=queued.
     expect(client.calls.filters).toContain('status=queued')
@@ -187,7 +217,7 @@ describe('getSizingJob — watchdog wired into the REAL read path', () => {
   it('is idempotent under a lost race — re-reads instead of returning a stale copy', async () => {
     // updateResult empty = another poll (or runSizingJob) won the race.
     const stale = aged(SIZING_STALE_QUEUED_MS + 60_000)
-    const client = makeClient(stale, [])
+    const client = wire(makeClient(stale, []))
     const result = await getSizingJob(client as never, 'job-1', NOW)
     expect(client.calls.updates).toBe(1)
     // Two selects: the initial read plus the post-race re-read.
@@ -195,26 +225,86 @@ describe('getSizingJob — watchdog wired into the REAL read path', () => {
     expect(result).not.toBeNull()
   })
 
-  it('is non-fatal — a throwing write still returns the original row', async () => {
+  // ── Gate finding (21:12): FAILURE and RACE must not share a branch ─────────
+  // supabase-js reports API/RLS/database errors in `error` WITHOUT throwing, so the
+  // try/catch never saw them. The original code read only `data`, so a hard write
+  // failure looked identical to "someone else won the race" — it re-read, returned
+  // the still-queued row, and left the job stuck forever, silently under-delivering
+  // the five-minute guarantee.
+  it('write FAILURE: logs, returns the original row, and does NOT re-read', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const stale = aged(SIZING_STALE_QUEUED_MS + 60_000)
-    const client = {
-      from() {
-        return {
-          select: () => ({
-            eq: () => ({ maybeSingle: () => Promise.resolve({ data: stale, error: null }) }),
-          }),
-          update: () => {
-            throw new Error('db exploded')
-          },
-        }
-      },
-    }
+    const client = wire(makeClient(stale, [], { message: 'permission denied for table' }))
+
+    const selectsBefore = 1 // the initial read
     const result = await getSizingJob(client as never, 'job-1', NOW)
+
+    expect(client.calls.updates).toBe(1)
+    // Still-queued original returned — we do not pretend it failed.
+    expect(result?.status).toBe('queued')
+    // Crucially: NO race re-read. There is no winner to re-read.
+    expect(client.calls.selects).toBe(selectsBefore)
+    // And the failure is operator-visible rather than swallowed.
+    expect(consoleError).toHaveBeenCalledTimes(1)
+    const logged = String(consoleError.mock.calls[0]?.[0])
+    expect(logged).toContain('job-1')
+    expect(logged).toContain('permission denied for table')
+    consoleError.mockRestore()
+  })
+
+  it('RACE (no error, zero rows) still takes the re-read branch', async () => {
+    const stale = aged(SIZING_STALE_QUEUED_MS + 60_000)
+    const client = wire(makeClient(stale, [], null))
+    await getSizingJob(client as never, 'job-1', NOW)
+    expect(client.calls.updates).toBe(1)
+    // Initial read + authoritative re-read.
+    expect(client.calls.selects).toBeGreaterThanOrEqual(2)
+  })
+
+  // The write must escalate to the service client regardless of the read client —
+  // pinning the property rather than inheriting it from call-site discipline.
+  it('uses the SERVICE client for the write and the caller-s client for the read', async () => {
+    const stale = aged(SIZING_STALE_QUEUED_MS + 60_000)
+    const readClient = makeClient(stale, [])
+    const writeClient = makeClient(stale, [{ ...stale, status: 'failed' as const }])
+    serviceClientFactory.mockReturnValue(writeClient)
+
+    const result = await getSizingJob(readClient as never, 'job-1', NOW)
+
+    expect(serviceClientFactory).toHaveBeenCalledTimes(1)
+    // Write landed on the service client only.
+    expect(writeClient.calls.updates).toBe(1)
+    expect(readClient.calls.updates).toBe(0)
+    // Read landed on the caller's client only.
+    expect(readClient.calls.selects).toBeGreaterThanOrEqual(1)
+    expect(result?.status).toBe('failed')
+  })
+
+  it('is non-fatal — a THROWING write still returns the original row', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const stale = aged(SIZING_STALE_QUEUED_MS + 60_000)
+    const readClient = makeClient(stale, [])
+    // The THROW must come from the write path specifically. Pointing the service
+    // factory at a client whose update() throws models a genuine thrown fault
+    // (network, driver) — as opposed to the non-throwing `error` path above.
+    // Without this the factory would return undefined and the test would pass on
+    // a TypeError instead, proving nothing about the backstop.
+    serviceClientFactory.mockReturnValue({
+      from: () => ({
+        update: () => {
+          throw new Error('db exploded')
+        },
+      }),
+    })
+    const result = await getSizingJob(readClient as never, 'job-1', NOW)
+    expect(consoleError).toHaveBeenCalledTimes(1)
+    expect(String(consoleError.mock.calls[0]?.[0])).toContain('db exploded')
+    consoleError.mockRestore()
     expect(result?.status).toBe('queued')
   })
 
   it('returns null for a missing job', async () => {
-    const client = makeClient(null)
+    const client = wire(makeClient(null))
     expect(await getSizingJob(client as never, 'nope', NOW)).toBeNull()
   })
 

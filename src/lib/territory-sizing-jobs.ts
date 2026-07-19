@@ -26,6 +26,7 @@ import { sizeDriveTimeTerritory } from './territory-sizing-v3'
 import { readFreshBlockGroups, upsertBlockGroups } from './census-bg-cache'
 import type { PolygonalGeometry } from './geometry'
 import { SIZING_SECRET_ENV, SIZING_SECRET_HEADER } from './sizing-function-auth'
+import { createServiceClient } from './supabase/service'
 import creditTable from '../../data/experian-credit-share-by-state.json'
 
 export const SIZING_JOBS_TABLE = 'territory_sizing_jobs'
@@ -177,7 +178,22 @@ export async function getSizingJob(
 
   try {
     const stamped = new Date(nowMs).toISOString()
-    const { data: updated } = await client
+
+    // The watchdog WRITE always goes through the service client, whatever client
+    // the READ used. Every caller is server-side, and the read has already proven
+    // this row is stale-queued, so the escalation is narrowly scoped: one guarded
+    // UPDATE on one row already established to need it.
+    //
+    // Why not inherit the caller's client: RLS is enabled on this table with ZERO
+    // policies, so a non-service client's UPDATE is denied — and PostgREST reports
+    // that denial in `error` WITHOUT throwing, which is exactly the silent-stall
+    // the Second-Opinion Gate caught. All four read paths happen to pass the
+    // service client today; routing the write explicitly PINS that property here
+    // instead of inheriting it from call-site discipline that a future caller
+    // could quietly break.
+    const writeClient = createServiceClient()
+
+    const { data: updated, error: updateError } = await writeClient
       .from(SIZING_JOBS_TABLE)
       .update({
         status: 'failed',
@@ -190,18 +206,39 @@ export async function getSizingJob(
       .eq('status', 'queued')
       .select(JOB_COLUMNS)
 
+    // FAILURE and RACE are different worlds and must not share a branch.
+    //
+    // supabase-js returns API/RLS/database errors in `error` and does NOT throw, so
+    // the try/catch below never sees them. Conflating "write failed" with "someone
+    // else won the race" is what let a persistent failure re-read, return the
+    // still-queued row, and leave the job stuck forever — silently under-delivering
+    // the five-minute guarantee this watchdog exists to provide.
+    if (updateError) {
+      console.error(
+        `[sizing-watchdog] failed to mark stale job ${jobId} as failed: ${updateError.message}`,
+      )
+      // Deliberately do NOT fall through to the race re-read: there is no winner to
+      // re-read, and doing so would disguise a hard failure as a benign race.
+      return job
+    }
+
     if (updated && updated.length > 0) return updated[0] as SizingJobRow
 
-    // Lost the race (another poll marked it, or runSizingJob claimed it): re-read
-    // so the caller sees the authoritative current state rather than our stale copy.
+    // No error and zero rows = a GENUINE race (another poll marked it, or
+    // runSizingJob claimed it). Re-read so the caller sees authoritative state
+    // rather than our stale copy.
     const { data: fresh } = await client
       .from(SIZING_JOBS_TABLE)
       .select(JOB_COLUMNS)
       .eq('id', jobId)
       .maybeSingle()
     return (fresh as SizingJobRow | null) ?? job
-  } catch {
-    // Watchdog is best-effort. Never let it break a read.
+  } catch (err) {
+    // Outer backstop for genuinely THROWN faults (network, client construction).
+    // It no longer masks non-throwing failures — those are handled explicitly above.
+    console.error(
+      `[sizing-watchdog] threw while marking stale job ${jobId}: ${err instanceof Error ? err.message : String(err)}`,
+    )
     return job
   }
 }
