@@ -125,7 +125,13 @@ export function isStaleQueued(job: SizingJobRow, nowMs: number): boolean {
   if (job.status !== 'queued') return false
   const queuedAtMs = Date.parse(job.created_at)
   if (!Number.isFinite(queuedAtMs)) return false
-  return nowMs - queuedAtMs > SIZING_STALE_QUEUED_MS
+  // INCLUSIVE (>=), not exclusive. The contract is "operator-visible as failed
+  // WITHIN 5 minutes"; with a strict `>` a read at exactly the deadline returned
+  // 'queued' and deferred failure to an unspecified later read, so the code was
+  // marginally outside its own guarantee (Second-Opinion Gate finding, PR #151).
+  // Inclusivity adds no false-positive risk: a job sitting at exactly the
+  // threshold is every bit as stale as one a millisecond past it.
+  return nowMs - queuedAtMs >= SIZING_STALE_QUEUED_MS
 }
 
 /**

@@ -65,8 +65,15 @@ describe('isStaleQueued — threshold semantics', () => {
     expect(isStaleQueued(aged(SIZING_STALE_QUEUED_MS - 1000), NOW)).toBe(false)
   })
 
-  it('is false exactly AT the threshold — strictly greater-than', () => {
-    expect(isStaleQueued(aged(SIZING_STALE_QUEUED_MS), NOW)).toBe(false)
+  // Boundary is INCLUSIVE. The contract promises failure is visible "within 5
+  // minutes"; a strict `>` left a read at exactly the deadline returning 'queued',
+  // putting the code marginally outside its own guarantee.
+  it('is false one millisecond UNDER the threshold', () => {
+    expect(isStaleQueued(aged(SIZING_STALE_QUEUED_MS - 1), NOW)).toBe(false)
+  })
+
+  it('is true exactly AT the threshold — inclusive, honours the "within" contract', () => {
+    expect(isStaleQueued(aged(SIZING_STALE_QUEUED_MS), NOW)).toBe(true)
   })
 
   it('is true just past the threshold', () => {
