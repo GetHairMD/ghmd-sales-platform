@@ -21,7 +21,7 @@ import {
   isSizingSecretConfigured,
   verifySizingSecret,
 } from '../sizing-function-auth'
-import { shouldRefuseServing } from '../deployment-guard.mjs'
+import { isHostedRuntime, shouldRefuseDeployment, shouldRefuseServing } from '../deployment-guard.mjs'
 
 // Obviously-fake test fixtures. Not secrets.
 const FAKE_SECRET = 'test-only-fake-secret-value'
@@ -266,20 +266,56 @@ describe('caller wiring — triggerSizingJob attaches the header', () => {
  * these pin the serving-side semantics and the middleware wiring.
  */
 describe('runtime serve-refusal', () => {
+  // The env shapes below mirror what was MEASURED in the edge runtime, not what a
+  // build environment looks like. See isHostedRuntime's docblock for the readings.
+  const HOSTED_RUNTIME = { SITE_ID: 'site-uuid', SITE_NAME: 'ghmdsalesplatform', URL: 'https://x' }
+
   it('refuses when hosted AND the bypass variable is present', () => {
-    expect(shouldRefuseServing({ NETLIFY: 'true', AUTH_GATE_DISABLED: 'true' })).toBe(true)
+    expect(shouldRefuseServing({ ...HOSTED_RUNTIME, AUTH_GATE_DISABLED: 'true' })).toBe(true)
   })
 
   it('refuses even when the bypass value is falsy — presence is the trigger', () => {
-    expect(shouldRefuseServing({ NETLIFY: 'true', AUTH_GATE_DISABLED: 'false' })).toBe(true)
-    expect(shouldRefuseServing({ NETLIFY: 'true', AUTH_GATE_DISABLED: '' })).toBe(true)
+    expect(shouldRefuseServing({ ...HOSTED_RUNTIME, AUTH_GATE_DISABLED: 'false' })).toBe(true)
+    expect(shouldRefuseServing({ ...HOSTED_RUNTIME, AUTH_GATE_DISABLED: '' })).toBe(true)
   })
 
   it('serves normally when hosted without the bypass — the target state', () => {
-    expect(shouldRefuseServing({ NETLIFY: 'true' })).toBe(false)
+    expect(shouldRefuseServing(HOSTED_RUNTIME)).toBe(false)
+  })
+
+  // ── The regression this suite exists to prevent ──────────────────────────
+  // The first implementation keyed the RUNTIME check on NETLIFY, which is BUILD
+  // metadata and is absent at serve time. shouldRefuseServing therefore returned
+  // false while the bypass was live, and the app served /dashboard 200
+  // unauthenticated on a real preview. These pin the exact measured shape.
+  it('REFUSES with the real edge-runtime env shape — NETLIFY absent', () => {
+    expect(shouldRefuseServing({ SITE_ID: 'site-uuid', AUTH_GATE_DISABLED: 'true' })).toBe(true)
+    expect(shouldRefuseServing({ SITE_NAME: 'ghmdsalesplatform', AUTH_GATE_DISABLED: 'true' })).toBe(true)
+    expect(shouldRefuseServing({ URL: 'https://x', AUTH_GATE_DISABLED: 'true' })).toBe(true)
+  })
+
+  it('does NOT depend on any build-only variable', () => {
+    // NETLIFY alone must not be what makes it fire...
+    expect(shouldRefuseServing({ NETLIFY: 'true', AUTH_GATE_DISABLED: 'true' })).toBe(false)
+    // ...nor NODE_ENV, which the probe measured as absent in the edge runtime.
+    expect(shouldRefuseServing({ NODE_ENV: 'production', AUTH_GATE_DISABLED: 'true' })).toBe(false)
+  })
+
+  it('any single observed-present marker is sufficient — survives Netlify dropping one', () => {
+    expect(isHostedRuntime({ SITE_ID: 'x' })).toBe(true)
+    expect(isHostedRuntime({ SITE_NAME: 'x' })).toBe(true)
+    expect(isHostedRuntime({ URL: 'x' })).toBe(true)
+    expect(isHostedRuntime({})).toBe(false)
+    expect(isHostedRuntime({ SITE_ID: '', SITE_NAME: '  ' })).toBe(false)
+  })
+
+  it('the build guard is unchanged — still keys on NETLIFY', () => {
+    expect(shouldRefuseDeployment({ NETLIFY: 'true', AUTH_GATE_DISABLED: 'true' })).toBe(true)
+    expect(shouldRefuseDeployment({ SITE_ID: 'x', AUTH_GATE_DISABLED: 'true' })).toBe(false)
   })
 
   it('serves in local dev with the bypass — dev ergonomics preserved per §7.1', () => {
+    // No Netlify runtime markers locally, so the bypass still works for `next dev`.
     expect(shouldRefuseServing({ AUTH_GATE_DISABLED: 'true' })).toBe(false)
   })
 

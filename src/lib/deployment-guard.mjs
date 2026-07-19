@@ -127,8 +127,60 @@ export function shouldRefuseDeployment(env) {
  * @param {Record<string, string | undefined>} env
  * @returns {boolean}
  */
+/**
+ * Is this a hosted SERVING runtime (as opposed to a local dev server)?
+ *
+ * ⚠ DELIBERATELY NOT `isHostedBuild`. They ask the same question in two phases
+ * where DIFFERENT variables are reliable, and conflating them shipped a silent
+ * no-op once already (Second-Opinion Gate BLOCK, PR #151).
+ *
+ * `NETLIFY` is BUILD metadata. Netlify's docs are explicit — "as these are build
+ * variables specifically, you will need to take extra steps if you want your site
+ * to have access to these values after the build is complete." It is correct for
+ * the build guard and USELESS here.
+ *
+ * Measured directly on a build-clean / runtime-dirty deploy preview, by emitting
+ * presence booleans from inside this very middleware:
+ *
+ *   NETLIFY=false  URL=true   DEPLOY_ID=false  CONTEXT=false
+ *   SITE_ID=true   SITE_NAME=true  DEPLOY_PRIME_URL=false  NODE_ENV=false
+ *
+ * So the discriminator is chosen from evidence, not inference. Note `NODE_ENV` is
+ * also absent in the edge runtime — the obvious-looking "just use NODE_ENV
+ * === 'production'" fix would have failed identically and silently.
+ *
+ * Checked as an OR across three observed-present Netlify markers rather than one,
+ * so the guard survives Netlify changing which single variable it populates. That
+ * is the fail-closed direction: a false "hosted" reading costs a refused local
+ * `next start` (loud, instantly diagnosable), while a false "local" reading serves
+ * the app unauthenticated (silent, catastrophic). `SITE_ID` leads because a
+ * Netlify-assigned site UUID is the least plausible variable for a developer to
+ * have set locally.
+ *
+ * @param {Record<string, string | undefined>} env
+ * @returns {boolean}
+ */
+export function isHostedRuntime(env) {
+  const present = (key) => {
+    const value = env[key]
+    return typeof value === 'string' && value.trim() !== ''
+  }
+  return present('SITE_ID') || present('SITE_NAME') || present('URL')
+}
+
+/**
+ * RUNTIME serve-refusal decision (PR-0a.1, closes decision-log #182).
+ *
+ * Shares `isAuthGateVarPresent` with the build guard — that is the part which must
+ * never drift — but pairs it with the RUNTIME context discriminator above rather
+ * than the build-time one. See `isHostedRuntime` for why the two phases cannot
+ * share a context signal.
+ *
+ * @param {Record<string, string | undefined>} env
+ * @returns {boolean}
+ */
 export function shouldRefuseServing(env) {
-  return shouldRefuseDeployment(env)
+  return isHostedRuntime(env) && isAuthGateVarPresent(env)
 }
 
 /**
