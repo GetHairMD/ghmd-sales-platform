@@ -29,6 +29,27 @@ export async function middleware(request: NextRequest) {
     )
   }
 
+  // ── LEGACY PROPOSAL ROUTE TOMBSTONE (decision #200, Sprint 0.1 containment) ──
+  // The public, service-role-backed buyer page /proposals/[prospectId] was deleted
+  // because it rendered prospect identity, territory, addressable-market data, and
+  // pricing to any unauthenticated caller who obtained the URL. Its isPublicPath()
+  // exemption is also removed. This tombstone is defence in depth: any request under
+  // '/proposals/…' is answered with a bare 404 HERE — BEFORE createServerClient() and
+  // before supabase.auth.getUser() below — so a hit on the dead path does ZERO database
+  // and ZERO auth work. Placing it above the Supabase client construction is the
+  // load-bearing part: it must not be reachable through any session/cookie code path.
+  //
+  // Scope: the trailing slash matches only the (retired) dynamic segment. The BARE
+  // '/proposals' internal index is REP-facing and stays auth-gated — it is NOT matched
+  // here ('/proposals'.startsWith('/proposals/') === false) and flows through to the
+  // normal gate below.
+  if (request.nextUrl.pathname.startsWith('/proposals/')) {
+    return new NextResponse('Not Found', {
+      status: 404,
+      headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+    })
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(

@@ -340,7 +340,9 @@ async function main() {
         prospect_id: prospectId,
         territory_id: territoryId,
         territory_price: 179000,
-        proposal_url: `https://proposals.gethairmd.com/proposals/${prospectId}`,
+        // proposal_url intentionally left NULL (decision #200): the legacy public
+        // /proposals/[prospectId] route was removed. Gated proposal URLs are derived
+        // from proposals.slug via src/lib/proposal/generate.ts, never persisted here.
         proposal_sent_at: daysAgo(p.stageUpdatedDaysAgo),
         notes: DEMO_TAG,
       })

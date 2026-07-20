@@ -39,7 +39,7 @@ export const metadata: Metadata = {
 
 // True root layout — html/body/fonts/metadata ONLY. Deliberately minimal and
 // auth-free: it wraps every route, incl. public prospect-facing pages (/p/[slug],
-// /login, /proposals/[prospectId]), so it must never touch getViewerDesignation or
+// /login), so it must never touch getViewerDesignation or
 // the shell. The authenticated shell + role gate live in the (app) route group's
 // layout, which wraps internal pages only.
 export default function RootLayout({
