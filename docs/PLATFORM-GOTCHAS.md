@@ -148,6 +148,50 @@ and "my verification query is wrong." In PR-0b, `territory_sizing_jobs` (owner
 `postgres`, revoke succeeded → empty result) was the control that made
 `spatial_ref_sys` (unchanged → inert) unambiguous.
 
+## 9. Event triggers fire without consulting EXECUTE privileges — revoking EXECUTE does not disarm them
+
+An `EXECUTE` grant on a function and the firing of an **event trigger** bound to that
+function are two independent mechanisms. Event-trigger dispatch is **server-internal
+invocation**, not a session-issued call, so it never consults `has_function_privilege`
+at all. Revoking `EXECUTE` from every role — `PUBLIC` included — leaves the trigger
+firing exactly as before.
+
+This cuts in both directions, and both are easy to get wrong:
+
+- **Do not assume a privileged function is unused because no application or RPC code
+  path calls it.** A grep across the repo is not sufficient evidence of "unused."
+  PostgreSQL's own DDL machinery may be invoking it. In this project
+  `public.rls_auto_enable()` looked like dead code by that test, while in fact backing
+  the enabled `ensure_rls` event trigger (`ddl_command_end`) that auto-enables RLS on
+  every newly created table. Check `pg_event_trigger` before calling anything unused:
+
+  ```sql
+  select evtname, evtevent, evtenabled, p.oid::regprocedure
+  from pg_event_trigger et join pg_proc p on p.oid = et.evtfoid;
+  ```
+
+- **Conversely, do not assume revoking `EXECUTE` will break the trigger** and shy away
+  from a legitimate hardening. It won't. But *rehearse it* rather than trusting the
+  reasoning — see gotcha #8, extended here with a **functional** control, not just a
+  grant re-read:
+
+  ```sql
+  -- inside BEGIN … ROLLBACK
+  create table public._rehearsal_control (id int);   -- grants intact  → expect RLS on
+  revoke execute on function public.<fn>() from public, anon, authenticated;
+  create table public._rehearsal_test (id int);      -- after revoke   → expect RLS on
+  select relname, relrowsecurity from pg_class where relname like '\_rehearsal\_%';
+  ```
+
+  The control table is essential: without it, "the test table has RLS enabled" cannot be
+  distinguished from a probe that would report `true` no matter what. Measured in
+  PR-0d-interim: `control_rls=t`, `test_rls=t`, `anon=f`, `authenticated=f`,
+  `service_role=t`.
+
+Corollary on **naming**: use a unique suffix for rehearsal tables. `ddl_command_end`
+fires for real, and a collision with an existing object turns a read-only rehearsal into
+a failed or destructive one.
+
 ---
 
 ## Related
