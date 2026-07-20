@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import type { IsochroneCenter } from '@/lib/isochrone'
-import { createSizingJob, triggerSizingJob } from '@/lib/territory-sizing-jobs'
+import { createSizingJob, markTriggerFailed, triggerSizingJob } from '@/lib/territory-sizing-jobs'
 
 // Reads cookies + writes the job row and triggers the worker — never static.
 export const runtime = 'nodejs'
@@ -64,9 +64,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Failed to enqueue sizing job', detail }, { status: 500 })
   }
 
-  // Fire the out-of-band worker. Best-effort: on failure the job stays 'queued' and is
-  // retriable; the client still gets its jobId and can poll.
+  // Fire the out-of-band worker.
   const trigger = await triggerSizingJob(jobId)
+
+  // A non-202 is a failure we can SEE right now. Fail the job immediately rather
+  // than leaving it 'queued' for the read-time watchdog to notice five minutes
+  // later — we already know it will never run (PR #151).
+  if (!trigger.triggered) {
+    const mark = await markTriggerFailed(jobId, trigger.detail)
+    if (mark.outcome === 'write_failed') {
+      // We could not persist the failure, so we must NOT claim we did. Generic body
+      // + jobId only: the internal reason is in the logs, never in the response.
+      return NextResponse.json(
+        { jobId, error: 'Failed to enqueue sizing job', retriable: true },
+        { status: 502 },
+      )
+    }
+    if (mark.outcome === 'failed') {
+      return NextResponse.json({ jobId, status: 'failed', triggered: false }, { status: 202 })
+    }
+    // 'race' — the worker claimed the row after all. Report it as queued and let
+    // the normal poll path follow it; never overwrite a genuinely running job.
+  }
 
   return NextResponse.json({ jobId, status: 'queued', triggered: trigger.triggered }, { status: 202 })
 }

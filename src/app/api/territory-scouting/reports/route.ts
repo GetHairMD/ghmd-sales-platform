@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { viewerIsExecutive } from '@/lib/auth/internal-role'
 import { parseApiCoordinate } from '@/lib/geocode'
-import { createSizingJob, triggerSizingJob } from '@/lib/territory-sizing-jobs'
+import { createSizingJob, markTriggerFailed, triggerSizingJob } from '@/lib/territory-sizing-jobs'
 import { parseSizingJobResult } from '@/lib/territories/v3-display'
 
 // Reads cookies (auth gate) + writes rows and triggers the worker — never static.
@@ -132,9 +132,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     )
   }
 
-  // 3. Fire the out-of-band worker. Best-effort: on failure the job stays 'queued' and is
-  //    retriable; the report still exists and can be re-triggered later. Never a hard error.
+  // 3. Fire the out-of-band worker.
   const trigger = await triggerSizingJob(jobId)
+
+  // A non-202 is a failure we can SEE right now. Fail the job immediately rather than
+  // leaving it 'queued' for the read-time watchdog five minutes later (PR #151). The
+  // report row itself is untouched either way — it exists and can be re-triggered.
+  if (!trigger.triggered) {
+    const mark = await markTriggerFailed(jobId, trigger.detail)
+    if (mark.outcome === 'write_failed') {
+      // Could not persist the failure — do not claim a transition we did not make.
+      // Generic body + ids only; the internal reason stays in the logs.
+      return NextResponse.json(
+        { reportId: report.id, jobId, error: 'Failed to enqueue sizing job', retriable: true },
+        { status: 502 },
+      )
+    }
+    if (mark.outcome === 'failed') {
+      return NextResponse.json(
+        { reportId: report.id, jobId, status: 'failed', triggered: false },
+        { status: 202 },
+      )
+    }
+    // 'race' — the worker claimed it after all; fall through and report queued.
+  }
 
   return NextResponse.json(
     { reportId: report.id, jobId, status: 'queued', triggered: trigger.triggered },
