@@ -34,11 +34,16 @@
 -- hostname appears. Re-runnable: once the rows are NULL they no longer match, so a
 -- second apply is a clean zero-row no-op.
 --
--- REHEARSED live in aborted transactions before authoring (evidence in the PR body):
---   • zero matching rows            → succeeds, no-op;
---   • demo-tagged legacy rows       → set to NULL;
---   • a non-demo legacy row present → pre-mutation guard raises, rolls back;
---   • a legacy URL left behind      → postcondition raises, rolls back.
+-- REHEARSED live in aborted transactions (evidence in the PR comment):
+--   • zero matching rows                   → succeeds, no-op;
+--   • demo-tagged legacy rows              → set to NULL;
+--   • exact-origin row with notes IS NULL  → pre-mutation guard raises, rolls back;
+--   • a non-demo-notes legacy row present  → pre-mutation guard raises, rolls back;
+--   • a wrong-origin /proposals/ row       → pre-mutation guard raises, rolls back;
+--   • an unexpected URL left behind        → postcondition raises, rolls back.
+-- The notes-IS-NULL case is the null-safety fix: the earlier `NOT (…)`/INNER-JOIN guard
+-- excluded it (three-valued logic + inner-join drop); the LEFT JOIN + `IS NOT TRUE`
+-- guard now identifies it BEFORE the UPDATE, per the decision-#200 contract.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 do $$
@@ -52,16 +57,25 @@ begin
   -- Protect real records in ANY environment: if a deals.proposal_url references a
   -- '/proposals/' path but is NOT a demo-tagged row at the exact retired origin,
   -- refuse to touch anything and roll the whole statement back.
+  --
+  -- NULL-SAFE (load-bearing): deals.notes is nullable, and a deal may in principle be
+  -- unlinked. Both the plain-`NOT (…)` form and an INNER JOIN would silently DROP such
+  -- rows from the count — `NOT (… AND NULL …)` is NULL (not true), and an inner join
+  -- discards a row with no matching prospect. Either would let an unexpected
+  -- '/proposals/' row slip past the guard (the postcondition would still roll back, but
+  -- the guard MUST be the identifier per the decision-#200 contract). So: LEFT JOIN (keep
+  -- unlinked rows) + `(expected-row predicate) IS NOT TRUE` (treat NULL/false alike as
+  -- "unexpected"). Do NOT rewrite this as `NOT (predicate)`.
   select count(*)
     into v_unexpected
     from public.deals d
-    join public.prospects p on p.id = d.prospect_id
+    left join public.prospects p on p.id = d.prospect_id
    where d.proposal_url like '%/proposals/%'
-     and not (
+     and (
            d.proposal_url like v_legacy_origin || '%'
        and d.notes = '[demo_seed]'
        and p.lead_source = 'demo_seed'
-     );
+     ) is not true;
 
   if v_unexpected > 0 then
     raise exception
