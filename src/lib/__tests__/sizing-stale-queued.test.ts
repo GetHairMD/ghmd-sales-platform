@@ -28,6 +28,7 @@ import {
   TRIGGER_ACCEPTED_DETAIL,
   getSizingJob,
   isStaleQueued,
+  markTriggerFailed,
   triggerSizingJob,
   type SizingJobRow,
 } from '../territory-sizing-jobs'
@@ -349,7 +350,10 @@ describe('honest trigger semantics', () => {
    * reporting "accepted (202)" would claim more than the platform confirmed.
    */
   describe('trigger status contract — strictly 202', () => {
-    const FAKE = 'test-only-fake-secret'
+    // Obviously-fake, and >= SIZING_SECRET_MIN_LENGTH so it clears the strength
+    // floor. A shorter fixture would be rejected before the fetch — which is the
+    // floor working, but would make these status tests assert nothing.
+    const FAKE = 'test-only-fake-secret-0000000000000000000000'
 
     beforeEach(() => {
       vi.unstubAllEnvs()
@@ -404,6 +408,123 @@ describe('honest trigger semantics', () => {
       const result = await triggerSizingJob('job-1')
       expect(result.triggered).toBe(false)
       expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    // SENDER-SIDE strength floor. triggerSizingJob calls isSizingSecretConfigured —
+    // not a truthiness check — so a weak or padded value never reaches the wire.
+    // If the two sides applied different rules, one would send what the other
+    // rejects, failing in exactly the invisible way this PR exists to remove.
+    it.each([
+      ['single char', 'x'],
+      ['numeric placeholder', '1234'],
+      ['one under the floor', 'a'.repeat(31)],
+      ['whitespace only', '   '],
+      ['padded', ` ${'a'.repeat(40)} `],
+    ])('refuses to fetch with a degenerate secret (%s)', async (_label, value) => {
+      vi.stubEnv('SIZING_FUNCTION_SECRET', value)
+      const fetchMock = stubFetchStatus(202)
+      const result = await triggerSizingJob('job-1')
+      expect(result.triggered).toBe(false)
+      expect(result.detail).toBe('sizing function secret not provisioned')
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('sends when the secret is exactly at the floor', async () => {
+      vi.stubEnv('SIZING_FUNCTION_SECRET', 'a'.repeat(32))
+      const fetchMock = stubFetchStatus(202)
+      const result = await triggerSizingJob('job-1')
+      expect(result.triggered).toBe(true)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  /**
+   * Immediate failure for KNOWN trigger failures (enqueue-time). A non-202 is a
+   * failure we can see right now; leaving it to the lazy watchdog would keep the job
+   * 'queued' for five minutes when we already knew it would never run.
+   */
+  describe('markTriggerFailed', () => {
+    function svc(data: unknown, error: { message: string } | null = null) {
+      const seen = { payload: null as unknown, filters: [] as string[] }
+      const chain: Record<string, unknown> = {}
+      chain.eq = (c: string, v: unknown) => {
+        seen.filters.push(`${c}=${String(v)}`)
+        return chain
+      }
+      chain.select = () => Promise.resolve({ data, error })
+      serviceClientFactory.mockReturnValue({
+        from: () => ({
+          update: (p: unknown) => {
+            seen.payload = p
+            return chain
+          },
+        }),
+      })
+      return seen
+    }
+
+    beforeEach(() => {
+      serviceClientFactory.mockReset()
+    })
+
+    it('stamps the row failed with the trigger detail and BOTH timestamps', async () => {
+      const seen = svc([{ id: 'job-1' }])
+      const res = await markTriggerFailed('job-1', 'background function returned HTTP 502', NOW)
+      expect(res).toEqual({ outcome: 'failed' })
+      const p = seen.payload as {
+        status: string
+        error: { message: string; detail: string }
+        finished_at: string
+        updated_at: string
+      }
+      expect(p.status).toBe('failed')
+      expect(p.error.message).toBe('Sizing trigger failed')
+      expect(p.error.detail).toBe('background function returned HTTP 502')
+      expect(p.finished_at).toBe(new Date(NOW).toISOString())
+      expect(p.updated_at).toBe(new Date(NOW).toISOString())
+    })
+
+    it('guards on status=queued so a claimed row is never overwritten', async () => {
+      const seen = svc([{ id: 'job-1' }])
+      await markTriggerFailed('job-1', 'detail', NOW)
+      expect(seen.filters).toContain('status=queued')
+      expect(seen.filters).toContain('id=job-1')
+    })
+
+    // Zero rows with NO error is a race — the worker claimed it. Reporting that as a
+    // failure would be a false failure report on a job that is actually running.
+    it('zero rows + no error → RACE, not failure', async () => {
+      svc([])
+      expect(await markTriggerFailed('job-1', 'detail', NOW)).toEqual({ outcome: 'race' })
+    })
+
+    // supabase-js reports failures in `error` without throwing — the same trap the
+    // watchdog already had to fix. A write failure must never be reported as success.
+    it('error present → write_failed, logged, no transition claimed', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      svc(null, { message: 'permission denied for table' })
+      const res = await markTriggerFailed('job-1', 'detail', NOW)
+      expect(res.outcome).toBe('write_failed')
+      expect(consoleError).toHaveBeenCalledTimes(1)
+      expect(String(consoleError.mock.calls[0]?.[0])).toContain('job-1')
+      consoleError.mockRestore()
+    })
+
+    it('persists only the controlled detail — no raw error text from the write', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const seen = svc(null, { message: 'https://internal.example/secret-path exploded' })
+      await markTriggerFailed('job-1', 'background function returned HTTP 500', NOW)
+      // Nothing was persisted at all on the failure path, so no leakage is possible.
+      const p = seen.payload as { error: { detail: string } }
+      expect(p.error.detail).toBe('background function returned HTTP 500')
+      expect(JSON.stringify(p)).not.toContain('internal.example')
+      consoleError.mockRestore()
+    })
+
+    it('falls back to a generic detail when the trigger gave none', async () => {
+      const seen = svc([{ id: 'job-1' }])
+      await markTriggerFailed('job-1', undefined, NOW)
+      expect((seen.payload as { error: { detail: string } }).error.detail).toBe('trigger failed')
     })
   })
 

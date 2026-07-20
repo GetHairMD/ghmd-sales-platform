@@ -28,16 +28,42 @@ export const SIZING_SECRET_ENV = 'SIZING_FUNCTION_SECRET'
 export const SIZING_SECRET_HEADER = 'x-sizing-secret'
 
 /**
- * Is the shared secret provisioned in this environment?
+ * Minimum acceptable secret length. A floor, NOT entropy analysis — no
+ * character-class or randomness heuristics, deliberately. It catches the
+ * degenerate cases only: a placeholder, a truncated paste, a half-configured
+ * value being treated as a real credential.
+ */
+export const SIZING_SECRET_MIN_LENGTH = 32
+
+/**
+ * Is the shared secret provisioned AND strong enough to be treated as one?
  *
- * An absent or empty value means unprovisioned. The function fails CLOSED on
- * this (503) rather than running sizing unauthenticated — the same pattern the
- * Calendly webhook uses for its unprovisioned signing key (PR-0a). A missing
- * secret must never degrade into "no auth required".
+ * An absent, empty, padded, or too-short value all mean unprovisioned. The
+ * function fails CLOSED on this (503) rather than running sizing unauthenticated
+ * — the same pattern the Calendly webhook uses for its unprovisioned signing key
+ * (PR-0a). A missing or degenerate secret must never degrade into "no auth
+ * required".
+ *
+ * Three checks, each with a reason:
+ *  • string           — anything else is a configuration error, not a secret.
+ *  • trimmed === raw  — surrounding whitespace means the value was pasted
+ *                       carelessly. It is rejected rather than silently trimmed,
+ *                       because trimming would make the sender and verifier agree
+ *                       on a value neither operator intended, and a trailing
+ *                       newline is a classic way for two environments to hold
+ *                       "the same" secret that does not match.
+ *  • length >= floor  — see SIZING_SECRET_MIN_LENGTH.
+ *
+ * ⚠ Enforced on BOTH sides. `triggerSizingJob` calls THIS function rather than a
+ * truthiness check, so sender and verifier share identical semantics. If they
+ * diverged, one side would send a value the other rejects — failing in exactly
+ * the silent way this PR exists to eliminate.
  */
 export function isSizingSecretConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
   const value = env[SIZING_SECRET_ENV]
-  return typeof value === 'string' && value.length > 0
+  if (typeof value !== 'string') return false
+  if (value.trim() !== value) return false
+  return value.length >= SIZING_SECRET_MIN_LENGTH
 }
 
 /**

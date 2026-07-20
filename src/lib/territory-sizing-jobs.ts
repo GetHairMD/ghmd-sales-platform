@@ -25,7 +25,11 @@ import { makeCensusTigerDeps, type CensusTigerStats } from './census-tiger'
 import { sizeDriveTimeTerritory } from './territory-sizing-v3'
 import { readFreshBlockGroups, upsertBlockGroups } from './census-bg-cache'
 import type { PolygonalGeometry } from './geometry'
-import { SIZING_SECRET_ENV, SIZING_SECRET_HEADER } from './sizing-function-auth'
+import {
+  SIZING_SECRET_ENV,
+  SIZING_SECRET_HEADER,
+  isSizingSecretConfigured,
+} from './sizing-function-auth'
 import { createServiceClient } from './supabase/service'
 import creditTable from '../../data/experian-credit-share-by-state.json'
 
@@ -111,6 +115,9 @@ const JOB_COLUMNS =
  */
 export const SIZING_STALE_QUEUED_MS = 5 * 60 * 1000
 
+// SIZING_SECRET_MIN_LENGTH lives in @/lib/sizing-function-auth alongside the check
+// that enforces it — one definition, imported by both sender and verifier.
+
 /** Operator-facing explanation stamped on a stale-queued job. Pinned in tests. */
 export const STALE_QUEUED_DETAIL =
   'trigger not confirmed — job never started (possible sizing secret mismatch or function failure)'
@@ -150,6 +157,25 @@ export function isStaleQueued(job: SizingJobRow, nowMs: number): boolean {
  * approve route, the scouting-report route, the verify script), so placing the
  * detection here covers all of them at once rather than at four call sites.
  *
+ * ── THE ACTUAL CONTRACT — stated precisely, because the loose version was wrong ──
+ * A stale job is transitioned to 'failed' on the FIRST STATUS READ at or after five
+ * minutes. It is NOT "failed within five minutes":
+ *   • if no read occurs, the job remains 'queued' — this is lazy detection, and
+ *     nothing polls on its own;
+ *   • if the persistence write fails, the failure is LOGGED (console.error —
+ *     logged, not alerted) and the original row is returned unchanged.
+ * The system never claims a DB transition it did not make. Under a persistent
+ * write failure the row stays 'queued' and the only signal is the log line; that
+ * residual is documented and accepted (decision-log #186), not silently papered
+ * over by reporting a status the database does not hold.
+ *
+ * ── DIVISION OF LABOUR (narrowed) ───────────────────────────────────────────
+ * The watchdog now covers ONLY the case of an invocation that was 202-accepted by
+ * the platform but never executed (auth refusal inside the handler, a lost or
+ * dropped invocation). A trigger failure the caller can actually SEE — any
+ * non-202 response — is now failed IMMEDIATELY at enqueue time by the routes
+ * themselves, so it never reaches this lazy path.
+ *
  * Marking the row 'failed' (rather than computing a transient flag) is deliberate:
  * it makes the existing retry UX work — a failed job is re-runnable, whereas a
  * cosmetic flag would leave the row stuck at 'queued' and un-actionable.
@@ -160,8 +186,8 @@ export function isStaleQueued(job: SizingJobRow, nowMs: number): boolean {
  *    `runSizingJob` and this write no-ops.
  *  • Idempotent under concurrent polls: two simultaneous readers both filter on
  *    'queued'; the loser updates zero rows and simply re-reads.
- *  • Non-fatal: any failure of the watchdog write is swallowed and the original row
- *    returned. A monitoring convenience must never break the read path.
+ *  • Non-fatal, but NOT silent: a write failure is logged with the jobId and
+ *    returns the original row. The read path is never broken by the watchdog.
  *  • Involves no secret. It infers nothing about *why* the job never started.
  *  • `runSizingJob` calls this function internally right after claiming the row,
  *    when status is already 'running' — so the watchdog cannot interfere with a
@@ -387,6 +413,75 @@ export async function runSizingJob(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Immediate failure for KNOWN trigger failures (enqueue-time)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Outcome of stamping a job failed after a known trigger failure. */
+export type TriggerFailureMark =
+  /** Row moved queued → failed. The poll shows 'failed' at once. */
+  | { outcome: 'failed' }
+  /** The worker claimed the row first — a real race, not a failure. Leave it alone. */
+  | { outcome: 'race' }
+  /** The write itself failed. NO transition was made; caller must not claim one. */
+  | { outcome: 'write_failed'; detail: string }
+
+/**
+ * Mark a job failed immediately after a KNOWN trigger failure (any non-202).
+ *
+ * Why this exists separately from the watchdog: a non-202 response is a failure the
+ * caller can actually SEE at enqueue time. Leaving it to the lazy read-time watchdog
+ * would keep the job 'queued' until someone happens to poll five minutes later, when
+ * we already knew it had failed. The watchdog's remaining job is narrower — only
+ * invocations the platform 202-accepted but never executed.
+ *
+ * Discipline mirrored from the watchdog, deliberately:
+ *  • guarded on `.eq('status','queued')` so a worker that claimed the row wins;
+ *  • BOTH `data` and `error` inspected — supabase-js reports failures in `error`
+ *    without throwing, and conflating that with a race is the bug this PR already
+ *    fixed once in the watchdog;
+ *  • zero rows with no error is a RACE, not a failure — no overwrite, no false
+ *    failure report;
+ *  • the persisted `detail` carries only the caller-supplied trigger detail, which
+ *    is our own controlled string ("background function returned HTTP 502", etc.).
+ *    Raw error text, URLs and stack traces are logged, never written to the row.
+ */
+export async function markTriggerFailed(
+  jobId: string,
+  triggerDetail: string | undefined,
+  nowMs: number = Date.now(),
+): Promise<TriggerFailureMark> {
+  const stamped = new Date(nowMs).toISOString()
+  try {
+    const { data, error } = await createServiceClient()
+      .from(SIZING_JOBS_TABLE)
+      .update({
+        status: 'failed',
+        error: {
+          message: 'Sizing trigger failed',
+          // Controlled, permission-safe text only.
+          detail: triggerDetail ?? 'trigger failed',
+        },
+        finished_at: stamped,
+        updated_at: stamped,
+      })
+      .eq('id', jobId)
+      .eq('status', 'queued')
+      .select('id')
+
+    if (error) {
+      console.error(`[sizing-trigger] failed to mark job ${jobId} failed: ${error.message}`)
+      return { outcome: 'write_failed', detail: error.message }
+    }
+    if (!data || data.length === 0) return { outcome: 'race' }
+    return { outcome: 'failed' }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    console.error(`[sizing-trigger] threw marking job ${jobId} failed: ${detail}`)
+    return { outcome: 'write_failed', detail }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Trigger (production: fire the Netlify Background Function)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -425,10 +520,15 @@ export async function triggerSizingJob(jobId: string): Promise<{ triggered: bool
   // answer 503 and the job stays 'queued' and retriable, which is the same
   // observable failure shape as any other trigger failure. Failing closed here
   // matches the function side; it never silently proceeds unauthenticated.
-  const secret = process.env[SIZING_SECRET_ENV]
-  if (!secret) {
+  // Calls isSizingSecretConfigured — NOT a truthiness check — so the sender applies
+  // exactly the verifier's semantics (string, unpadded, >= SIZING_SECRET_MIN_LENGTH).
+  // A weak, padded, or absent secret prevents the fetch entirely rather than sending
+  // a value the function would reject; divergent semantics between the two sides
+  // would fail invisibly, which is the failure mode this PR exists to remove.
+  if (!isSizingSecretConfigured(process.env)) {
     return { triggered: false, detail: 'sizing function secret not provisioned' }
   }
+  const secret = process.env[SIZING_SECRET_ENV] as string
 
   try {
     // `redirect: 'manual'` is load-bearing: this internal call re-enters the site through

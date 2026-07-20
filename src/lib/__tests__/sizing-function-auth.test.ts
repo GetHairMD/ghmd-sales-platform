@@ -17,6 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   SIZING_SECRET_ENV,
   SIZING_SECRET_HEADER,
+  SIZING_SECRET_MIN_LENGTH,
   authorizeSizingRequest,
   isSizingSecretConfigured,
   verifySizingSecret,
@@ -24,11 +25,11 @@ import {
 import { isHostedRuntime, shouldRefuseDeployment, shouldRefuseServing } from '../deployment-guard.mjs'
 
 // Obviously-fake test fixtures. Not secrets.
-const FAKE_SECRET = 'test-only-fake-secret-value'
-const FAKE_WRONG = 'test-only-wrong-secret-value'
+const FAKE_SECRET = 'test-only-fake-secret-value-0000000000000000'
+const FAKE_WRONG = 'test-only-wrong-secret-value-0000000000000000'
 
-describe('isSizingSecretConfigured', () => {
-  it('is true when provisioned', () => {
+describe('isSizingSecretConfigured — provisioning + strength floor', () => {
+  it('is true when provisioned at or above the floor', () => {
     expect(isSizingSecretConfigured({ [SIZING_SECRET_ENV]: FAKE_SECRET })).toBe(true)
   })
 
@@ -38,6 +39,38 @@ describe('isSizingSecretConfigured', () => {
 
   it('is false when empty — a blank secret is not a secret', () => {
     expect(isSizingSecretConfigured({ [SIZING_SECRET_ENV]: '' })).toBe(false)
+  })
+
+  // A floor, not entropy analysis. It catches placeholders and truncated pastes
+  // being treated as real credentials; it makes no judgement about randomness.
+  it.each([
+    ['single char', 'x'],
+    ['numeric placeholder', '1234'],
+    ['one char under the floor', 'a'.repeat(SIZING_SECRET_MIN_LENGTH - 1)],
+    ['whitespace only', '   '],
+  ])('is false for a degenerate value (%s)', (_label, value) => {
+    expect(isSizingSecretConfigured({ [SIZING_SECRET_ENV]: value })).toBe(false)
+  })
+
+  // Padding is REJECTED rather than trimmed: trimming would make the two sides agree
+  // on a value neither operator intended, and a stray trailing newline is a classic
+  // way for two environments to hold "the same" secret that does not actually match.
+  it.each([
+    ['leading space', ` ${'a'.repeat(SIZING_SECRET_MIN_LENGTH)}`],
+    ['trailing space', `${'a'.repeat(SIZING_SECRET_MIN_LENGTH)} `],
+    ['trailing newline', `${'a'.repeat(SIZING_SECRET_MIN_LENGTH)}\n`],
+  ])('is false for a padded value (%s) — not silently trimmed', (_label, value) => {
+    expect(isSizingSecretConfigured({ [SIZING_SECRET_ENV]: value })).toBe(false)
+  })
+
+  it('is true exactly AT the floor', () => {
+    expect(
+      isSizingSecretConfigured({ [SIZING_SECRET_ENV]: 'a'.repeat(SIZING_SECRET_MIN_LENGTH) }),
+    ).toBe(true)
+  })
+
+  it('the floor is 32', () => {
+    expect(SIZING_SECRET_MIN_LENGTH).toBe(32)
   })
 })
 
