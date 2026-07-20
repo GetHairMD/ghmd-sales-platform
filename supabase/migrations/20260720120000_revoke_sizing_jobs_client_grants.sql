@@ -1,0 +1,100 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- PR-0b (Sprint 0.1 containment wave) — remove redundant anon/authenticated
+-- grants on RLS-fronted tables.
+--
+-- Supabase project: ghmd-sales-platform (cprltmwwldbxcsunsafl). NIP never touched.
+--
+-- GRANTS-ONLY CHANGE. No RLS policy is added, altered, or dropped by this
+-- migration. Policy count on territory_sizing_jobs is 0 before and 0 after.
+-- service_role and postgres are untouched — they hold their own independent
+-- grant sets, so every service-role code path continues to work unchanged.
+--
+-- ── territory_sizing_jobs (REMEDIATED HERE) ─────────────────────────────────
+--
+-- THE SHAPE (new finding from the PR-0a.1 gate cycle, confirmed live): RLS is
+-- ENABLED with ZERO policies, yet `anon` and `authenticated` both still hold the
+-- full DELETE/INSERT/REFERENCES/SELECT/TRIGGER/TRUNCATE/UPDATE grant set.
+--
+-- This is NOT a live exploit today. RLS-enabled-with-no-policies is default-deny
+-- for every non-owner, non-bypass role, so anon/authenticated are already blocked
+-- at the row-security layer. The problem is that RLS is the ONLY thing blocking
+-- them: there is no grant-level backstop. One policy added carelessly (or one RLS
+-- regression) converts a wide grant into immediate exposure — including TRUNCATE,
+-- which bypasses RLS entirely and would let a client wipe the table. Removing the
+-- grants makes the denial hold at two independent layers instead of one.
+--
+-- SAFE TO REVOKE — precondition re-verified in this PR, not inherited from the
+-- prior code comment in src/lib/territory-sizing-jobs.ts. Every access path to
+-- this table uses the service-role client:
+--   • src/app/api/territories/size/route.ts:53              createServiceClient()
+--   • src/app/api/territories/size/[jobId]/route.ts:35      createServiceClient()
+--   • netlify/functions/size-territory-background.mts:93    createServiceClient()
+--   • src/app/api/territory-scouting/reports/route.ts:105,200  createServiceClient()
+--   • src/app/(app)/territories/[id]/page.tsx:81            createServiceClient()
+--   • scripts/verify-territory-sizing.ts:107                createServiceClient()
+--   • scripts/freeze-qa-anchor-fixtures.ts:82               raw createClient() with
+--       SUPABASE_SERVICE_ROLE_KEY (script-layer, human-invoked)
+-- The cookie-session client (@/lib/supabase/server) appears in those routes only
+-- to run the auth gate — it never touches this table.
+--
+-- Table-level revoke is complete here: relacl is
+--   {postgres=arwdDxtm/postgres, anon=…/postgres, authenticated=…/postgres,
+--    service_role=…/postgres}
+-- — grantor is `postgres` (which migrations run as), and there is NO PUBLIC grant
+-- and no column-level grant to unwind. Rehearsed live in BEGIN/ROLLBACK before
+-- authoring: post-revoke grant listing for anon/authenticated came back empty.
+--
+-- ── spatial_ref_sys (NOT REMEDIABLE BY MIGRATION — DELIBERATELY OMITTED) ─────
+--
+-- PR-0b was briefed to revoke anon/authenticated on public.spatial_ref_sys as
+-- well. That statement is NOT included here because it CANNOT WORK from a
+-- migration, and including it would create a false remediation record.
+--
+-- EVIDENCE (live, this PR). relacl for public.spatial_ref_sys:
+--   {supabase_admin=arwdDxtm/supabase_admin, postgres=arwdDxtm/supabase_admin,
+--    anon=arwdDxtm/supabase_admin, authenticated=arwdDxtm/supabase_admin,
+--    service_role=arwdDxtm/supabase_admin, =r/supabase_admin}
+-- Every grant was issued BY supabase_admin (the `/grantor` suffix), the table is
+-- OWNED by supabase_admin, and pg_has_role('postgres','supabase_admin','MEMBER')
+-- is FALSE.
+--
+-- In PostgreSQL, a REVOKE issued by a role that is neither the grantor nor a
+-- holder of grant option raises a WARNING, not an ERROR — it silently changes
+-- nothing and reports success. Rehearsed live in BEGIN/ROLLBACK: the revoke ran
+-- without error and the grant listing was byte-for-byte unchanged. A migration
+-- containing it would pass CI, be recorded in supabase_migrations as applied, and
+-- leave the exposure fully open. See docs/PLATFORM-GOTCHAS.md §6.
+--
+-- TWO FURTHER CORRECTIONS to the assumptions this table was queued under:
+--   1. spatial_ref_sys has RLS DISABLED (relrowsecurity = false), not
+--      enabled-with-no-policies. Grants are therefore the ONLY access control on
+--      it, so anon genuinely holds live INSERT/UPDATE/DELETE/TRUNCATE today. This
+--      is a real exposure, not the defense-in-depth shape of the table above.
+--   2. The trailing `=r/supabase_admin` ACL entry is a SELECT grant to PUBLIC. Even
+--      a successful REVOKE … FROM anon, authenticated would leave read access
+--      intact via PUBLIC, so the briefed statement was incomplete as well as
+--      inoperative.
+--
+-- ESCALATION — two routes, BOTH require privileges this repo does not have:
+--   (a) Supabase support ticket, to have a supabase_admin-level role perform the
+--       revoke (and, if read access is also to be closed, revoke SELECT FROM
+--       PUBLIC as well). FILED BY TRACE — ticket #SU-426558. Chat's
+--       ops.decision_log adjudication for this table references that ticket.
+--   (b) The durable structural fix: relocate the postgis extension out of the
+--       public schema, which removes spatial_ref_sys from the API-exposed schema
+--       altogether. This already exists as a standing WARN-level Supabase advisor
+--       finding and belongs to the 0d/hardening lane — explicitly OUT OF SCOPE for
+--       PR-0b.
+-- NOT a route: running the same REVOKE from the Supabase console SQL editor. That
+-- session also runs as `postgres` and no-ops identically.
+--
+-- No code path reads spatial_ref_sys: a scan of src/, lib/, scripts/, netlify/ and
+-- supabase/ finds only comments; there is no ST_Transform call anywhere and no
+-- geography-typed column in the schema (only territories.boundary_geom and
+-- territories.sold_boundary_geom, both plain geometry). So the revoke would be
+-- functionally safe if it could be performed.
+--
+-- New migration; prior migrations are applied and NOT edited (supersede-not-edit).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+revoke all on public.territory_sizing_jobs from anon, authenticated;
