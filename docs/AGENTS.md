@@ -196,6 +196,7 @@ Read at session start, in this order:
 - `docs/GHMD-CRM-003.md` — **governing architecture and delivery document** (v1.0, approved 2026-07-18 by Trace Herchman and Bruce Vermeulen; decision #177). Supersedes GHMD-CRM-001 and GHMD-CRM-002. Defines the target Account/Contact/Opportunity data model, the ten-stage Opportunity workflow, the Phase 0–4 delivery order, and the four readiness milestones.
 - `docs/AGENTS.md` — this file: role definitions, Locked Technical Facts, gate discipline.
 - `docs/SALES-OS-SPEC.md` — live legacy system only; Session E queue frozen per CRM-003.
+- `docs/PLATFORM-GOTCHAS.md` — Netlify / Supabase / PostgreSQL behaviours that produce **silent** wrong results (202-before-execute Background Functions, build-time-only `NETLIFY`/`NODE_ENV`, non-throwing `supabase-js` errors, RLS-with-no-policies, non-owner `REVOKE` no-ops). Read before writing serverless auth checks, runtime environment guards, or grant/RLS migrations.
 
 **Session-close handoff rule:** Any session that merges a PR to main or writes to `ops.decision_log` must end with either (a) a handoff append/update PR, or (b) an explicit in-session statement that no handoff update is needed and why. A session that does neither is incomplete. The next session's bootstrap treats a handoff that is missing narrative for merged PRs as a flag-and-report condition (not a silent-reconcile condition).
 
