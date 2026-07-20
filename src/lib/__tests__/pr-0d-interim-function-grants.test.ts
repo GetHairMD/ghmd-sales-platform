@@ -69,9 +69,13 @@ describe('PR-0d-interim function-grant triage migration', () => {
 
   it('leaves the nine authenticated-executable RPCs to 0d proper', () => {
     for (const fn of [
+      'community_board_authors',
       'create_territory_deal',
+      'ensure_priced_deal',
       'move_deal_stage',
       'scoreboard_summary',
+      'set_customer_deal_status',
+      'set_deal_status',
       'territory_sold_summary',
       'territory_status_map',
     ]) {
