@@ -224,11 +224,11 @@ compare counts and booleans for the same reason — a failing `toEqual` on raw l
 as effectively.
 
 Either variable name appearing anywhere outside an exact allowlist fails the build. The allowlist
-is (a) the resolver module; (b) `.env.local.example` — **only the two bare `NAME=` placeholder
-lines, matched exactly**; (c) exactly two environment-mapping lines in
+has **five** branches: (a) the resolver module (whole file); (b) `.env.local.example` — **only the
+two bare `NAME=` placeholder lines, matched exactly**; (c) exactly two environment-mapping lines in
 `.github/workflows/residual-risk-sweep.yml`; (d) one exact comment line in an already-applied,
-immutable migration. No path wildcards — for (b), (c) and (d) the file is not exempt, only those
-lines are.
+immutable migration; (e) the three credential test suites — **only their two constant-declaration
+lines each**. No path wildcards — for (b)–(e) the file is not exempt, only those lines are.
 
 **`secret-key.ts` must never export a variable NAME.** An exported name is a read primitive: any
 module can import it — or re-export it through an intermediary, so the eventual consumer neither

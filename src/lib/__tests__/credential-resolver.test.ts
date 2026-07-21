@@ -24,13 +24,13 @@ const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
  *      silently skipped (a malformed credential is an operator error, not a fallback signal).
  *   3. neither present -> THROW naming both variables.
  *
- * ⚠ The variable NAMES are IMPORTED from the resolver, never written as literals and never
- * assembled at runtime from fragments. Two reasons, the second learned from review:
- *   • the source scan forbids the literals outside the resolver, so importing keeps this file
- *     honest without needing an exemption from the invariant it helps enforce;
- *   • runtime assembly (`['SUPA','BASE',…].join('_')`) would evade that text scan, and a test
- *     suite demonstrating the evasion technique normalises it. Importing the exported constant
- *     is the honest form: one source of truth, nothing hidden from the scan.
+ * ⚠ The variable NAMES are module-PRIVATE in the resolver — it exports no name, only the
+ * `assertNotCredentialVarName` predicate, which can refuse a name but cannot hand one out. An
+ * exported name would be a read primitive (import it, or re-export it through an intermediary,
+ * then `process.env[thatConstant]`). This suite therefore declares the two credential-name
+ * LITERALS itself, on the two branch-(e) allowlisted declaration lines at the top of this file;
+ * every other line uses those constants. Names are never assembled at runtime from fragments —
+ * that would evade the source scan, and a suite demonstrating the evasion normalises it.
  *
  * ⚠ Env is manipulated ONLY through `vi.stubEnv`. This suite performs no `process.env[NAME]`
  * READ of either credential — the framework owns save/restore, so no test ever needs to look at

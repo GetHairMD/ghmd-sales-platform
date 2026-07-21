@@ -13,7 +13,7 @@ const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
  * Credential read-site invariant — decision #199 remediation (D7), permanent CI enforcement.
  *
  * INVARIANT: outside the resolver module, no file in this repository references either
- * Supabase service-credential variable name (both assembled at runtime below) — not via
+ * Supabase service-credential variable name (declared as literals above, branch (e)) — not via
  * `process.env.<NAME>`, not via bracket access, not via destructuring, not via an env-object
  * alias, and not even in a comment. One read site means rotation is a value swap; a second one
  * means a rotation can half-apply, which is precisely the failure this layer exists to prevent.
@@ -27,23 +27,25 @@ const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
  * surfaces excluded by path (see PROSE_PATHS). Scanning by file type was a real hole: it left
  * `netlify.toml`, all `.sql`, all `.json` config and any future `.sh`/`.py` outside enforcement.
  *
- * The allowlist is EXACT — specific paths, and for three of the four branches specific LINES:
- *   (a) the resolver module (whole file);
+ * The allowlist is EXACT — FIVE branches, of which one is whole-file and four are exact-LINE:
+ *   (a) the resolver module (WHOLE FILE — the one legitimate read site);
  *   (b) `.env.local.example` — the two bare placeholder lines, matched exactly, so a real value
  *       pasted there fails CI in any shape, including commented out and with no separator;
  *   (c) the sweep workflow — the two exact environment-mapping lines, nothing else;
- *   (d) one exact comment line in an already-applied, immutable migration.
- * Every branch is EXACT-LINE, never shape-inferred: rules that try to reject "assigning" forms
- * must enumerate the ways a value can follow a name, and that enumeration is never complete.
+ *   (d) one exact comment line in an already-applied, immutable migration;
+ *   (e) the three credential suites — their two constant-DECLARATION lines each, nothing else.
+ * Branches (b)–(e) are EXACT-LINE, never shape-inferred: rules that try to reject "assigning"
+ * forms must enumerate the ways a value can follow a name, and that enumeration is never complete.
  * There is no `.github/workflows/*` wildcard: any occurrence in any other workflow, or on any
- * other line of the sweep workflow, is a violation. Same for the migration: the file is not
- * exempt, only that one line is.
+ * other line of the sweep workflow, is a violation. Same for the migration and the suites: those
+ * files are not exempt, only those lines are.
  *
- * ⚠ This file and its companions IMPORT the identifiers from the resolver rather than writing
- * them as literals, so the suites that exercise the resolver need no exemption from the invariant
- * they enforce. They deliberately do NOT assemble the names at runtime from fragments: that would
- * evade this very scan, and a test suite demonstrating the evasion normalises it. Exporting the
- * names from the resolver is the honest form — one source of truth, nothing hidden from the scan.
+ * ⚠ This file and its companions spell the identifiers as LOCAL LITERALS on their branch-(e)
+ * declaration lines, because the resolver exports no name. An exported name would be a read
+ * primitive — importable, and re-exportable through an intermediary — so it was removed; what the
+ * resolver exports is the `assertNotCredentialVarName` predicate, which cannot hand a name out.
+ * The suites deliberately do NOT assemble names at runtime from fragments: that would evade this
+ * very scan, and a suite demonstrating the evasion normalises it.
  *
  * KNOWN LIMIT, stated rather than papered over: a text scan cannot catch a name built at runtime
  * (`'SUPA' + 'BASE_SECRET_KEY'`). It is designed to catch ACCIDENTAL second read sites, which is
@@ -126,8 +128,10 @@ const PROSE_PATHS = ['docs/', 'handoffs/', 'decisions/', 'CLAUDE.md']
  *    read `.env.local`, which holds a REAL credential on a developer machine. This suite renders
  *    offending lines into its failure message, so walking the filesystem would turn the very test
  *    that prevents credential leakage into the thing that prints a live key into CI logs.
- *    Git-tracked scope excludes every gitignored secret file by construction. (The renderer also
- *    redacts post-`=` text, so the two protections are independent.)
+ *    Git-tracked scope excludes every gitignored secret file by construction. (Independently of
+ *    that, `renderViolation` withholds ALL line content — it prints only `file:line` and which
+ *    variable was named. An earlier renderer redacted post-`=` text instead; that was replaced
+ *    because a JSON object entry defeats it. The two protections are independent.)
  */
 function trackedFiles(): string[] {
   // Fails loudly rather than silently scanning nothing if git is unavailable.
@@ -399,15 +403,16 @@ describe('every service-credential consumer routes through the resolver', () => 
 
   it('no file that imports the resolver may do computed process.env access (round-5 vector)', () => {
     /**
-     * The round-5 finding: exporting PREFERRED_VAR / LEGACY_VAR (the round-4 fix) created a read
-     * path needing neither a literal nor runtime assembly —
-     * `import { PREFERRED_VAR } … ; process.env[PREFERRED_VAR]` sails past a text scan.
+     * HISTORY (round 5, SUPERSEDED as the primary control by round 6): the resolver then exported
+     * PREFERRED_VAR / LEGACY_VAR, which created a read path needing neither a literal nor runtime
+     * assembly — `import { PREFERRED_VAR } … ; process.env[PREFERRED_VAR]` sails past a text scan.
+     * The round-5 closure used the vector's own precondition: to USE an exported name you must
+     * IMPORT it, and the import is visible.
      *
-     * The closure exploits the vector's own precondition: to USE an exported name you must IMPORT
-     * it, and the import is plainly visible. So every file importing the resolver module is
-     * forbidden from computed `process.env[…]` access and from aliasing `process.env` to a
-     * variable. Reading a credential through the exported name now requires importing it into a
-     * file that is thereby barred from the only syntax that could consume it.
+     * CURRENT STATE: the resolver exports NO name (round 6), so that read path no longer exists at
+     * all. This rule is RETAINED as defence in depth — it still bars computed `process.env[…]`
+     * access and `process.env` aliasing in every file importing the resolver, which is where a
+     * future re-introduction of an exported name would first have to land.
      *
      * A repo-wide ban on computed env access was considered and rejected: ~10 unrelated,
      * legitimate sites (calendly, notify/email, territory-sizing-jobs, preview-login) would be
