@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
+import {
+  PUBLISHABLE_POLICY,
+  PROSE_DIRECTORY_PREFIXES,
+  PROSE_EXACT_PATHS,
+  isProsePath,
+  trackedFiles,
+  hitsIn as scanHitsIn,
+  renderViolation as scanRenderViolation,
+} from '../../../scripts/security/read-site-scan.mjs'
 
 // Allowlisted declaration lines — branch (f) below.
 const APP_PREFERRED_VAR = 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'
@@ -51,68 +60,50 @@ const CI_LEGACY_VAR = 'SUPABASE_ANON_KEY'
  * lines here are updated — which is the intended friction for the repo's only read sites.
  */
 
-const IDENTIFIERS = [APP_PREFERRED_VAR, APP_LEGACY_VAR, CI_PREFERRED_VAR, CI_LEGACY_VAR]
+/**
+ * ⚠ MECHANISM AND POLICY LIVE IN scripts/security/read-site-scan.mjs; this suite CONSUMES them and
+ * FREEZES their values (see the final describe). The shared module is invoked from
+ * next.config.mjs, so a prohibited read site now fails `next build` and therefore the required
+ * Netlify deploy-preview check — the Second-Opinion Gate blocked PR #159 precisely because this
+ * invariant existed only as a Vitest suite that nothing ran.
+ */
+const POLICY = PUBLISHABLE_POLICY
+const IDENTIFIERS = POLICY.identifiers
 
 /** (a) the application resolver — exact lines only, never the whole file. */
-const APP_RESOLVER = 'src/lib/supabase/publishable-key.ts'
-const APP_RESOLVER_ALLOWED_LINES = [
-  `const PREFERRED_VAR = '${APP_PREFERRED_VAR}'`,
-  `const LEGACY_VAR = '${APP_LEGACY_VAR}'`,
-  `process.env.${APP_PREFERRED_VAR},`,
-  `process.env.${APP_LEGACY_VAR},`,
-]
+const APP_RESOLVER = POLICY.appResolver
+const APP_RESOLVER_ALLOWED_LINES = POLICY.allowedLines.appResolver
 
 /** (b) the gate resolver — exact lines only. */
-const CI_RESOLVER = 'scripts/second-opinion-gate/publishable-key.ts'
-const CI_RESOLVER_ALLOWED_LINES = [
-  `const PREFERRED_VAR = '${CI_PREFERRED_VAR}'`,
-  `const LEGACY_VAR = '${CI_LEGACY_VAR}'`,
-  `const preferred = classify(PREFERRED_VAR, process.env.${CI_PREFERRED_VAR})`,
-  `const legacy = classify(LEGACY_VAR, process.env.${CI_LEGACY_VAR})`,
-]
+const CI_RESOLVER = POLICY.ciResolver
+const CI_RESOLVER_ALLOWED_LINES = POLICY.allowedLines.ciResolver
 
 /** (c) the example env file — the two bare placeholder lines, matched EXACTLY. */
-const EXAMPLE_ENV = '.env.local.example'
-const EXAMPLE_ENV_ALLOWED_LINES = [`${APP_PREFERRED_VAR}=`, `${APP_LEGACY_VAR}=`]
+const EXAMPLE_ENV = POLICY.exampleEnv
+const EXAMPLE_ENV_ALLOWED_LINES = POLICY.allowedLines.exampleEnv
 
 /** (d) the gate workflow, and ONLY these two environment-mapping lines within it. */
-const GATE_WORKFLOW = '.github/workflows/second-opinion-gate.yml'
-const GATE_WORKFLOW_ALLOWED_LINES = [
-  `${CI_PREFERRED_VAR}: \${{ secrets.${CI_PREFERRED_VAR} }}`,
-  `${CI_LEGACY_VAR}: \${{ secrets.${CI_LEGACY_VAR} }}`,
-]
+const GATE_WORKFLOW = POLICY.gateWorkflow
+const GATE_WORKFLOW_ALLOWED_LINES = POLICY.allowedLines.gateWorkflow
 
 /**
  * (e) ONE line of an already-applied migration, allowlisted by exact path AND exact line.
  * Applied migrations are immutable — rewriting one to satisfy a scan would risk migration-history
  * drift for a comment that is not an env read.
  */
-const IMMUTABLE_MIGRATION =
-  'supabase/migrations/20260720140000_revoke_rls_auto_enable_client_execute.sql'
-const IMMUTABLE_MIGRATION_ALLOWED_LINES = [
-  `--     calls it as the anon role via ${CI_LEGACY_VAR}. Revoking it breaks the gate.`,
-]
+const IMMUTABLE_MIGRATION = POLICY.immutableMigration
+const IMMUTABLE_MIGRATION_ALLOWED_LINES = POLICY.allowedLines.immutableMigration
 
 /** (f) the publishable suites — ONLY their constant-DECLARATION lines. */
-const PUBLISHABLE_SUITES = [
-  'src/lib/__tests__/publishable-resolver.test.ts',
-  'src/lib/__tests__/publishable-request-shape.test.ts',
-  'src/lib/__tests__/publishable-read-sites.test.ts',
-  'src/lib/__tests__/publishable-static-substitution.test.ts',
-]
-const SUITE_ALLOWED_LINES = [
-  `const APP_PREFERRED_VAR = '${APP_PREFERRED_VAR}'`,
-  `const APP_LEGACY_VAR = '${APP_LEGACY_VAR}'`,
-  `const CI_PREFERRED_VAR = '${CI_PREFERRED_VAR}'`,
-  `const CI_LEGACY_VAR = '${CI_LEGACY_VAR}'`,
-]
+const PUBLISHABLE_SUITES = POLICY.suites
+const SUITE_ALLOWED_LINES = POLICY.allowedLines.suites
 
 /**
  * Human documentation surfaces, excluded by PATH. Kept character-identical to the
  * service-credential scan's constants, and pinned to them by an equivalence test below.
  */
-const PROSE_DIRECTORY_PREFIXES = ['docs/', 'handoffs/', 'decisions/']
-const PROSE_EXACT_PATHS = new Set(['CLAUDE.md'])
+// Imported from the shared module, so build-time enforcement and this suite cannot disagree about
+// what counts as prose. Their exact-vs-prefix semantics are pinned by the adversarial corpus below.
 
 /**
  * The ONE predicate deciding prose exclusion — used by the scan AND by its own oracle, so the
@@ -123,24 +114,9 @@ const PROSE_EXACT_PATHS = new Set(['CLAUDE.md'])
  * tracked executable could read a credential and still pass. A prefix rule is sound only for a path
  * ending in `/`.
  */
-function isProsePath(path: string): boolean {
-  return (
-    PROSE_EXACT_PATHS.has(path) || PROSE_DIRECTORY_PREFIXES.some((prefix) => path.startsWith(prefix))
-  )
-}
-
-/** Every TRACKED file, minus prose surfaces. Fails loudly rather than silently scanning nothing. */
-function trackedFiles(): string[] {
-  const out = execFileSync('git', ['ls-files', '-z'], {
-    cwd: process.cwd(),
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  })
-  return out
-    .split('\0')
-    .filter((p) => p.length > 0)
-    .filter((p) => !isProsePath(p))
-}
+// `isProsePath` and `trackedFiles` are imported from the shared module. `trackedFiles` THROWS when
+// git is missing, git errors, or zero tracked files are reported — the fail-closed behaviour the
+// build depends on, exercised directly by read-site-scan.test.ts.
 
 interface Hit {
   file: string
@@ -148,19 +124,8 @@ interface Hit {
   text: string
 }
 
-function hitsIn(file: string): Hit[] {
-  let src: string
-  try {
-    src = readFileSync(join(process.cwd(), file), 'utf8')
-  } catch {
-    return []
-  }
-  const hits: Hit[] = []
-  src.split(/\r?\n/).forEach((text, i) => {
-    if (IDENTIFIERS.some((id) => text.includes(id))) hits.push({ file, line: i + 1, text: text.trim() })
-  })
-  return hits
-}
+/** Thin binding of the shared whole-line scanner to THIS policy's identifiers. */
+const hitsIn = (file: string): Hit[] => scanHitsIn(file, IDENTIFIERS) as Hit[]
 
 /**
  * Render a violation by WHITELISTING what may be printed — location and which identifier was named
@@ -168,20 +133,9 @@ function hitsIn(file: string): Hit[] {
  * a value can hide in (a JSON entry puts a quote between the identifier and the colon and defeats
  * an after-`=` regex); printing nothing has no enumeration to get wrong.
  */
-function renderViolation(hit: Hit): string {
-  const named = IDENTIFIERS.filter((id) => hit.text.includes(id)).join(', ')
-  return `${hit.file}:${hit.line}  names ${named} (line content withheld — see the file)`
-}
+const renderViolation = (hit: Hit): string => scanRenderViolation(hit, IDENTIFIERS)
 
-function isAllowed(hit: Hit): boolean {
-  if (hit.file === APP_RESOLVER) return APP_RESOLVER_ALLOWED_LINES.includes(hit.text)
-  if (hit.file === CI_RESOLVER) return CI_RESOLVER_ALLOWED_LINES.includes(hit.text)
-  if (hit.file === EXAMPLE_ENV) return EXAMPLE_ENV_ALLOWED_LINES.includes(hit.text)
-  if (hit.file === GATE_WORKFLOW) return GATE_WORKFLOW_ALLOWED_LINES.includes(hit.text)
-  if (hit.file === IMMUTABLE_MIGRATION) return IMMUTABLE_MIGRATION_ALLOWED_LINES.includes(hit.text)
-  if (PUBLISHABLE_SUITES.includes(hit.file)) return SUITE_ALLOWED_LINES.includes(hit.text)
-  return false
-}
+const isAllowed = (hit: Hit): boolean => POLICY.isAllowed(hit)
 
 const SCANNED = trackedFiles()
 
@@ -244,17 +198,18 @@ describe('publishable identifiers appear only at the allowlisted sites', () => {
     }
   })
 
-  it('uses the SAME prose-exclusion constants as the service-credential scan (anti-drift)', () => {
-    // Two independent scanners exist (service credential, publishable). They must not diverge on
-    // what counts as prose. Rather than couple the suites at runtime — importing one test file
-    // into another would re-register its tests — this pins the constants textually.
+  it('shares ONE prose-exclusion predicate with the service-credential scan (drift impossible)', () => {
+    // Previously two suites each carried their own copy and a textual assertion pinned them
+    // together. They now import the SAME function from the shared module, so divergence is not
+    // representable rather than merely detected. The semantics themselves are pinned by the
+    // adversarial corpus in the next test.
     const other = readFileSync(
       join(process.cwd(), 'src/lib/__tests__/credential-read-sites.test.ts'),
       'utf8',
     )
-    expect(other).toContain("const PROSE_DIRECTORY_PREFIXES = ['docs/', 'handoffs/', 'decisions/']")
-    expect(other).toContain("const PROSE_EXACT_PATHS = new Set(['CLAUDE.md'])")
-    expect(PROSE_DIRECTORY_PREFIXES).toEqual(['docs/', 'handoffs/', 'decisions/'])
+    expect(other).toMatch(/from '\.\.\/\.\.\/\.\.\/scripts\/security\/read-site-scan\.mjs'/)
+    expect(other).toContain('isProsePath')
+    expect([...PROSE_DIRECTORY_PREFIXES]).toEqual(['docs/', 'handoffs/', 'decisions/'])
     expect([...PROSE_EXACT_PATHS]).toEqual(['CLAUDE.md'])
   })
 
@@ -392,6 +347,89 @@ describe('publishable identifiers appear only at the allowlisted sites', () => {
           leak.replace(/synthetic-value/g, '<value>'),
         ).toBe(false)
       }
+    }
+  })
+})
+
+/**
+ * The policy lives in the shared module, so this suite's remaining job for those values is to
+ * FREEZE them. Without this, widening the shared allowlist would leave every assertion above
+ * passing — they consume the policy rather than pinning it.
+ */
+describe('the shared publishable policy is frozen to exactly these values', () => {
+  it('pins the identifier set to the four literals, in order', () => {
+    expect([...POLICY.identifiers]).toEqual([
+      APP_PREFERRED_VAR,
+      APP_LEGACY_VAR,
+      CI_PREFERRED_VAR,
+      CI_LEGACY_VAR,
+    ])
+  })
+
+  it('pins every allowlist branch, exactly', () => {
+    expect([...POLICY.allowedLines.appResolver]).toEqual([
+      `const PREFERRED_VAR = '${APP_PREFERRED_VAR}'`,
+      `const LEGACY_VAR = '${APP_LEGACY_VAR}'`,
+      `process.env.${APP_PREFERRED_VAR},`,
+      `process.env.${APP_LEGACY_VAR},`,
+    ])
+    expect([...POLICY.allowedLines.ciResolver]).toEqual([
+      `const PREFERRED_VAR = '${CI_PREFERRED_VAR}'`,
+      `const LEGACY_VAR = '${CI_LEGACY_VAR}'`,
+      `const preferred = classify(PREFERRED_VAR, process.env.${CI_PREFERRED_VAR})`,
+      `const legacy = classify(LEGACY_VAR, process.env.${CI_LEGACY_VAR})`,
+    ])
+    expect([...POLICY.allowedLines.exampleEnv]).toEqual([`${APP_PREFERRED_VAR}=`, `${APP_LEGACY_VAR}=`])
+    expect([...POLICY.allowedLines.gateWorkflow]).toEqual([
+      `${CI_PREFERRED_VAR}: \${{ secrets.${CI_PREFERRED_VAR} }}`,
+      `${CI_LEGACY_VAR}: \${{ secrets.${CI_LEGACY_VAR} }}`,
+    ])
+    expect([...POLICY.allowedLines.immutableMigration]).toEqual([
+      `--     calls it as the anon role via ${CI_LEGACY_VAR}. Revoking it breaks the gate.`,
+    ])
+    expect([...POLICY.suites]).toEqual([
+      'src/lib/__tests__/publishable-resolver.test.ts',
+      'src/lib/__tests__/publishable-request-shape.test.ts',
+      'src/lib/__tests__/publishable-read-sites.test.ts',
+      'src/lib/__tests__/publishable-static-substitution.test.ts',
+    ])
+  })
+
+  it('NEITHER resolver has a whole-file exemption — both are exact-line', () => {
+    // The stricter-than-service choice, pinned so it cannot be relaxed into a file exemption.
+    for (const resolver of [APP_RESOLVER, CI_RESOLVER]) {
+      expect(isAllowed({ file: resolver, line: 1, text: `const sneak = '${APP_LEGACY_VAR}'` })).toBe(false)
+      expect(isAllowed({ file: resolver, line: 2, text: `process.env.${CI_LEGACY_VAR}` })).toBe(false)
+    }
+  })
+
+  it('the policy module itself is in scope and allowlisted by exact LINE, not by file', () => {
+    const POLICY_MODULE = 'scripts/security/read-site-scan.mjs'
+    expect(SCANNED).toContain(POLICY_MODULE)
+    const hits = hitsIn(POLICY_MODULE)
+    expect(hits.length).toBe(POLICY.allowedLines.policyModule.length)
+    expect(hits.every(isAllowed)).toBe(true)
+    expect(isAllowed({ file: POLICY_MODULE, line: 1, text: `process.env.${APP_PREFERRED_VAR}` })).toBe(
+      false,
+    )
+  })
+
+  it('NEGATIVE CONTROL — a synthetic prohibited publishable read is rejected and rendered safely', () => {
+    const MARKER = 'QX7ZPUBNEGCTL'
+    for (const text of [
+      `const k = process.env.${APP_PREFERRED_VAR}`,
+      `const k = process.env['${APP_LEGACY_VAR}']`,
+      `const { ${CI_PREFERRED_VAR} } = process.env`,
+      `${CI_LEGACY_VAR}=synthetic-${MARKER}`,
+      `"${APP_PREFERRED_VAR}": "sb_publishable_synthetic-${MARKER}"`,
+    ]) {
+      const hit = { file: 'src/app/some-new-file.ts', line: 12, text }
+      expect(isAllowed(hit)).toBe(false)
+      const rendered = renderViolation(hit)
+      expect(rendered).toContain('src/app/some-new-file.ts:12')
+      expect(rendered).not.toContain(MARKER)
+      expect(rendered).not.toContain('synthetic-')
+      expect(rendered).not.toContain('sb_publishable_')
     }
   })
 })

@@ -1,0 +1,69 @@
+name: PR Tests
+
+# Runs the full Vitest suite against the PULL REQUEST HEAD.
+#
+# ⚠ THIS WORKFLOW IS NOT A MERGE GATE. Ruleset 18145750 ("Protect main") requires exactly one
+# status check — `netlify/ghmdsalesplatform/deploy-preview`. A workflow becomes mechanically
+# required only after it has reported at least once AND its exact check context is added to that
+# ruleset, which is a repository-settings action nobody can perform from a PR. Until then this is
+# staged defence in depth and nothing more. Do not describe it as blocking.
+#
+# The control that MECHANICALLY enforces credential read-site completeness is the scan invoked at
+# Next config evaluation (see next.config.mjs + scripts/security/read-site-scan.mjs): it fails
+# `npm run build`, which is Netlify's build command, which is the one required check.
+#
+# ── SECURITY: THIS JOB IS DELIBERATELY UNPRIVILEGED ──────────────────────────
+# It checks out and EXECUTES pull-request code. That is unavoidable for a test job — the suites
+# import PR-authored modules, and Vitest would load a PR-authored vite/vitest config file if one
+# were added — so the job is built to hold nothing worth stealing:
+#
+#   1. Trigger is `pull_request`, NEVER `pull_request_target`. A pull_request_target job runs with
+#      a write-scoped token and repository secrets in scope; combining that with a PR-head checkout
+#      is the classic token-exfiltration hole. (.github/workflows/second-opinion-gate.yml IS
+#      pull_request_target and therefore checks out BASE only — it must never gain a test step.)
+#   2. `permissions: contents: read` and nothing else.
+#   3. NO secrets are referenced. Nothing in this file may ever read `secrets.*`.
+#   4. `persist-credentials: false`, so no usable git credential is left in the workspace for PR
+#      code to pick up.
+#   5. `--ignore-scripts` on install, so dependency lifecycle scripts do not execute. Verified in
+#      isolation that the toolchain still works without them (esbuild resolves its platform binary
+#      via its optional dependency, not its postinstall).
+#
+# Residual, stated plainly: PR code still runs on a runner. It can consume compute and reach the
+# network. It cannot exfiltrate anything this job does not have, and this job has only public
+# source and a read-only token.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-tests-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          # Matches the verified local development runtime (22.23.0). The repo pins no engines,
+          # .nvmrc or .node-version, so this file is currently the only declared project baseline.
+          node-version: '22'
+          # No dependency cache: a cache key is shared state a PR can influence, and this job
+          # deliberately trusts nothing from the PR beyond the source it is testing.
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run test suite
+        run: npm test
