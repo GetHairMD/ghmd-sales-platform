@@ -55,10 +55,17 @@ const TABS: TabItem[] = [
 
 const TIER2_FIELDS = ['Affect / energy', 'Coachability', 'Motivation authenticity', 'Engagement', 'Chemistry / fit'];
 
-function ctaForStage(stage: number, prospectId: string): { label: string; href?: string } {
+function ctaForStage(stage: number): { label: string; href?: string } {
   if (stage === STAGE.DISCOVERY_CALL_MET) return { label: 'Start Tier 2 review' };
+  // 'View proposal' is intentionally hrefless (decision #200): it used to link to the
+  // now-deleted public /proposals/[prospectId] page. The gated proposal link + access
+  // code are surfaced in-page by GenerateProposalPanel below (canonical /p/[slug] path);
+  // this header CTA stays a stage hint like the other hrefless stages ('Send contract',
+  // 'Open Box Sign', …). Deliberately NOT relinked to /p/[slug] here: the slug is not
+  // available at this call site and a bare /p/[slug] link only lands on the access-code
+  // wall — see the PR body for the full disposition.
   if (stage >= STAGE.PROPOSAL_SENT && stage <= STAGE.VALIDATION)
-    return { label: 'View proposal', href: `/proposals/${prospectId}` };
+    return { label: 'View proposal' };
   if (stage === STAGE.FUNDING_PRE_QUALIFIED) return { label: 'Send contract' };
   if (stage === STAGE.CONTRACT_SENT) return { label: 'Open Box Sign' };
   if (stage === STAGE.CONTRACT_SIGNED) return { label: 'Record funding' };
@@ -103,7 +110,7 @@ export default function DealRoom({
 
   const prequalSkipped = showPrequalSkippedBadge(prospect.stage, prospect.skipped_funding_prequal);
   const triageSkipped = showTriageSkippedBadge(prospect.stage, prospect.skipped_triage);
-  const cta = ctaForStage(prospect.stage, prospect.id);
+  const cta = ctaForStage(prospect.stage);
 
   const capital = prospect.funding_prequal_cleared
     ? { tone: 'text-success', text: 'Cleared' }

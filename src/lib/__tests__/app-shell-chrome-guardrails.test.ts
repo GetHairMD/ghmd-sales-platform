@@ -8,8 +8,9 @@ import { join } from 'node:path'
  * The bug: AppShell used a per-path CHROMELESS_PREFIXES/isChromeless guard that stripped
  * the shell from anything under `/proposals` — including the INTERNAL Proposals index,
  * which a rep reaches from the sidebar. The fix moved internal pages into the (app) route
- * group (shell via AppLayout) and left the legacy PUBLIC buyer page at the shell-less root,
- * so AppShell no longer needs — and must not reintroduce — any path-based chrome-stripping.
+ * group (shell via AppLayout), so AppShell no longer needs — and must not reintroduce —
+ * any path-based chrome-stripping. (The legacy PUBLIC buyer page that once sat at the
+ * shell-less root has since been DELETED entirely — decision #200, Sprint 0.1 containment.)
  *
  * Same source-scan idiom as qualification-visibility-guardrails / public-proposal-guardrails
  * / rls-remediation — no RTL/jsdom; routing/shell invariants asserted against files on disk.
@@ -61,15 +62,17 @@ describe('app-shell chrome guardrails (chromeless-Proposals regression)', () => 
     )
   })
 
-  it('the legacy PUBLIC buyer page stays at the shell-less root, not in (app)', () => {
+  it('the legacy PUBLIC buyer page is removed everywhere (decision #200)', () => {
+    // The vulnerable service-role-backed public page was DELETED (Sprint 0.1 containment).
+    // It must exist NEITHER at the shell-less root NOR inside the (app) shell group — a
+    // reappearance in either location reintroduces the unauthenticated exposure.
     expect(
       exists(PUBLIC_BUYER_PAGE),
-      `${PUBLIC_BUYER_PAGE} must remain public/shell-less at root`,
-    ).toBe(true)
-    // Guards against "fixing" the above by dragging the public page into the shell group.
+      `${PUBLIC_BUYER_PAGE} must stay deleted (decision #200)`,
+    ).toBe(false)
     expect(
       exists(PUBLIC_BUYER_PAGE_IN_GROUP),
-      'the public buyer page must NOT be moved into the (app) shell group',
+      'the public buyer page must not reappear inside the (app) shell group',
     ).toBe(false)
   })
 })

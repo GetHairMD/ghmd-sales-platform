@@ -10,10 +10,10 @@ import BottomTabBar from './BottomTabBar'
  *
  * Rendered ONLY by the (app) route group's layout, which wraps internal pages
  * exclusively — so the shell always applies here and needs no per-path chromeless
- * guard. Public, prospect-facing routes (`/p/[slug]`, `/login`,
- * `/proposals/[prospectId]`) live outside the group under the minimal root layout
- * and never reach this component. (This replaces the old CHROMELESS_PREFIXES check,
- * which also mis-stripped the chrome from the internal `/proposals` index.)
+ * guard. Public, prospect-facing routes (`/p/[slug]`, `/login`) live outside the
+ * group under the minimal root layout and never reach this component. (This replaces
+ * the old CHROMELESS_PREFIXES check, which also mis-stripped the chrome from the
+ * internal `/proposals` index.)
  *
  * `designation` is resolved server-side in the (app) layout (getViewerDesignation)
  * and threaded to the Sidebar (exec-only nav items) and the TopBar (exec-only

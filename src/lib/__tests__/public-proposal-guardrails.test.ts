@@ -15,7 +15,10 @@ import { join } from 'node:path'
 
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8')
 
-const PUBLIC_PAGE = 'src/app/proposals/[prospectId]/page.tsx'
+// NOTE: the legacy public buyer page src/app/proposals/[prospectId]/page.tsx was
+// DELETED (decision #200, Sprint 0.1 containment). Its formula/viability-exposure
+// guardrails are therefore gone — the page can no longer expose anything. The
+// /p/[slug] gated-proposal guardrails below remain the live enforcement surface.
 const INTERNAL_PAGE = 'src/app/(app)/territories/[id]/page.tsx'
 
 // Affordability / formula-derivation terms that must never reach a prospect.
@@ -45,28 +48,9 @@ const FORBIDDEN_VIABILITY = [
   'below floor',
 ]
 
-describe('public proposal page — formula-exposure guardrail (Task 3)', () => {
-  const src = read(PUBLIC_PAGE)
-  for (const { name, re } of FORBIDDEN_FORMULA) {
-    it(`does not expose ${name}`, () => {
-      expect(src).not.toMatch(re)
-    })
-  }
-})
-
-describe('public proposal page — no viability treatment (amendment)', () => {
-  const src = read(PUBLIC_PAGE)
-  for (const term of FORBIDDEN_VIABILITY) {
-    it(`does not render viability token "${term}"`, () => {
-      expect(src).not.toContain(term)
-    })
-  }
-
-  it('renders scenario cards with no internal prop (public variant)', () => {
-    const src2 = read(PUBLIC_PAGE)
-    expect(src2).toContain('<ScenarioCards sizing={sizing} />')
-    // The internal variant is `internal` — must not appear on the public page.
-    expect(src2).not.toMatch(/<ScenarioCards[^>]*\binternal\b/)
+describe('legacy public proposal page — removed (decision #200)', () => {
+  it('the vulnerable /proposals/[prospectId] page no longer exists on disk', () => {
+    expect(existsSync(join(process.cwd(), 'src/app/proposals/[prospectId]/page.tsx'))).toBe(false)
   })
 })
 

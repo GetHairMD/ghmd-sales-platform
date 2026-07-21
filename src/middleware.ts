@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { shouldRedirectToLogin } from '@/lib/auth-gate'
+import { shouldRedirectToLogin, isRetiredProposalPath } from '@/lib/auth-gate'
 import { shouldRefuseServing } from '@/lib/deployment-guard.mjs'
 
 export async function middleware(request: NextRequest) {
@@ -27,6 +27,28 @@ export async function middleware(request: NextRequest) {
       'Service temporarily unavailable. Please try again later.',
       { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } },
     )
+  }
+
+  // ── LEGACY PROPOSAL ROUTE TOMBSTONE (decision #200, Sprint 0.1 containment) ──
+  // The public, service-role-backed buyer page /proposals/[prospectId] was deleted
+  // because it rendered prospect identity, territory, addressable-market data, and
+  // pricing to any unauthenticated caller who obtained the URL. Its isPublicPath()
+  // exemption is also removed. This tombstone is defence in depth: any request under
+  // '/proposals/…' is answered with a bare 404 HERE — BEFORE createServerClient() and
+  // before supabase.auth.getUser() below — so a hit on the dead path does ZERO database
+  // and ZERO auth work. Placing it above the Supabase client construction is the
+  // load-bearing part: it must not be reachable through any session/cookie code path.
+  //
+  // Scope: ONLY a retired path with a non-empty segment after '/proposals/' (i.e.
+  // '/proposals/<something>') is tombstoned — see isRetiredProposalPath. The REP-facing
+  // bare index is preserved in BOTH forms: '/proposals' AND '/proposals/' fall through to
+  // the normal auth gate below (tombstoning '/proposals/' would 404 an authenticated user
+  // reaching the canonical index — the Block-A regression). '/p/[slug]' is untouched.
+  if (isRetiredProposalPath(request.nextUrl.pathname)) {
+    return new NextResponse('Not Found', {
+      status: 404,
+      headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+    })
   }
 
   let supabaseResponse = NextResponse.next({ request })

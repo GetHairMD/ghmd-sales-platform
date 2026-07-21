@@ -50,7 +50,6 @@ describe('isPublicPath — unauthenticated-reachable prefixes', () => {
   const publicPaths = [
     '/login',
     '/login/',
-    '/proposals/abc-123',
     '/p/some-slug',
     '/r/deadbeefcafe', // E-3 tracked-link route — a prospect opens it unauthenticated
     // PR-0a: signature-authenticated webhook. Calendly holds no Supabase session,
@@ -69,6 +68,12 @@ describe('isPublicPath — unauthenticated-reachable prefixes', () => {
     '/',
     '/dashboard',
     '/proposals', // bare index is REP-facing — must stay gated
+    // decision #200: the legacy public buyer page /proposals/[prospectId] was removed
+    // and its isPublicPath exemption deleted, so ANY /proposals/* dynamic path is now
+    // gated (and additionally tombstoned pre-auth in middleware). Regression against the
+    // exemption ever coming back.
+    '/proposals/abc-123',
+    '/proposals/anything',
     '/resources', // REP-facing Field Kit index — the trailing-slash /r/ must NOT match it
     '/pipeline',
     '/territories/abc',
@@ -133,7 +138,9 @@ describe('shouldRedirectToLogin — composed gate decision', () => {
 
   describe('Test 4: public paths unaffected either way', () => {
     for (const env of [undefined, 'true', 'True', '']) {
-      for (const pathname of ['/login', '/proposals/abc', '/p/slug']) {
+      // '/proposals/abc' removed here (decision #200): it is no longer public, so its
+      // redirect decision now depends on the env — it belongs to the gated set above.
+      for (const pathname of ['/login', '/p/slug']) {
         it(`no redirect for ${pathname} (env ${JSON.stringify(env)})`, () => {
           expect(
             shouldRedirectToLogin({

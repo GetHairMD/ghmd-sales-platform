@@ -87,29 +87,52 @@ function isLoginPath(pathname: string): boolean {
  * Prospect-facing pages are publicly accessible — no auth required.
  * Trailing slashes are load-bearing:
  *   • '/p/'          → the gated /p/[slug] render (never matches /pipeline etc).
- *   • '/proposals/'  → the legacy public buyer page /proposals/[prospectId].
  *   • '/r/'          → the E-3 Resource Library tracked-link route /r/[token]. A
  *                      prospect opens it from a text/email, so it must be public.
  *                      The trailing slash is what keeps it from matching the
  *                      REP-facing '/resources' index, which stays auth-gated:
  *                      '/resources'.startsWith('/r/') is false.
- * The BARE '/proposals' index is REP-facing (engagement stats) and must stay
- * auth-gated like /dashboard — startsWith('/proposals/') excludes it exactly.
+ *
+ * The legacy '/proposals/' prefix was REMOVED here (decision #200, Sprint 0.1
+ * containment): the public, service-role-backed buyer page /proposals/[prospectId]
+ * was deleted, and its exemption removed so no future '/proposals/*' route can be
+ * silently exposed. `src/middleware.ts` additionally tombstones any '/proposals/…'
+ * request with a pre-auth 404 (defence in depth). The BARE '/proposals' index is
+ * REP-facing (engagement stats) and stays auth-gated like /dashboard — it never
+ * matched the removed prefix and is unaffected.
  *
  * '/login' is the one entry that is NOT a prefix match — it is a single static
  * page with no dynamic segment beneath it, so it is exact-matched via
- * isLoginPath(). The three prefixes above each terminate in a slash precisely
- * because they front a dynamic segment ([slug]/[prospectId]/[token]); that
- * trailing slash is what bounds them. '/login' had no such bound.
+ * isLoginPath(). The two prefixes above each terminate in a slash precisely
+ * because they front a dynamic segment ([slug]/[token]); that trailing slash is
+ * what bounds them. '/login' had no such bound.
  */
 export function isPublicPath(pathname: string): boolean {
   return (
     isLoginPath(pathname) ||
-    pathname.startsWith('/proposals/') ||
     pathname.startsWith('/p/') ||
     pathname.startsWith('/r/') ||
     isSignedWebhookPath(pathname)
   )
+}
+
+/**
+ * The retired public buyer route `/proposals/[prospectId]` (decision #200), for the
+ * pre-auth middleware tombstone. TRUE only for a path with a NON-EMPTY segment after
+ * `/proposals/` — i.e. `/proposals/<something>` (the deleted dynamic route and anything
+ * beneath it).
+ *
+ * Deliberately segment-required, NOT a bare `startsWith('/proposals/')`: that prefix also
+ * matches `/proposals/` itself — the trailing-slash form of the REP-facing bare index —
+ * and tombstoning it would 404 an authenticated user reaching the canonical index (the
+ * Block-A regression). Both `/proposals` and `/proposals/` must fall through to the normal
+ * auth gate; only `/proposals/<segment>` is a retired surface. `/proposals` never matches
+ * ('/proposals'.startsWith('/proposals/') is false); `/proposals/` matches the prefix but
+ * has zero trailing segment, so the length guard excludes it.
+ */
+export function isRetiredProposalPath(pathname: string): boolean {
+  const PREFIX = '/proposals/'
+  return pathname.startsWith(PREFIX) && pathname.length > PREFIX.length
 }
 
 /**

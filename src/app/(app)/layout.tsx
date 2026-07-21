@@ -9,8 +9,8 @@ import { getViewerDesignation, type Designation } from "@/lib/auth/internal-role
  * The (app) route group is URL-transparent: /dashboard, /territories, /proposals
  * keep their paths. Its purpose is structural — it draws a hard boundary so the
  * getViewerDesignation() auth call below NEVER enters the call graph of a public,
- * prospect-facing route (/p/[slug], /login, /proposals/[prospectId]). Those live
- * outside this group under the minimal root layout and never touch this code.
+ * prospect-facing route (/p/[slug], /login). Those live outside this group under
+ * the minimal root layout and never touch this code.
  *
  * Executive-only nav items are gated here via the REUSED getViewerDesignation()
  * (PR3 pattern — no new gate). Fail CLOSED: a transient auth/client failure must
