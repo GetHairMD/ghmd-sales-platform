@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -11,6 +11,7 @@ import {
   SERVICE_CREDENTIAL_POLICY,
   assertPolicyClean,
   enforceReadSitePolicies,
+  hitsIn,
   renderViolation,
   scanPolicy,
   trackedFiles,
@@ -105,6 +106,111 @@ describe('trackedFiles fails CLOSED rather than scanning nothing', () => {
     expect(files.some((f) => f.startsWith('docs/'))).toBe(false)
     expect(files.some((f) => f === 'CLAUDE.md')).toBe(false)
     expect(files.some((f) => f === '.env.local')).toBe(false)
+  })
+})
+
+describe('per-file read failures fail CLOSED (gate finding, run 29871897176)', () => {
+  /**
+   * `git ls-files` enumerates the INDEX, so a tracked path can be missing from the worktree. The
+   * scan previously swallowed that read failure and reported "no hits", meaning it could pass
+   * without having examined every enumerated file — the guarantee the required build gate rests on.
+   *
+   * Simulated deterministically with a real repository whose committed file is deleted from the
+   * worktree: no chmod semantics, no timing race, no injected seam, and identical on every
+   * platform. A test-only weakening knob was deliberately NOT added — production fail-closed
+   * behaviour is exercised exactly as it ships.
+   */
+  const CONTENT_SENTINEL = 'QX7ZUNREADABLEFILECONTENT'
+
+  function repoWithMissingTrackedFile(): { dir: string; missing: string } {
+    const dir = makeTempDir('read-site-missing-file-')
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t', ...args], {
+        cwd: dir,
+        stdio: 'ignore',
+      })
+    git('init', '--quiet')
+    writeFileSync(join(dir, 'kept.ts'), `export const kept = '${CONTENT_SENTINEL}-kept'\n`)
+    writeFileSync(join(dir, 'vanishes.ts'), `export const gone = '${CONTENT_SENTINEL}-gone'\n`)
+    git('add', 'kept.ts', 'vanishes.ts')
+    git('commit', '--quiet', '-m', 'fixture')
+    return { dir, missing: 'vanishes.ts' }
+  }
+
+  /** Matches whatever the fixture files contain, so the scan has real hits to find. */
+  const sentinelPolicy = {
+    name: 'sentinel',
+    identifiers: [CONTENT_SENTINEL],
+    remediation: 'synthetic remediation line',
+    isAllowed: () => false,
+  }
+
+  it('POSITIVE CONTROL — with both files present the scan reads them and finds hits', () => {
+    const { dir } = repoWithMissingTrackedFile()
+    const violations = scanPolicy(sentinelPolicy, dir)
+    // Non-vacuous: proves the fixture really is scannable, so the abort below is caused by the
+    // deletion and not by the fixture being invisible to the scan.
+    expect(violations.length).toBe(2)
+  })
+
+  it('a tracked file missing from the worktree ABORTS the scan instead of yielding zero hits', () => {
+    const { dir, missing } = repoWithMissingTrackedFile()
+    rmSync(join(dir, missing))
+    // Still enumerated: the index is unchanged by deleting the working-tree file.
+    expect(trackedFiles(dir)).toContain(missing)
+    expect(() => scanPolicy(sentinelPolicy, dir)).toThrow(ReadSiteScanError)
+    expect(() => scanPolicy(sentinelPolicy, dir)).toThrow(/could not read a tracked file/i)
+  })
+
+  it('hitsIn throws directly for a path that cannot be read — it never returns []', () => {
+    const { dir, missing } = repoWithMissingTrackedFile()
+    rmSync(join(dir, missing))
+    expect(() => hitsIn(missing, [CONTENT_SENTINEL], dir)).toThrow(ReadSiteScanError)
+  })
+
+  it('the message carries ONLY the repo-relative path and the phase', () => {
+    const { dir, missing } = repoWithMissingTrackedFile()
+    rmSync(join(dir, missing))
+    let message = ''
+    try {
+      hitsIn(missing, [CONTENT_SENTINEL], dir)
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+
+    // What it MUST say, so a red build is actionable.
+    expect(message).toContain(missing)
+    expect(message).toContain('phase: read')
+
+    // What it must NEVER say. The caught error is not bound, so none of this can reach the log of
+    // a public repository: no OS error text, no errno/syscall, no absolute local path, no content.
+    expect(message).not.toContain(dir)
+    expect(message).not.toMatch(/ENOENT|EACCES|EISDIR|EPERM/)
+    expect(message).not.toMatch(/errno|syscall/i)
+    expect(message).not.toMatch(/no such file|permission denied/i)
+    expect(message).not.toContain(CONTENT_SENTINEL)
+    expect(message).not.toContain('export const')
+    // Windows and POSIX absolute-path shapes alike.
+    expect(message).not.toMatch(/[A-Za-z]:\\/)
+    expect(message).not.toMatch(/(^|\s)\/(tmp|home|Users)\//)
+  })
+
+  it('BOTH enforced policies abort on the same shared read failure', () => {
+    // The fix is in the one shared hitsIn, so it applies to both policies by construction. Proven
+    // rather than asserted: neither policy can scan a repository with an unreadable tracked file.
+    const { dir, missing } = repoWithMissingTrackedFile()
+    rmSync(join(dir, missing))
+    for (const policy of ENFORCED_POLICIES) {
+      expect(() => scanPolicy(policy, dir), `${policy.name} must abort`).toThrow(ReadSiteScanError)
+    }
+  })
+
+  it('there is no separate stat/path-resolution phase left unhardened', () => {
+    // The implementation resolves and reads in one step, so `read` is the only per-file phase that
+    // can fail. If a stat/realpath step is ever introduced it must fail closed too — this pins the
+    // absence so the omission cannot become silent.
+    const src = readFileSync(join(process.cwd(), 'scripts/security/read-site-scan.mjs'), 'utf8')
+    expect(src).not.toMatch(/\b(statSync|lstatSync|realpathSync|accessSync|existsSync)\b/)
   })
 })
 

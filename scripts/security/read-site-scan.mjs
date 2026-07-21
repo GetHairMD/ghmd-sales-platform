@@ -127,10 +127,27 @@ export function trackedFiles(cwd = process.cwd()) {
 export function hitsIn(file, identifiers, cwd = process.cwd()) {
   let src
   try {
-    // Tracked binaries (png/woff/xlsx) simply never contain the ASCII identifiers.
+    // Tracked binaries (png/woff/xlsx) decode lossily rather than throwing, and never contain the
+    // ASCII identifiers — so a successful read of a binary is a non-event, not a special case.
     src = readFileSync(join(cwd, file), 'utf8')
   } catch {
-    return []
+    // ⚠ FAIL CLOSED ON A PER-FILE READ FAILURE. This previously returned [] — "no hits" — which
+    // the Second-Opinion Gate correctly blocked: git ls-files enumerates the INDEX, so a tracked
+    // file that is missing from the worktree, unreadable, or a broken symlink was silently
+    // reported as clean. The scan could then pass without having examined every enumerated file,
+    // which is the exact guarantee the required build gate rests on. Skipping a file we were told
+    // exists is indistinguishable, from the outside, from that file containing nothing.
+    //
+    // The caught error is deliberately NOT bound, rethrown, stringified, or embedded: an OS error
+    // carries an absolute local path, errno and syscall, and this message lands in the build log
+    // of a PUBLIC repository. The path below is the repository-relative one we were given, and the
+    // phase is a fixed literal — nothing here is derived from the failure itself.
+    throw new ReadSiteScanError(
+      `Credential read-site scan could not read a tracked file (phase: read; path: ${file}). ` +
+        'Failing the build CLOSED: this path is enumerated in the git index, so skipping it would ' +
+        'let the scan report success without examining every tracked file. Restore or untrack the ' +
+        'path. Do NOT make this failure non-fatal.',
+    )
   }
   const hits = []
   src.split(/\r?\n/).forEach((text, i) => {
