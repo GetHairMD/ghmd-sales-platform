@@ -11,33 +11,17 @@
  * This prevents "accepted with rationale" from becoming "accepted and forgotten."
  *
  * Secrets/inputs (all via env, never hardcoded):
- *   SUPABASE_URL                - Sales project URL
- *   SUPABASE_SERVICE_ROLE_KEY   - service-role key (GitHub Actions secret)
- *   GITHUB_TOKEN                - provided by Actions; issue read/write
- *   GITHUB_REPOSITORY           - "owner/repo"
- *   GATE_TRACE_HANDLE           - GitHub handle to tag; defaults to "traceh-ghmd"
+ *   SUPABASE_URL      - Sales project URL
+ *   GITHUB_TOKEN      - provided by Actions; issue read/write
+ *   GITHUB_REPOSITORY - "owner/repo"
+ *   GATE_TRACE_HANDLE - GitHub handle to tag; defaults to "traceh-ghmd"
+ * plus the Supabase service credential, whose variable name and precedence are owned by
+ * src/lib/supabase/secret-key.ts and consumed via ./overdue-rpc.
  */
+import { env, fetchOverdue, type OverdueRow } from './overdue-rpc'
+
 const ISSUE_LABEL = 'residual-risk-overdue'
 const GH_API = 'https://api.github.com'
-
-interface OverdueRow {
-  id: number
-  title: string
-  residual_risk_owner: string | null
-  residual_risk_target_date: string | null
-  decided_on: string | null
-  days_overdue: number | null
-  reason: 'overdue' | 'no_target_date'
-}
-
-function env(name: string, fallback?: string): string {
-  const v = process.env[name]
-  if (v == null || v === '') {
-    if (fallback !== undefined) return fallback
-    throw new Error(`Missing required env var: ${name}`)
-  }
-  return v
-}
 
 async function gh(path: string, token: string, init?: RequestInit): Promise<Response> {
   return fetch(`${GH_API}${path}`, {
@@ -50,27 +34,6 @@ async function gh(path: string, token: string, init?: RequestInit): Promise<Resp
       ...(init?.headers ?? {}),
     },
   })
-}
-
-async function fetchOverdue(): Promise<OverdueRow[]> {
-  // Direct POST to the PostgREST RPC endpoint rather than @supabase/supabase-js:
-  // createClient() initializes a realtime client that throws on Node 20 without
-  // a native WebSocket. residual_risk_overdue() is service-role only, so this
-  // uses the service key.
-  const url = env('SUPABASE_URL').replace(/\/+$/, '')
-  const key = env('SUPABASE_SERVICE_ROLE_KEY')
-  const res = await fetch(`${url}/rest/v1/rpc/residual_risk_overdue`, {
-    method: 'POST',
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: '{}',
-  })
-  if (!res.ok) throw new Error(`residual_risk_overdue() failed: ${res.status} ${await res.text()}`)
-  const data = (await res.json()) as unknown
-  return (Array.isArray(data) ? data : []) as OverdueRow[]
 }
 
 function renderIssueBody(rows: OverdueRow[], trace: string, today: string): string {

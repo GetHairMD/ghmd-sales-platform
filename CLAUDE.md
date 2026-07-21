@@ -181,7 +181,8 @@ Never committed to git.
 | Variable | Scope | Notes |
 |----------|-------|-------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Client + Server | Sales project only |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server only | Never expose to client |
+| `SUPABASE_SECRET_KEY` | Server only | **Preferred** Supabase service credential (modern `sb_secret_` key — not a JWT). Never expose to client |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server only | **Deprecated fallback** — legacy `service_role` JWT, read only when `SUPABASE_SECRET_KEY` is absent/blank; removed once rotation completes (decision #199). Never expose to client |
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Client | Restricted to proposals.gethairmd.com domain |
 | `CENSUS_API_KEY` | Server only | Netlify function only |
 | `GOOGLE_PLACES_API_KEY` | Server only | Netlify function only; restricted to server IP |
@@ -192,6 +193,20 @@ Never committed to git.
 | `ANTHROPIC_API_KEY` | Server only | Phase 2: call scoring engine |
 | `QA_EXEC_EMAIL` | Local (QA only) | QA-exec sign-in for deploy-preview QA. Read by `scripts/qa/preview-login.ts`. Trace holds locally — never in Netlify, never in a session |
 | `QA_EXEC_PASSWORD` | Local (QA only) | QA-exec password. Same helper. **Never** hardcoded, echoed, committed, or pasted into an agent session |
+
+**One name, different underlying credentials per store.** `SUPABASE_SECRET_KEY` is provisioned
+separately in each credential store — Netlify env vars and the GitHub Actions repository secret
+carry **different** `sb_secret_` keys under the same variable name, so either store can be
+revoked independently and a compromise of one does not expose the other. Netlify secrets are
+additionally scoped context-by-context (least privilege; the repo is public, so secrets must not
+reach untrusted deploy previews).
+
+**Every read goes through one module.** `src/lib/supabase/secret-key.ts` is the only place in the
+repo that reads either credential variable; everything else calls `getSupabaseSecretKey()`. It
+prefers `SUPABASE_SECRET_KEY`, falls back to `SUPABASE_SERVICE_ROLE_KEY` only when the preferred
+one is absent/blank, throws on a whitespace-padded (malformed) value rather than trimming it, and
+throws when neither is set. The invariant is enforced in CI by
+`src/lib/__tests__/credential-read-sites.test.ts` — adding a second read site fails the build.
 
 ## QA / Deploy-Preview Capability Stack
 

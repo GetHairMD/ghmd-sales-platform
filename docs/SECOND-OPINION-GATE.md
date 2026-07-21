@@ -149,9 +149,15 @@ provisioned). Both workflows are gated on repo variable
 |--------|---------|-------|
 | `OPENAI_API_KEY` | gate | Trace's OpenAI key. |
 | `SUPABASE_URL` | sweep | Sales project URL (`cprltmwwldbxcsunsafl`). |
-| `SUPABASE_SERVICE_ROLE_KEY` | sweep | Calls the safe RPC only. |
+| `SUPABASE_SECRET_KEY` | sweep | **Preferred** service credential (modern `sb_secret_` key). Calls the safe RPC only. This store's key is distinct from Netlify's, so either can be revoked alone. |
+| `SUPABASE_SERVICE_ROLE_KEY` | sweep | **Deprecated fallback** — legacy `service_role` JWT, read only when the preferred secret is absent/blank (decision #199). Removed once rotation completes. |
 
 `GITHUB_TOKEN` is provided automatically (PR comments + issue management).
+
+The workflow passes both variables; precedence lives in `src/lib/supabase/secret-key.ts`, and an
+unprovisioned secret expands to an empty string, which the resolver treats as absent. The sweep's
+RPC sends the credential on the `apikey` header **only** (no `Authorization: Bearer`) so the call
+is key-format-agnostic — `sb_secret_` keys are not JWTs.
 
 **Repository variables** (… → Variables):
 

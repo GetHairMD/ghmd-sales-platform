@@ -12,7 +12,9 @@
  * service-role Supabase client. All optimization (GEOID cache, polygon pre-clip, bounded
  * parallel fetch, DHC tract dedup, superset-once) lives in that shared path. This wrapper
  * only bridges the HTTP trigger to it. Deploy env supplies CENSUS_API_KEY,
- * MAPBOX_SERVER_TOKEN, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
+ * MAPBOX_SERVER_TOKEN, NEXT_PUBLIC_SUPABASE_URL, and the Supabase service credential —
+ * whose variable name and precedence are owned solely by src/lib/supabase/secret-key.ts,
+ * which createServiceClient() below routes through.
  *
  * NON-WRITE BOUNDARY: runSizingJob writes only the job row; never territories.boundary_*.
  */
