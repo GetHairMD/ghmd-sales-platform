@@ -224,11 +224,17 @@ compare counts and booleans for the same reason — a failing `toEqual` on raw l
 as effectively.
 
 Either variable name appearing anywhere outside an exact allowlist fails the build. The allowlist
-is (a) the resolver module; (b) `.env.local.example` **restricted to bare `NAME=` placeholders and
-non-assigning comments**, so a real value committed there fails CI even if commented out; (c)
-exactly two environment-mapping lines in `.github/workflows/residual-risk-sweep.yml`; (d) one exact
-comment line in an already-applied, immutable migration. No path wildcards — for (c) and (d) the
-file is not exempt, only those lines are.
+is (a) the resolver module; (b) `.env.local.example` — **only the two bare `NAME=` placeholder
+lines, matched exactly**; (c) exactly two environment-mapping lines in
+`.github/workflows/residual-risk-sweep.yml`; (d) one exact comment line in an already-applied,
+immutable migration. No path wildcards — for (b), (c) and (d) the file is not exempt, only those
+lines are.
+
+**Every branch is exact-line, never shape-inferred.** A rule that tries to reject "assigning"
+forms has to enumerate the ways a value can follow a name (`NAME=v`, `NAME = v`, `NAME: v`,
+`# NAME v` with no separator at all) and that enumeration is never complete — two review rounds
+found holes in exactly such rules. Consequently `.env.local.example` prose must **not** name either
+variable; if it ever needs to, the line must be added to the allowlist deliberately.
 
 **Rotation requires a deploy even though it requires no code change.** Env vars are captured per
 deploy and service clients are process-cached: no existing deploy adopts an env change. After any

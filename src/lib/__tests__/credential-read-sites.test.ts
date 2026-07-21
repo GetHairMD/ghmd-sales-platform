@@ -23,10 +23,12 @@ import { join } from 'node:path'
  *
  * The allowlist is EXACT — specific paths, and for three of the four branches specific LINES:
  *   (a) the resolver module (whole file);
- *   (b) `.env.local.example` — bare placeholder assignments and non-assigning comments only,
- *       so a real value pasted there fails CI even if it is commented out;
+ *   (b) `.env.local.example` — the two bare placeholder lines, matched exactly, so a real value
+ *       pasted there fails CI in any shape, including commented out and with no separator;
  *   (c) the sweep workflow — the two exact environment-mapping lines, nothing else;
  *   (d) one exact comment line in an already-applied, immutable migration.
+ * Every branch is EXACT-LINE, never shape-inferred: rules that try to reject "assigning" forms
+ * must enumerate the ways a value can follow a name, and that enumeration is never complete.
  * There is no `.github/workflows/*` wildcard: any occurrence in any other workflow, or on any
  * other line of the sweep workflow, is a violation. Same for the migration: the file is not
  * exempt, only that one line is.
@@ -43,14 +45,9 @@ const IDENTIFIERS = [NEW_VAR, LEGACY_VAR]
 /** (a) the single resolver module — the one legitimate read site. */
 const RESOLVER = 'src/lib/supabase/secret-key.ts'
 /**
- * (b) the example env file — BARE PLACEHOLDERS ONLY.
- *
- * It is pulled into the scan explicitly (its extension is not in SCANNED_EXTENSIONS), because a
- * credential-config file left outside the invariant would be the one place a real value could
- * land unnoticed. Its allowlist is correspondingly narrow: an assignment must be exactly
- * `<IDENT>=` with NO value, and prose comments may name a variable but may not contain
- * `<IDENT>=`. So either identifier followed by `=` and any value at all fails CI — including
- * commented out, which is how a pasted key would most plausibly arrive here.
+ * (b) the example env file — the TWO BARE PLACEHOLDER LINES, matched exactly (see
+ * EXAMPLE_ENV_ALLOWED_LINES). It is pulled into the scan explicitly, because a credential-config
+ * file left outside the invariant would be the one place a real value could land unnoticed.
  */
 const EXAMPLE_ENV = '.env.local.example'
 /** (c) the sweep workflow, and ONLY these two environment-mapping lines within it. */
@@ -152,12 +149,25 @@ function renderViolation(hit: Hit): string {
 }
 
 /**
- * A line in the example env file is allowed only if it carries NO value for either identifier:
- * either the bare placeholder assignment, or a comment that never assigns.
+ * The ONLY lines allowed to name an identifier in the example env file: the two bare placeholder
+ * assignments, matched EXACTLY.
+ *
+ * ⚠ This was twice a shape-inference rule and twice wrong. It first allowed any comment not
+ * containing a contiguous `NAME=`, which let `# NAME = <real credential>` and `# NAME: <real
+ * credential>` through — and `# NAME <real credential>` needs no separator at all. Every
+ * "reject the assigning shapes" rule has to enumerate the ways a value can follow a name, and
+ * that enumeration is never complete. Exact-line allowlisting has nothing to enumerate: any line
+ * that is not character-for-character one of these fails, whatever it looks like.
+ *
+ * The file's prose deliberately no longer names either variable, so this list stays at two
+ * entries. Adding prose that names one means consciously adding it here — the right amount of
+ * friction for the one tracked file whose entire purpose is holding credential assignments.
+ * This is the same exact-line discipline already used for branches (c) and (d).
  */
+const EXAMPLE_ENV_ALLOWED_LINES = [`${NEW_VAR}=`, `${LEGACY_VAR}=`]
+
 function isAllowedExampleEnvLine(text: string): boolean {
-  if (IDENTIFIERS.some((id) => text === `${id}=`)) return true
-  return text.startsWith('#') && !IDENTIFIERS.some((id) => text.includes(`${id}=`))
+  return EXAMPLE_ENV_ALLOWED_LINES.includes(text)
 }
 
 function isAllowed(hit: Hit): boolean {
@@ -292,14 +302,30 @@ describe('credential identifiers appear only at the allowlisted sites (decision 
     }
   })
 
-  it('a VALUE in the example env file would fail CI — bare or commented out (negative control)', () => {
+  it('ONLY the two bare placeholders pass — every other shape fails CI (negative control)', () => {
     for (const id of IDENTIFIERS) {
       expect(isAllowedExampleEnvLine(`${id}=`)).toBe(true)
-      expect(isAllowedExampleEnvLine(`# prose naming ${id} without assigning it`)).toBe(true)
 
-      expect(isAllowedExampleEnvLine(`${id}=synthetic-value`)).toBe(false)
-      expect(isAllowedExampleEnvLine(`# ${id}=synthetic-value`)).toBe(false)
-      expect(isAllowedExampleEnvLine(`export ${id}=synthetic-value`)).toBe(false)
+      for (const leak of [
+        `${id}=synthetic-value`,
+        `${id} = synthetic-value`,
+        `${id}: synthetic-value`,
+        `export ${id}=synthetic-value`,
+        // Commented-out forms — the round-3 finding. A separator is not even required.
+        `# ${id}=synthetic-value`,
+        `# ${id} = synthetic-value`,
+        `# ${id} : synthetic-value`,
+        `# ${id}: synthetic-value`,
+        `# ${id} synthetic-value`,
+        `#${id}=synthetic-value`,
+        `  # ${id} = synthetic-value`,
+        `# TODO rotate ${id} — current value synthetic-value`,
+        // Prose is no longer allowed either: naming a variable here needs an explicit
+        // allowlist entry, because "prose" and "assignment" are not reliably separable.
+        `# prose naming ${id} without assigning it`,
+      ]) {
+        expect(isAllowedExampleEnvLine(leak), leak.replace(/synthetic-value/g, '<value>')).toBe(false)
+      }
     }
   })
 })
