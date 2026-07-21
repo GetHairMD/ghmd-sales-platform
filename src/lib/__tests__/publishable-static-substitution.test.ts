@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { transformSync } from 'esbuild'
+import { transformWithEsbuild } from 'vite'
 
 // Allowlisted declaration lines — see publishable-read-sites.test.ts branch (e).
 const APP_PREFERRED_VAR = 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'
@@ -28,10 +28,13 @@ const APP_LEGACY_VAR = 'NEXT_PUBLIC_SUPABASE_ANON_KEY'
  * environment is never read, printed, hashed, or embedded. This test would behave identically on a
  * machine with no Supabase configuration at all.
  *
- * esbuild is used as the substituter because it implements the same define semantics for literal
- * member expressions and is already present in the toolchain. It is a modelling stand-in for the
- * production bundler, not the production bundler itself — the negative control is what makes the
- * model's verdict meaningful.
+ * The substituter is reached through Vite's `transformWithEsbuild`, a supported API of a package
+ * this repo DECLARES. An earlier revision imported `esbuild` directly; that resolved only because
+ * npm happened to hoist a transitive dependency of Vite/Vitest, which is an incidental layout
+ * rather than a repository contract — a dependency, lockfile, or hoisting change could turn the
+ * test guarding this invariant into a hard module-not-found failure. It is a modelling stand-in
+ * for the production bundler, not the production bundler itself; the negative control is what
+ * makes the model's verdict meaningful.
  */
 
 const APP_RESOLVER = 'src/lib/supabase/publishable-key.ts'
@@ -45,8 +48,20 @@ const DEFINE: Record<string, string> = {
   [`process.env.${APP_LEGACY_VAR}`]: JSON.stringify(LEGACY_SENTINEL),
 }
 
-function substitute(source: string): string {
-  return transformSync(source, { loader: 'ts', define: DEFINE }).code
+/**
+ * Applies define-based substitution to `source`.
+ *
+ * The filename is what tells the transformer to treat the input as TypeScript, so it is fixed to a
+ * `.ts` name rather than inferred — the negative control is a synthetic snippet with no file of its
+ * own, and it must be transformed under exactly the same settings as the real resolver for its
+ * verdict to mean anything.
+ */
+async function substitute(source: string): Promise<string> {
+  const { code } = await transformWithEsbuild(source, 'publishable-key-under-test.ts', {
+    loader: 'ts',
+    define: DEFINE,
+  })
+  return code
 }
 
 const resolverSource = () => readFileSync(join(process.cwd(), APP_RESOLVER), 'utf8')
@@ -56,20 +71,20 @@ const sourceOf = (file: string) => readFileSync(join(process.cwd(), file), 'utf8
 const codeOnly = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
 
 describe('the publishable resolver survives build-time static substitution', () => {
-  it('BOTH reads are substituted — the preferred branch is reachable in a bundle', () => {
-    const out = substitute(resolverSource())
+  it('BOTH reads are substituted — the preferred branch is reachable in a bundle', async () => {
+    const out = await substitute(resolverSource())
     expect(out).toContain(PREFERRED_SENTINEL)
     expect(out).toContain(LEGACY_SENTINEL)
   })
 
-  it('no un-substituted process.env read of either variable survives in the output', () => {
+  it('no un-substituted process.env read of either variable survives in the output', async () => {
     // If a read were left in computed form, the identifier would still be present as a string.
-    const out = substitute(resolverSource())
+    const out = await substitute(resolverSource())
     expect(out).not.toContain(`process.env.${APP_PREFERRED_VAR}`)
     expect(out).not.toContain(`process.env.${APP_LEGACY_VAR}`)
   })
 
-  it('NEGATIVE CONTROL — a parameterised read is NOT substituted (the model is not vacuous)', () => {
+  it('NEGATIVE CONTROL — a parameterised read is NOT substituted (the model is not vacuous)', async () => {
     // This is the exact refactor the resolver's docblock forbids. If this snippet were also
     // "substituted", the positive assertions above would prove nothing.
     const refactored = `
@@ -77,9 +92,12 @@ describe('the publishable resolver survives build-time static substitution', () 
       export const preferred = read('${APP_PREFERRED_VAR}')
       export const legacy = read('${APP_LEGACY_VAR}')
     `
-    const out = substitute(refactored)
+    const out = await substitute(refactored)
     expect(out).not.toContain(PREFERRED_SENTINEL)
     expect(out).not.toContain(LEGACY_SENTINEL)
+    // Non-vacuous in the other direction too: the snippet really did transform, it just kept the
+    // computed read. Otherwise a transformer that silently returned '' would "pass" this control.
+    expect(out).toContain('process.env[')
   })
 
   it('the resolver performs NO computed env access and does not alias process.env', () => {
