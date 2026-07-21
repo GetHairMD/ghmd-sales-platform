@@ -212,8 +212,16 @@ scan over **every git-tracked file in the repo, with no extension filter**, minu
 surfaces excluded by path (`docs/`, `handoffs/`, `decisions/`, `CLAUDE.md`). Type-agnostic scope is
 load-bearing: an extension-filtered scan left `netlify.toml`, every `.sql` file and all `.json`
 config outside enforcement. Tracked-only scope is equally load-bearing — a filesystem walk would
-read `.env.local` and the failure message would print a live key (offending lines are additionally
-rendered with anything after `=` redacted).
+read `.env.local` and the failure message would print a live key.
+
+**A scan failure never echoes line content.** It reports `file:line` plus which variable was named,
+and nothing else from the line. Redacting "the part after `=`" was tried and is unsafe by
+construction: `"SUPABASE_SECRET_KEY": "sb_secret_…"` in a tracked `.json` puts a quote between the
+identifier and the colon, so a redaction pattern misses and the value lands in the CI log of a
+**public** repo. Any redact-the-dangerous-part scheme must enumerate the syntaxes a value can hide
+in; printing nothing from the line has no enumeration to get wrong. Assertions in that suite
+compare counts and booleans for the same reason — a failing `toEqual` on raw lines would leak just
+as effectively.
 
 Either variable name appearing anywhere outside an exact allowlist fails the build. The allowlist
 is (a) the resolver module; (b) `.env.local.example` **restricted to bare `NAME=` placeholders and

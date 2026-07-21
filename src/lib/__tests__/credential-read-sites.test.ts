@@ -131,16 +131,24 @@ function hitsIn(file: string): Hit[] {
 }
 
 /**
- * Render a violation WITHOUT echoing anything that follows an `=`. A violating line is by
- * definition an unreviewed credential reference; if it turns out to carry a real value, the CI
- * log must not become the place that publishes it.
+ * Render a violation by WHITELISTING what may be printed — the location and which identifier was
+ * named — and echoing NO text from the offending line.
+ *
+ * ⚠ An earlier version redacted everything after `=`/`:` with a regex, which was unsafe by
+ * construction. A JSON object entry — quoted identifier, quote, colon, quoted value — defeats it
+ * outright: the quote sits between the identifier and the colon, so the pattern never matches and
+ * the whole line, value included, lands in the CI log of a PUBLIC repository. Every "redact the dangerous
+ * part" scheme has that shape of hole, because it must enumerate the syntaxes a value can hide
+ * in, and this scan is deliberately type-agnostic (JSON, YAML, TOML, shell, and whatever comes
+ * next). Printing nothing from the line has no such enumeration to get wrong.
+ *
+ * A violating line is by definition an unreviewed credential reference. `file:line` plus the
+ * variable name is enough to find and fix it; the content is one `git show` away for a human who
+ * needs it, and never in a log.
  */
 function renderViolation(hit: Hit): string {
-  const redacted = hit.text.replace(
-    new RegExp(`((?:${IDENTIFIERS.join('|')})\\s*[:=]\\s*)(.+)`),
-    '$1<redacted>',
-  )
-  return `${hit.file}:${hit.line}  ${redacted}`
+  const named = IDENTIFIERS.filter((id) => hit.text.includes(id)).join(', ')
+  return `${hit.file}:${hit.line}  names ${named} (line content withheld — see the file)`
 }
 
 /**
@@ -215,16 +223,25 @@ describe('credential identifiers appear only at the allowlisted sites (decision 
     expect(src).toContain(`process.env.${LEGACY_VAR}`)
   })
 
+  /**
+   * ⚠ Assertions below compare COUNTS and BOOLEANS, never raw line text. A failing
+   * `expect(hits.map(h => h.text)).toEqual(...)` prints the offending lines into the CI log of a
+   * public repo — the exact exposure `renderViolation` exists to prevent. The rule applies to any
+   * file whose purpose permits assignments (the env example, the workflow, the migration); source
+   * files are separately asserted to contain no values at all.
+   */
   it('the sweep workflow maps BOTH variables, on exactly the allowlisted lines', () => {
     const hits = hitsIn(SWEEP_WORKFLOW)
-    expect(hits.map((h) => h.text).sort()).toEqual([...SWEEP_ALLOWED_LINES].sort())
+    expect(hits.length).toBe(SWEEP_ALLOWED_LINES.length)
+    expect(hits.every(isAllowed)).toBe(true)
+    expect(SWEEP_ALLOWED_LINES.every((line) => hits.some((h) => h.text === line))).toBe(true)
   })
 
   it('the example env file lists the preferred variable above the deprecated one', () => {
     const path = join(process.cwd(), EXAMPLE_ENV)
     expect(existsSync(path)).toBe(true)
     const src = readFileSync(path, 'utf8')
-    expect(src).toContain(`${NEW_VAR}=`)
+    expect(src.includes(`${NEW_VAR}=`)).toBe(true)
     expect(src.indexOf(`${NEW_VAR}=`)).toBeLessThan(src.indexOf(`${LEGACY_VAR}=`))
   })
 
@@ -233,29 +250,46 @@ describe('credential identifiers appear only at the allowlisted sites (decision 
     const hits = hitsIn(EXAMPLE_ENV)
     // Non-vacuous: the placeholders exist, so the branch is exercised on every CI run.
     expect(hits.length).toBeGreaterThanOrEqual(2)
-    expect(hits.filter((h) => !isAllowed(h))).toEqual([])
+    expect(hits.filter((h) => !isAllowed(h)).map(renderViolation)).toEqual([])
     expect(hits.some((h) => h.text === `${NEW_VAR}=`)).toBe(true)
     expect(hits.some((h) => h.text === `${LEGACY_VAR}=`)).toBe(true)
   })
 
   it('the immutable migration is allowlisted by exact line only, not by file', () => {
     const hits = hitsIn(IMMUTABLE_MIGRATION)
-    expect(hits.map((h) => h.text)).toEqual(IMMUTABLE_MIGRATION_ALLOWED_LINES)
+    expect(hits.length).toBe(IMMUTABLE_MIGRATION_ALLOWED_LINES.length)
     expect(hits.every(isAllowed)).toBe(true)
+    expect(IMMUTABLE_MIGRATION_ALLOWED_LINES.every((l) => hits.some((h) => h.text === l))).toBe(true)
     // Any OTHER line in that file naming a variable is still a violation.
     expect(isAllowed({ file: IMMUTABLE_MIGRATION, line: 1, text: `${LEGACY_VAR}=value` })).toBe(false)
   })
 
-  it('a violation is rendered with the value REDACTED, so CI logs never publish a key', () => {
-    const rendered = renderViolation({
-      file: 'some/new/file.sh',
-      line: 7,
-      text: `${LEGACY_VAR}=synthetic-should-never-be-printed-QX7ZREDACT`,
-    })
-    expect(rendered).toContain('<redacted>')
-    expect(rendered).not.toContain('QX7ZREDACT')
-    expect(rendered).toContain(LEGACY_VAR) // the identifier and location still surface
-    expect(rendered).toContain('some/new/file.sh:7')
+  it('a violation echoes NO line content, in every syntax a value can hide in', () => {
+    // The JSON shape is the one that defeated the earlier redact-after-`=` regex: a quote sits
+    // between the identifier and the colon, so nothing matched and the value printed in full.
+    const MARKER = 'QX7ZNEVERPRINT'
+    const shapes = [
+      `${LEGACY_VAR}=synthetic-${MARKER}`,
+      `export ${LEGACY_VAR}=synthetic-${MARKER}`,
+      `"${NEW_VAR}": "sb_secret_synthetic-${MARKER}"`,
+      `'${NEW_VAR}': synthetic-${MARKER}`,
+      `${NEW_VAR} = "synthetic-${MARKER}"`,
+      `const k = 'synthetic-${MARKER}' // see ${NEW_VAR}`,
+      `{ "a": "synthetic-${MARKER}", "b": "${LEGACY_VAR}" }`,
+    ]
+
+    for (const text of shapes) {
+      const rendered = renderViolation({ file: 'some/new/file.json', line: 7, text })
+      // Nothing from the line survives — not the value, not its quotes, not neighbouring keys.
+      expect(rendered).not.toContain(MARKER)
+      expect(rendered).not.toContain('sb_secret_')
+      expect(rendered).not.toContain('synthetic-')
+      expect(rendered).not.toContain('"')
+      expect(rendered).not.toContain("'")
+      // …while location and the named variable still surface, so the failure is actionable.
+      expect(rendered).toContain('some/new/file.json:7')
+      expect(IDENTIFIERS.some((id) => rendered.includes(id))).toBe(true)
+    }
   })
 
   it('a VALUE in the example env file would fail CI — bare or commented out (negative control)', () => {
