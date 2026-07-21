@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
 /**
@@ -16,15 +17,19 @@ import { join } from 'node:path'
  * `const e = process.env; e.X`), whereas "the identifier does not appear" has no gaps and
  * produces a failure message a future reader can act on immediately.
  *
- * The allowlist is EXACT — specific paths, and for two of the three branches specific LINES:
+ * SCOPE: every TRACKED file in the repository — no extension filter — minus the human prose
+ * surfaces excluded by path (see PROSE_PATHS). Scanning by file type was a real hole: it left
+ * `netlify.toml`, all `.sql`, all `.json` config and any future `.sh`/`.py` outside enforcement.
+ *
+ * The allowlist is EXACT — specific paths, and for three of the four branches specific LINES:
  *   (a) the resolver module (whole file);
  *   (b) `.env.local.example` — bare placeholder assignments and non-assigning comments only,
- *       so a real value pasted there fails CI even if it is commented out. The file is scanned
- *       by EXACT NAME, since its extension is outside SCANNED_EXTENSIONS; leaving a credential
- *       -config file unscanned would put the one likeliest leak site outside the invariant.
- *   (c) the sweep workflow — the two exact environment-mapping lines, nothing else.
+ *       so a real value pasted there fails CI even if it is commented out;
+ *   (c) the sweep workflow — the two exact environment-mapping lines, nothing else;
+ *   (d) one exact comment line in an already-applied, immutable migration.
  * There is no `.github/workflows/*` wildcard: any occurrence in any other workflow, or on any
- * other line of the sweep workflow, is a violation.
+ * other line of the sweep workflow, is a violation. Same for the migration: the file is not
+ * exempt, only that one line is.
  *
  * ⚠ This test file and its companions assemble the identifiers at runtime (below) rather than
  * writing them as literals, so the suites that exercise the resolver need no exemption from
@@ -55,32 +60,52 @@ const SWEEP_ALLOWED_LINES = [
   `${LEGACY_VAR}: \${{ secrets.${LEGACY_VAR} }}`,
 ]
 
-const SCANNED_EXTENSIONS = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|ya?ml)$/
-const SKIP_DIRS = new Set([
-  'node_modules',
-  '.git',
-  '.next',
-  'out',
-  'coverage',
-  'storybook-static',
-  // Prose surfaces: the decision mirror, handoffs and docs legitimately name the variables.
-  'docs',
-  'handoffs',
-  'decisions',
-])
+/**
+ * (d) ONE line of an already-applied migration, allowlisted by exact path AND exact line.
+ * Applied migrations are immutable — rewriting one to satisfy a scan would risk migration-history
+ * drift for a comment that is not an env read. Pinned to the exact text so the exemption cannot
+ * widen to the rest of the file.
+ */
+const IMMUTABLE_MIGRATION = 'supabase/migrations/20260720120000_revoke_sizing_jobs_client_grants.sql'
+const IMMUTABLE_MIGRATION_ALLOWED_LINES = [`--       ${LEGACY_VAR} (script-layer, human-invoked)`]
 
-/** Repo-relative, forward-slashed paths for every scanned file (Windows-safe). */
-function collect(relDir: string, out: string[] = []): string[] {
-  const abs = relDir === '' ? process.cwd() : join(process.cwd(), relDir)
-  for (const entry of readdirSync(abs)) {
-    const rel = relDir === '' ? entry : `${relDir}/${entry}`
-    if (statSync(join(process.cwd(), rel)).isDirectory()) {
-      if (!SKIP_DIRS.has(entry)) collect(rel, out)
-    } else if (SCANNED_EXTENSIONS.test(entry)) {
-      out.push(rel)
-    }
-  }
+/**
+ * Human documentation surfaces, excluded by PATH (never by filename pattern). These legitimately
+ * name the variables in prose — that is the point of documenting a credential contract — and the
+ * enforced invariant is about READ SITES in the repository's executable and configuration
+ * surface, not about whether prose may say a variable's name.
+ */
+const PROSE_PATHS = ['docs/', 'handoffs/', 'decisions/', 'CLAUDE.md']
+
+/**
+ * Every TRACKED file in the repository, minus the prose surfaces.
+ *
+ * ⚠ TWO PROPERTIES ARE LOAD-BEARING, both learned the hard way:
+ *
+ * 1. NO EXTENSION FILTER. An earlier version scanned only TS/JS/YAML, which silently left
+ *    `netlify.toml`, every `.sql` file, `.json` config, and any future `.sh`/`.py` outside the
+ *    invariant — a new read site in one of those would have passed CI. Scanning by file TYPE
+ *    means the invariant expires the moment someone introduces a type nobody predicted, so the
+ *    scan is now type-agnostic: everything tracked is in scope unless a path says otherwise.
+ *
+ * 2. TRACKED FILES ONLY, via `git ls-files` — never a filesystem walk. A filesystem walk would
+ *    read `.env.local`, which holds a REAL credential on a developer machine. This suite renders
+ *    offending lines into its failure message, so walking the filesystem would turn the very test
+ *    that prevents credential leakage into the thing that prints a live key into CI logs.
+ *    Git-tracked scope excludes every gitignored secret file by construction. (The renderer also
+ *    redacts post-`=` text, so the two protections are independent.)
+ */
+function trackedFiles(): string[] {
+  // Fails loudly rather than silently scanning nothing if git is unavailable.
+  const out = execFileSync('git', ['ls-files', '-z'], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  })
   return out
+    .split('\0')
+    .filter((p) => p.length > 0)
+    .filter((p) => !PROSE_PATHS.some((prefix) => p === prefix || p.startsWith(prefix)))
 }
 
 interface Hit {
@@ -90,12 +115,32 @@ interface Hit {
 }
 
 function hitsIn(file: string): Hit[] {
-  const src = readFileSync(join(process.cwd(), file), 'utf8')
+  const abs = join(process.cwd(), file)
+  // Tracked binaries (png/woff/xlsx) simply never contain the ASCII identifiers.
+  let src: string
+  try {
+    src = readFileSync(abs, 'utf8')
+  } catch {
+    return []
+  }
   const hits: Hit[] = []
   src.split(/\r?\n/).forEach((text, i) => {
     if (IDENTIFIERS.some((id) => text.includes(id))) hits.push({ file, line: i + 1, text: text.trim() })
   })
   return hits
+}
+
+/**
+ * Render a violation WITHOUT echoing anything that follows an `=`. A violating line is by
+ * definition an unreviewed credential reference; if it turns out to carry a real value, the CI
+ * log must not become the place that publishes it.
+ */
+function renderViolation(hit: Hit): string {
+  const redacted = hit.text.replace(
+    new RegExp(`((?:${IDENTIFIERS.join('|')})\\s*[:=]\\s*)(.+)`),
+    '$1<redacted>',
+  )
+  return `${hit.file}:${hit.line}  ${redacted}`
 }
 
 /**
@@ -111,11 +156,11 @@ function isAllowed(hit: Hit): boolean {
   if (hit.file === RESOLVER) return true
   if (hit.file === EXAMPLE_ENV) return isAllowedExampleEnvLine(hit.text)
   if (hit.file === SWEEP_WORKFLOW) return SWEEP_ALLOWED_LINES.includes(hit.text)
+  if (hit.file === IMMUTABLE_MIGRATION) return IMMUTABLE_MIGRATION_ALLOWED_LINES.includes(hit.text)
   return false
 }
 
-/** Extension-matched files, PLUS the example env file pulled in by exact name (branch (b)). */
-const SCANNED = [...collect(''), EXAMPLE_ENV]
+const SCANNED = trackedFiles()
 
 describe('credential identifiers appear only at the allowlisted sites (decision #199)', () => {
   it('scans a non-trivial slice of the repo (guards against a collector that silently matches nothing)', () => {
@@ -124,9 +169,38 @@ describe('credential identifiers appear only at the allowlisted sites (decision 
     expect(SCANNED).toContain(SWEEP_WORKFLOW)
   })
 
+  it('is TYPE-AGNOSTIC — config and non-JS surfaces are in scope, not just TS/JS/YAML', () => {
+    // The regression this pins: an extension-filtered scan left netlify.toml, every .sql file
+    // and all .json config outside the invariant, so a read site there would have passed CI.
+    for (const file of ['netlify.toml', 'package.json', 'tsconfig.json', IMMUTABLE_MIGRATION]) {
+      expect(SCANNED).toContain(file)
+    }
+    const extensions = new Set(SCANNED.map((f) => f.slice(f.lastIndexOf('.') + 1)))
+    for (const ext of ['toml', 'sql', 'json', 'md']) expect([...extensions]).toContain(ext)
+  })
+
+  it('scans TRACKED files only — never a filesystem walk that could read a real .env.local', () => {
+    // A walk would read gitignored secret files and this suite renders offending lines, so a
+    // walk would risk printing a live credential into CI output. Tracked scope excludes them.
+    expect(SCANNED.some((f) => f === '.env.local' || f.endsWith('/.env.local'))).toBe(false)
+    expect(SCANNED.some((f) => f.startsWith('node_modules/'))).toBe(false)
+  })
+
+  it('excludes prose surfaces by PATH, and only those', () => {
+    for (const prefix of PROSE_PATHS) {
+      expect(SCANNED.some((f) => f === prefix || f.startsWith(prefix))).toBe(false)
+    }
+    // Nothing else is excluded: every other tracked path is present.
+    const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: process.cwd(), encoding: 'utf8' })
+      .split('\0')
+      .filter((p) => p.length > 0)
+    const excluded = tracked.filter((p) => !SCANNED.includes(p))
+    expect(excluded.every((p) => PROSE_PATHS.some((x) => p === x || p.startsWith(x)))).toBe(true)
+  })
+
   it('no scanned file outside the exact allowlist mentions either identifier', () => {
     const violations = SCANNED.flatMap(hitsIn).filter((h) => !isAllowed(h))
-    const rendered = violations.map((v) => `${v.file}:${v.line}  ${v.text}`).join('\n')
+    const rendered = violations.map(renderViolation).join('\n')
     expect(
       rendered,
       'Read the Supabase service credential via getSupabaseSecretKey() from ' +
@@ -162,6 +236,26 @@ describe('credential identifiers appear only at the allowlisted sites (decision 
     expect(hits.filter((h) => !isAllowed(h))).toEqual([])
     expect(hits.some((h) => h.text === `${NEW_VAR}=`)).toBe(true)
     expect(hits.some((h) => h.text === `${LEGACY_VAR}=`)).toBe(true)
+  })
+
+  it('the immutable migration is allowlisted by exact line only, not by file', () => {
+    const hits = hitsIn(IMMUTABLE_MIGRATION)
+    expect(hits.map((h) => h.text)).toEqual(IMMUTABLE_MIGRATION_ALLOWED_LINES)
+    expect(hits.every(isAllowed)).toBe(true)
+    // Any OTHER line in that file naming a variable is still a violation.
+    expect(isAllowed({ file: IMMUTABLE_MIGRATION, line: 1, text: `${LEGACY_VAR}=value` })).toBe(false)
+  })
+
+  it('a violation is rendered with the value REDACTED, so CI logs never publish a key', () => {
+    const rendered = renderViolation({
+      file: 'some/new/file.sh',
+      line: 7,
+      text: `${LEGACY_VAR}=synthetic-should-never-be-printed-QX7ZREDACT`,
+    })
+    expect(rendered).toContain('<redacted>')
+    expect(rendered).not.toContain('QX7ZREDACT')
+    expect(rendered).toContain(LEGACY_VAR) // the identifier and location still surface
+    expect(rendered).toContain('some/new/file.sh:7')
   })
 
   it('a VALUE in the example env file would fail CI — bare or commented out (negative control)', () => {

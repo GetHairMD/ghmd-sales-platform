@@ -208,13 +208,19 @@ one is absent/blank, throws on a whitespace-padded (malformed) value rather than
 throws when neither is set.
 
 The invariant is enforced in CI by `src/lib/__tests__/credential-read-sites.test.ts`, a whole-line
-scan over every `.ts/.tsx/.mts/.cts/.js/.jsx/.mjs/.cjs/.yml/.yaml` file **plus `.env.local.example`
-by exact name** (docs/, handoffs/ and decisions/ are excluded as prose). Either variable name
-appearing anywhere outside an exact allowlist fails the build — so adding a second read site, or
-naming a variable in a new workflow, breaks CI. The allowlist is (a) the resolver module, (b)
-`.env.local.example` **restricted to bare `NAME=` placeholders and non-assigning comments**, so a
-real value committed there fails CI even if commented out, and (c) exactly two environment-mapping
-lines in `.github/workflows/residual-risk-sweep.yml` — there is no workflow-path wildcard.
+scan over **every git-tracked file in the repo, with no extension filter**, minus the prose
+surfaces excluded by path (`docs/`, `handoffs/`, `decisions/`, `CLAUDE.md`). Type-agnostic scope is
+load-bearing: an extension-filtered scan left `netlify.toml`, every `.sql` file and all `.json`
+config outside enforcement. Tracked-only scope is equally load-bearing — a filesystem walk would
+read `.env.local` and the failure message would print a live key (offending lines are additionally
+rendered with anything after `=` redacted).
+
+Either variable name appearing anywhere outside an exact allowlist fails the build. The allowlist
+is (a) the resolver module; (b) `.env.local.example` **restricted to bare `NAME=` placeholders and
+non-assigning comments**, so a real value committed there fails CI even if commented out; (c)
+exactly two environment-mapping lines in `.github/workflows/residual-risk-sweep.yml`; (d) one exact
+comment line in an already-applied, immutable migration. No path wildcards — for (c) and (d) the
+file is not exempt, only those lines are.
 
 **Rotation requires a deploy even though it requires no code change.** Env vars are captured per
 deploy and service clients are process-cached: no existing deploy adopts an env change. After any
