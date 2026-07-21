@@ -209,10 +209,18 @@ throws when neither is set.
 
 The invariant is enforced in CI by `src/lib/__tests__/credential-read-sites.test.ts`, a whole-line
 scan over **every git-tracked file in the repo, with no extension filter**, minus the prose
-surfaces excluded by path (`docs/`, `handoffs/`, `decisions/`, `CLAUDE.md`). Type-agnostic scope is
-load-bearing: an extension-filtered scan left `netlify.toml`, every `.sql` file and all `.json`
-config outside enforcement. Tracked-only scope is equally load-bearing — a filesystem walk would
-read `.env.local` and the failure message would print a live key.
+surfaces. Exclusion is decided by one predicate, `isProsePath`, and the distinction is
+load-bearing: the **directories** `docs/`, `handoffs/`, `decisions/` match by prefix, while the
+**exact file** `CLAUDE.md` matches exactly. Prefix-matching an exact filename silently excluded
+anything merely beginning with it — `CLAUDE.md.ts`, `CLAUDE.md.json`, `CLAUDE.mdx` — so a tracked
+executable could read a credential and the scan would still pass. **A prefix rule is only sound
+for a path ending in `/`.** The guard test uses the same `isProsePath` predicate as its oracle:
+when it re-derived that logic instead, it asserted the bug rather than catching it.
+
+Type-agnostic scope is load-bearing for the same family of reason: an extension-filtered scan left
+`netlify.toml`, every `.sql` file and all `.json` config outside enforcement. Tracked-only scope is
+equally load-bearing — a filesystem walk would read `.env.local` and the failure message would
+print a live key.
 
 **A scan failure never echoes line content.** It reports `file:line` plus which variable was named,
 and nothing else from the line. Redacting "the part after `=`" was tried and is unsafe by

@@ -24,8 +24,11 @@ const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
  * produces a failure message a future reader can act on immediately.
  *
  * SCOPE: every TRACKED file in the repository — no extension filter — minus the human prose
- * surfaces excluded by path (see PROSE_PATHS). Scanning by file type was a real hole: it left
- * `netlify.toml`, all `.sql`, all `.json` config and any future `.sh`/`.py` outside enforcement.
+ * surfaces, decided by the single `isProsePath` predicate: three DIRECTORY prefixes (`docs/`,
+ * `handoffs/`, `decisions/`) matched by prefix, and the EXACT file `CLAUDE.md` matched exactly.
+ * Scanning by file type was a real hole: it left `netlify.toml`, all `.sql`, all `.json` config
+ * and any future `.sh`/`.py` outside enforcement. Prefix-matching the exact file was a second,
+ * subtler hole of the same kind — see the `isProsePath` docblock.
  *
  * The allowlist is EXACT — FIVE branches, of which one is whole-file and four are exact-LINE:
  *   (a) the resolver module (WHOLE FILE — the one legitimate read site);
@@ -111,7 +114,27 @@ const SUITE_ALLOWED_LINES = [
  * enforced invariant is about READ SITES in the repository's executable and configuration
  * surface, not about whether prose may say a variable's name.
  */
-const PROSE_PATHS = ['docs/', 'handoffs/', 'decisions/', 'CLAUDE.md']
+const PROSE_DIRECTORY_PREFIXES = ['docs/', 'handoffs/', 'decisions/']
+const PROSE_EXACT_PATHS = new Set(['CLAUDE.md'])
+
+/**
+ * The ONE predicate deciding prose exclusion. Every site that excludes prose calls this — the
+ * scan itself AND the guard test's oracle — so the filter and the test that polices it cannot
+ * drift apart.
+ *
+ * ⚠ EXACT FILES ARE MATCHED EXACTLY; ONLY DIRECTORIES MATCH BY PREFIX. An earlier version kept
+ * one mixed list and applied `startsWith` to every entry, including the exact file `CLAUDE.md`.
+ * That silently excluded any tracked path merely BEGINNING with that string — `CLAUDE.md.ts`,
+ * `CLAUDE.md.json`, `CLAUDE.md.backup`, `CLAUDE.mdx` — so a tracked executable or config file
+ * could read a credential and the type-agnostic completeness scan would still pass clean. The
+ * guard test encoded the same predicate, so it validated the hole instead of catching it. A
+ * prefix rule is only sound for a path that ends in `/`; anything else must match exactly.
+ */
+function isProsePath(path: string): boolean {
+  return (
+    PROSE_EXACT_PATHS.has(path) || PROSE_DIRECTORY_PREFIXES.some((prefix) => path.startsWith(prefix))
+  )
+}
 
 /**
  * Every TRACKED file in the repository, minus the prose surfaces.
@@ -143,7 +166,7 @@ function trackedFiles(): string[] {
   return out
     .split('\0')
     .filter((p) => p.length > 0)
-    .filter((p) => !PROSE_PATHS.some((prefix) => p === prefix || p.startsWith(prefix)))
+    .filter((p) => !isProsePath(p))
 }
 
 /**
@@ -256,15 +279,62 @@ describe('credential identifiers appear only at the allowlisted sites (decision 
   })
 
   it('excludes prose surfaces by PATH, and only those', () => {
-    for (const prefix of PROSE_PATHS) {
-      expect(SCANNED.some((f) => f === prefix || f.startsWith(prefix))).toBe(false)
-    }
+    // ⚠ The oracle is `isProsePath` — the SAME predicate the scan filters with. An earlier version
+    // re-implemented the mixed `p === x || p.startsWith(x)` rule here, so it asserted the
+    // over-exclusion bug instead of catching it. A test that re-derives the logic it is policing
+    // can only ever agree with it.
+    expect(SCANNED.some(isProsePath)).toBe(false)
+
     // Nothing else is excluded: every other tracked path is present.
     const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: process.cwd(), encoding: 'utf8' })
       .split('\0')
       .filter((p) => p.length > 0)
     const excluded = tracked.filter((p) => !SCANNED.includes(p))
-    expect(excluded.every((p) => PROSE_PATHS.some((x) => p === x || p.startsWith(x)))).toBe(true)
+    expect(excluded.every(isProsePath)).toBe(true)
+    // Non-vacuous: the prose surfaces really are present in the repo and really are excluded.
+    expect(excluded.length).toBeGreaterThan(0)
+  })
+
+  it('excludes exact files EXACTLY — a prefix rule is only sound for directories', () => {
+    // The defect this pins: applying startsWith to the exact entry `CLAUDE.md` silently dropped
+    // any tracked path beginning with it, putting a real executable/config file outside the D7
+    // completeness invariant.
+    for (const stillScanned of [
+      'CLAUDE.md.ts',
+      'CLAUDE.md.json',
+      'CLAUDE.md.backup',
+      'CLAUDE.md-anything',
+      'CLAUDE.mdx',
+      'CLAUDE.md/nested.ts',
+      // Starts with "docs" but is NOT under `docs/` — prefix matching must not swallow siblings.
+      'docs-adjacent/file.ts',
+      'documentation/file.ts',
+      'handoffs-old/file.ts',
+      'decisions-archive/file.ts',
+    ]) {
+      expect(isProsePath(stillScanned), `${stillScanned} must remain in scope`).toBe(false)
+    }
+
+    for (const stillExcluded of [
+      'CLAUDE.md',
+      'docs/x.md',
+      'docs/nested/deep.md',
+      'handoffs/x.md',
+      'decisions/x.md',
+      'decisions/DECISION_LOG.md',
+    ]) {
+      expect(isProsePath(stillExcluded), `${stillExcluded} must stay excluded`).toBe(true)
+    }
+  })
+
+  it('a credential identifier in a CLAUDE.md-prefixed file would now be a violation', () => {
+    // The adversarial pairing that would have passed before this fix: such a file was silently
+    // unscanned. It is now in scope AND covered by no allowlist branch, so the whole-line scan
+    // flags it.
+    const smuggled = 'CLAUDE.md.ts'
+    expect(isProsePath(smuggled)).toBe(false)
+    expect(isAllowed({ file: smuggled, line: 1, text: `process.env.${NEW_VAR}` })).toBe(false)
+    expect(isAllowed({ file: smuggled, line: 2, text: `const k = '${LEGACY_VAR}'` })).toBe(false)
   })
 
   it('no scanned file outside the exact allowlist mentions either identifier', () => {
