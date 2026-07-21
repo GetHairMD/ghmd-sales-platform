@@ -19,10 +19,14 @@
  *                         so the repo variable selects the model with no code change.
  *   GATE_TRACE_HANDLE   - GitHub handle to tag; defaults to "traceh-ghmd"
  *   SUPABASE_URL        - Sales project URL (declaration-integrity lookup)
- *   SUPABASE_ANON_KEY   - anon/publishable key; the only role that can EXECUTE
- *                         public.gate_decision_for_pr() and cannot read the table
+ *   publishable key     - resolved by ./publishable-key (modern variable preferred, legacy
+ *                         variable as a temporary fallback). It authenticates as the anon role:
+ *                         the only role that can EXECUTE public.gate_decision_for_pr() and that
+ *                         cannot read the underlying table. The variable names live in that
+ *                         resolver, which is the single read site.
  */
 import { readFileSync } from 'node:fs'
+import { buildDeclarationRequest } from './declaration-rpc'
 import {
   SYSTEM_PROMPT,
   parseGateBlock,
@@ -95,27 +99,16 @@ async function lookupDecisionRow(
   repo: string,
   prNumber: number,
 ): Promise<{ row: DecisionRow | null; unavailable: boolean }> {
-  const url = process.env.SUPABASE_URL
-  const key = process.env.SUPABASE_ANON_KEY
-  if (!url || !key) {
-    console.error('SUPABASE_URL/SUPABASE_ANON_KEY not set — cannot verify declaration (fail closed).')
-    return { row: null, unavailable: true }
-  }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS)
   try {
-    // Scoped to (repo, pr): PR numbers are per-repo, so the binding key includes
-    // the repo to avoid cross-repo collisions (see decision_log #30).
-    const res = await fetch(`${url.replace(/\/+$/, '')}/rest/v1/rpc/gate_decision_for_pr`, {
-      method: 'POST',
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json',
-      },
-      signal: controller.signal,
-      body: JSON.stringify({ p_repo: repo, p_pr_number: prNumber }),
-    })
+    // Request construction — URL, scoping body, and apikey-ONLY headers — lives in
+    // ./declaration-rpc so its shape is testable: this file calls main() at module load, so a
+    // suite cannot import it without running the gate. A missing project URL or publishable
+    // credential throws from the builder and is caught below as a fail-closed "unavailable",
+    // preserving the previous behaviour of the explicit not-set check this replaced.
+    const { url, init } = buildDeclarationRequest(repo, prNumber)
+    const res = await fetch(url, { ...init, signal: controller.signal })
     if (!res.ok) {
       console.error(`gate_decision_for_pr RPC failed: ${res.status} ${await res.text()}`)
       return { row: null, unavailable: true }
