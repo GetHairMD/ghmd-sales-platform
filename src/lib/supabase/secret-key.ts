@@ -45,14 +45,39 @@
  */
 
 /**
- * The variable NAMES, exported so that tests and tooling can refer to them WITHOUT writing the
- * literals (which the CI source scan forbids outside this file) and without assembling them at
- * runtime from fragments. Exporting a name is not a credential read: these are public identifiers,
- * documented in CLAUDE.md and `.env.local.example`. Only the VALUES are sensitive, and the only
- * code that touches those is `classify()` below.
+ * The variable NAMES are module-PRIVATE, and that is load-bearing.
+ *
+ * ⚠ They were briefly exported so tests could name them without writing literals. Review showed
+ * an export is a READ PRIMITIVE: any module can `import { PREFERRED_VAR }` — or re-export it
+ * through an intermediary, so the eventual consumer neither spells the identifier nor imports
+ * this path — and then `process.env[thatConstant]`, creating a second read site no text scan can
+ * see. Each static rule aimed at that invited a slightly more indirect laundering route. Not
+ * exporting the names removes the primitive, and the whole class with it.
+ *
+ * What IS exported is `assertNotCredentialVarName` — a predicate. It can refuse a name; it cannot
+ * hand one out, so it is useless as a read primitive.
+ *
+ * Tests that must set these variables spell the literals directly, allowlisted by exact path AND
+ * exact declaration line (branch (e) in credential-read-sites.test.ts).
  */
-export const PREFERRED_VAR = 'SUPABASE_SECRET_KEY'
-export const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
+const PREFERRED_VAR = 'SUPABASE_SECRET_KEY'
+const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
+
+/**
+ * Throws if `name` is one of the two credential variables. For generic, dynamically-named env
+ * readers — the one syntax that could otherwise fetch a credential without its name ever
+ * appearing as text — so they refuse at RUNTIME, where name construction does not help.
+ *
+ * Reveals nothing: it takes a candidate name and either returns or throws.
+ */
+export function assertNotCredentialVarName(name: string): void {
+  if (name === PREFERRED_VAR || name === LEGACY_VAR) {
+    throw new Error(
+      `${name} must not be read through a generic env accessor. ` +
+        'Call getSupabaseSecretKey() from src/lib/supabase/secret-key.ts — it is the single read site.',
+    )
+  }
+}
 
 /**
  * Applies the absent/malformed/clean rule to one raw environment value.

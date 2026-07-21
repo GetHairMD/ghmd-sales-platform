@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildOverdueRequest, fetchOverdue } from '../../../scripts/second-opinion-gate/overdue-rpc'
-import { LEGACY_VAR, PREFERRED_VAR as NEW_VAR } from '../supabase/secret-key'
+
+// Allowlisted declaration lines — see credential-read-sites.test.ts branch (e).
+const NEW_VAR = 'SUPABASE_SECRET_KEY'
+const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
 
 /**
  * Second-Opinion Gate sweep — request shape (decision #199 remediation, D3 + D8).

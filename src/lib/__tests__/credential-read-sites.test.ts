@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
-import { LEGACY_VAR, PREFERRED_VAR as NEW_VAR } from '../supabase/secret-key'
 import { env } from '../../../scripts/second-opinion-gate/overdue-rpc'
+
+// Allowlisted declaration lines — branch (e) below. These are the ONLY lines in the three
+// credential suites permitted to spell an identifier; everything else uses these constants.
+const NEW_VAR = 'SUPABASE_SECRET_KEY'
+const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
 
 /**
  * Credential read-site invariant — decision #199 remediation (D7), permanent CI enforcement.
@@ -75,6 +79,31 @@ const IMMUTABLE_MIGRATION = 'supabase/migrations/20260720120000_revoke_sizing_jo
 const IMMUTABLE_MIGRATION_ALLOWED_LINES = [`--       ${LEGACY_VAR} (script-layer, human-invoked)`]
 
 /**
+ * (e) the three credential suites — ONLY their two constant-DECLARATION lines.
+ *
+ * ⚠ Why the suites spell the literals instead of importing them. The resolver briefly EXPORTED
+ * the names so tests could avoid literals. An exported name is a read primitive: a module can
+ * import it — or re-export it through an intermediary, so the eventual consumer neither spells
+ * the identifier nor imports the resolver path — and then `process.env[thatConstant]`. Each
+ * static rule aimed at that invited a slightly more indirect laundering route. Deleting the
+ * export removes the primitive and the whole class with it; the cost is that the suites need the
+ * literals, which is what this branch permits — on exactly two declaration lines per file, so
+ * every other line must go through the constants.
+ *
+ * Tests are not credential consumers: they never authenticate, and they manipulate env only via
+ * `vi.stubEnv`, which the importer rule below independently enforces.
+ */
+const CREDENTIAL_SUITES = [
+  'src/lib/__tests__/credential-resolver.test.ts',
+  'src/lib/__tests__/credential-request-shape.test.ts',
+  'src/lib/__tests__/credential-read-sites.test.ts',
+]
+const SUITE_ALLOWED_LINES = [
+  `const NEW_VAR = '${NEW_VAR}'`,
+  `const LEGACY_VAR = '${LEGACY_VAR}'`,
+]
+
+/**
  * Human documentation surfaces, excluded by PATH (never by filename pattern). These legitimately
  * name the variables in prose — that is the point of documenting a credential contract — and the
  * enforced invariant is about READ SITES in the repository's executable and configuration
@@ -112,6 +141,15 @@ function trackedFiles(): string[] {
     .filter((p) => p.length > 0)
     .filter((p) => !PROSE_PATHS.some((prefix) => p === prefix || p.startsWith(prefix)))
 }
+
+/**
+ * Strip comments before any STRUCTURAL check. These files discuss the forbidden patterns in prose
+ * — that is how the reasoning survives — and a check that cannot tell code from commentary would
+ * either fail on its own documentation or force the documentation out. Same idiom as
+ * proposals-route-removal / app-shell-chrome-guardrails.
+ */
+const codeOnly = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+const codeOnlyOf = (file: string) => codeOnly(readFileSync(join(process.cwd(), file), 'utf8'))
 
 interface Hit {
   file: string
@@ -183,6 +221,7 @@ function isAllowed(hit: Hit): boolean {
   if (hit.file === EXAMPLE_ENV) return isAllowedExampleEnvLine(hit.text)
   if (hit.file === SWEEP_WORKFLOW) return SWEEP_ALLOWED_LINES.includes(hit.text)
   if (hit.file === IMMUTABLE_MIGRATION) return IMMUTABLE_MIGRATION_ALLOWED_LINES.includes(hit.text)
+  if (CREDENTIAL_SUITES.includes(hit.file)) return SUITE_ALLOWED_LINES.includes(hit.text)
   return false
 }
 
@@ -386,21 +425,15 @@ describe('every service-credential consumer routes through the resolver', () => 
      */
     const COMPUTED_ENV_ALLOWED = new Set(['scripts/second-opinion-gate/overdue-rpc.ts'])
 
-    // Comments are stripped first: these files DISCUSS the forbidden patterns in prose (that is
-    // how the reasoning survives), and a check that cannot tell code from commentary would either
-    // fail on its own documentation or force the documentation out. Same idiom as
-    // proposals-route-removal / app-shell-chrome-guardrails.
-    const codeOnly = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
-
     const importers = SCANNED.filter((f) => EXECUTABLE.test(f)).filter((f) =>
-      RESOLVER_IMPORT.test(codeOnly(readFileSync(join(process.cwd(), f), 'utf8'))),
+      RESOLVER_IMPORT.test(codeOnlyOf(f)),
     )
 
-    // Non-vacuous: the consumers and the three suites all import it.
-    expect(importers.length).toBeGreaterThanOrEqual(9)
+    // Non-vacuous: the seven direct consumers plus the resolver suite all import it.
+    expect(importers.length).toBeGreaterThanOrEqual(8)
 
     for (const file of importers) {
-      const src = codeOnly(readFileSync(join(process.cwd(), file), 'utf8'))
+      const src = codeOnlyOf(file)
       if (!COMPUTED_ENV_ALLOWED.has(file)) {
         expect(COMPUTED_ENV.test(src), `${file} performs computed process.env access`).toBe(false)
       }
@@ -411,15 +444,25 @@ describe('every service-credential consumer routes through the resolver', () => 
     }
   })
 
-  it('the credential suites take their names from the resolver, not from literals', () => {
-    for (const file of [
-      'src/lib/__tests__/credential-resolver.test.ts',
-      'src/lib/__tests__/credential-request-shape.test.ts',
-      'src/lib/__tests__/credential-read-sites.test.ts',
-    ]) {
-      const src = readFileSync(join(process.cwd(), file), 'utf8')
-      expect(/from '\.\.\/supabase\/secret-key'/.test(src)).toBe(true)
+  it('the resolver exports NO variable name — the re-export vector has no primitive to launder', () => {
+    // Round-6 finding: an exported name can be re-exported through an intermediary, so the
+    // eventual consumer neither spells the identifier nor imports the resolver path. Deleting the
+    // export removes the primitive entirely. What IS exported is a predicate, which can refuse a
+    // name but cannot hand one out.
+    const src = codeOnlyOf(RESOLVER)
+    expect(/export\s+(?:const|let|var)\s+\w*VAR\b/.test(src)).toBe(false)
+    expect(/export\s*\{[^}]*VAR[^}]*\}/.test(src)).toBe(false)
+    expect(src.includes('export function assertNotCredentialVarName')).toBe(true)
+  })
+
+  it('each credential suite spells the identifiers on its two declaration lines only', () => {
+    for (const file of CREDENTIAL_SUITES) {
+      const hits = hitsIn(file)
+      expect(hits.every(isAllowed), `${file} names an identifier off its declaration lines`).toBe(true)
+      expect(SUITE_ALLOWED_LINES.every((l) => hits.some((h) => h.text === l))).toBe(true)
     }
+    // Negative control: any other line in a suite is a violation.
+    expect(isAllowed({ file: CREDENTIAL_SUITES[0], line: 1, text: `process.env.${NEW_VAR}` })).toBe(false)
   })
 
   it('the generic env() helper refuses both credential names at RUNTIME', () => {

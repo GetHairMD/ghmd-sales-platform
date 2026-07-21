@@ -230,20 +230,19 @@ lines, matched exactly**; (c) exactly two environment-mapping lines in
 immutable migration. No path wildcards — for (b), (c) and (d) the file is not exempt, only those
 lines are.
 
-**Identifier names are imported, never re-typed or assembled.** `secret-key.ts` exports
-`PREFERRED_VAR` / `LEGACY_VAR`; tests and tooling import those. Do **not** rebuild a name from
-fragments to get past the scan — a suite that demonstrates the evasion normalises it. Test suites
-manipulate env only via `vi.stubEnv`, so nothing outside the resolver performs a named
-`process.env` read of a credential.
+**`secret-key.ts` must never export a variable NAME.** An exported name is a read primitive: any
+module can import it — or re-export it through an intermediary, so the eventual consumer neither
+spells the identifier nor imports the resolver path — and then `process.env[thatConstant]`. It
+exports `assertNotCredentialVarName` instead, a predicate that can refuse a name but cannot hand
+one out. The three credential test suites spell the literals on **two declaration lines each**,
+allowlisted by exact path and exact line, and manipulate env only via `vi.stubEnv`.
 
-Because an exported name could otherwise be fed straight to `process.env[…]`, **any file that
-imports from `secret-key` is forbidden from computed `process.env[…]` access and from aliasing
-`process.env`** — enforced by the same suite. Using an exported name requires importing it, and
-importing it bars the only syntax that could consume it. The single exception is the generic
-`env()` helper in `scripts/second-opinion-gate/overdue-rpc.ts`, which **throws** if handed either
-credential name; that allowlist entry and its runtime guard are a pair — never add one without the
-other. A repo-wide ban was rejected deliberately: ~10 unrelated legitimate sites use computed env
-access.
+Defence in depth on top of that: **any file importing from `secret-key` is barred from computed
+`process.env[…]` access and from aliasing `process.env`**; the sole exception is the generic
+`env()` helper in `scripts/second-opinion-gate/overdue-rpc.ts`, which calls
+`assertNotCredentialVarName` and **throws** on either credential name. That allowlist entry and its
+runtime guard are a pair — never add one without the other. A repo-wide ban on computed env access
+was rejected deliberately: ~10 unrelated legitimate sites use it.
 
 **Every branch is exact-line, never shape-inferred.** A rule that tries to reject "assigning"
 forms has to enumerate the ways a value can follow a name (`NAME=v`, `NAME = v`, `NAME: v`,

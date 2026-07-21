@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getSupabaseSecretKey, LEGACY_VAR, PREFERRED_VAR as NEW_VAR } from '../supabase/secret-key'
+import { getSupabaseSecretKey } from '../supabase/secret-key'
+
+// Allowlisted declaration lines — see credential-read-sites.test.ts branch (e).
+const NEW_VAR = 'SUPABASE_SECRET_KEY'
+const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
 
 /**
  * Supabase secret-key resolver — decision #199 remediation (credential compatibility layer).

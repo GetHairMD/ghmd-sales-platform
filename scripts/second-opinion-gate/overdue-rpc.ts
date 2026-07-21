@@ -13,7 +13,7 @@
  * service_role JWT and for a new-format secret key, which is what lets rotation be a pure
  * value swap. Do not re-add an Authorization header here.
  */
-import { getSupabaseSecretKey, LEGACY_VAR, PREFERRED_VAR } from '../../src/lib/supabase/secret-key'
+import { assertNotCredentialVarName, getSupabaseSecretKey } from '../../src/lib/supabase/secret-key'
 
 export interface OverdueRow {
   id: number
@@ -30,12 +30,7 @@ export function env(name: string, fallback?: string): string {
   // it the one place a credential could be fetched without the identifier ever appearing as text
   // — `env('SUPA' + 'BASE_SECRET_KEY')` would defeat the CI source scan entirely. Refusing the two
   // credential names here closes that path at runtime, where no amount of name construction helps.
-  if (name === PREFERRED_VAR || name === LEGACY_VAR) {
-    throw new Error(
-      `${name} must not be read through the generic env() helper. ` +
-        'Call getSupabaseSecretKey() from src/lib/supabase/secret-key.ts — it is the single read site.',
-    )
-  }
+  assertNotCredentialVarName(name)
   const v = process.env[name]
   if (v == null || v === '') {
     if (fallback !== undefined) return fallback
