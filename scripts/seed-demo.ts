@@ -20,12 +20,14 @@
  * BEFORE any delete, so a mid-run failure can never leave demo rows
  * deleted-but-not-reinserted.
  *
- * Writes to the SALES project only (cprltmwwldbxcsunsafl). Requires service role:
- *   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+ * Writes to the SALES project only (cprltmwwldbxcsunsafl). Requires NEXT_PUBLIC_SUPABASE_URL
+ * plus a Supabase service credential (variable name and precedence owned by
+ * src/lib/supabase/secret-key.ts).
  * Usage: (env loaded) npx tsx scripts/seed-demo.ts
  */
 
 import { createClient } from '@supabase/supabase-js'
+import { getSupabaseSecretKey } from '../src/lib/supabase/secret-key'
 import { STAGE } from '../src/lib/pipeline-stages'
 import { buildSeedProspectInsert, DEMO_LEAD_SOURCE, type SeedProspectInput } from '../src/lib/prospect-insert'
 import { hashAccessCode, generateSalt } from '../src/lib/proposal/gate'
@@ -42,9 +44,9 @@ function fail(msg: string): never {
 }
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY
 if (!url) fail('NEXT_PUBLIC_SUPABASE_URL is not set.')
-if (!key) fail('SUPABASE_SERVICE_ROLE_KEY is not set.')
+// Throws (loudly, naming the variables) when no service credential is configured.
+const key = getSupabaseSecretKey()
 
 // Guard: never point the seed at the NIP project.
 if (url.includes('kjweckggegifjmmqccul')) fail('Refusing to seed the NIP project.')

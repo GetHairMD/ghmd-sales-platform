@@ -7,6 +7,7 @@
  * proposal data can leak pre-auth.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { getSupabaseSecretKey } from '../supabase/secret-key'
 import type { ProposalEventType, ProposalRecord } from './types'
 
 /** Columns safe to render — final presentation values only, no formula mechanics. */
@@ -23,7 +24,7 @@ function serviceClient(): SupabaseClient {
   if (cached) return cached
   cached = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    getSupabaseSecretKey(),
     { auth: { persistSession: false } },
   )
   return cached

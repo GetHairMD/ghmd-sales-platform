@@ -12,6 +12,7 @@
  * bundle (no 'use client' file may import it).
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { getSupabaseSecretKey } from './secret-key'
 
 let cached: SupabaseClient | null = null
 
@@ -19,7 +20,7 @@ export function createServiceClient(): SupabaseClient {
   if (cached) return cached
   cached = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    getSupabaseSecretKey(),
     { auth: { persistSession: false } },
   )
   return cached

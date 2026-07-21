@@ -13,12 +13,14 @@
  *
  * Requires (server-only, never committed):
  *   NEXT_PUBLIC_SUPABASE_URL
- *   SUPABASE_SERVICE_ROLE_KEY   (service_role — RLS grants SELECT to service_role only)
+ *   a Supabase service credential — variable name and precedence owned by
+ *   src/lib/supabase/secret-key.ts (RLS grants SELECT to service_role only)
  *
  * Usage: npm run log:export
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseSecretKey } from '../src/lib/supabase/secret-key';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
@@ -75,9 +77,9 @@ function renderDocument(rows: DecisionRow[]): string {
 
 async function main(): Promise<void> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url) fail('NEXT_PUBLIC_SUPABASE_URL is not set.');
-  if (!serviceKey) fail('SUPABASE_SERVICE_ROLE_KEY is not set.');
+  // Throws (loudly, naming the variables) when no service credential is configured.
+  const serviceKey = getSupabaseSecretKey();
 
   const supabase = createClient(url, serviceKey, {
     auth: { persistSession: false },

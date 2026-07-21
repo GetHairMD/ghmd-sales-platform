@@ -33,10 +33,15 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      # Both credential variables are passed; src/lib/supabase/secret-key.ts owns precedence
+      # (new-format key preferred, legacy accepted as fallback). An unprovisioned repo secret
+      # expands to an empty string, which the resolver treats as absent — that is exactly the
+      # intended pre-rotation state, and it is why both lines can coexist safely.
       - name: Run sweep
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GATE_TRACE_HANDLE: ${{ vars.GATE_TRACE_HANDLE }}
         run: npx tsx scripts/second-opinion-gate/run-sweep.ts

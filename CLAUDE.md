@@ -181,7 +181,8 @@ Never committed to git.
 | Variable | Scope | Notes |
 |----------|-------|-------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Client + Server | Sales project only |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server only | Never expose to client |
+| `SUPABASE_SECRET_KEY` | Server only | **Preferred** Supabase service credential (modern `sb_secret_` key — not a JWT). Never expose to client |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server only | **Deprecated fallback** — legacy `service_role` JWT, read only when `SUPABASE_SECRET_KEY` is absent/blank; removed once rotation completes (decision #199). Never expose to client |
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Client | Restricted to proposals.gethairmd.com domain |
 | `CENSUS_API_KEY` | Server only | Netlify function only |
 | `GOOGLE_PLACES_API_KEY` | Server only | Netlify function only; restricted to server IP |
@@ -192,6 +193,76 @@ Never committed to git.
 | `ANTHROPIC_API_KEY` | Server only | Phase 2: call scoring engine |
 | `QA_EXEC_EMAIL` | Local (QA only) | QA-exec sign-in for deploy-preview QA. Read by `scripts/qa/preview-login.ts`. Trace holds locally — never in Netlify, never in a session |
 | `QA_EXEC_PASSWORD` | Local (QA only) | QA-exec password. Same helper. **Never** hardcoded, echoed, committed, or pasted into an agent session |
+
+**One name, different underlying credentials per store.** `SUPABASE_SECRET_KEY` is provisioned
+separately in each credential store — Netlify env vars and the GitHub Actions repository secret
+carry **different** `sb_secret_` keys under the same variable name, so either store can be
+revoked independently and a compromise of one does not expose the other. Netlify secrets are
+additionally scoped context-by-context (least privilege; the repo is public, so secrets must not
+reach untrusted deploy previews).
+
+**Every read goes through one module.** `src/lib/supabase/secret-key.ts` is the only place in the
+repo that reads either credential variable; everything else calls `getSupabaseSecretKey()`. It
+prefers `SUPABASE_SECRET_KEY`, falls back to `SUPABASE_SERVICE_ROLE_KEY` only when the preferred
+one is absent/blank, throws on a whitespace-padded (malformed) value rather than trimming it, and
+throws when neither is set.
+
+The invariant is enforced in CI by `src/lib/__tests__/credential-read-sites.test.ts`, a whole-line
+scan over **every git-tracked file in the repo, with no extension filter**, minus the prose
+surfaces. Exclusion is decided by one predicate, `isProsePath`, and the distinction is
+load-bearing: the **directories** `docs/`, `handoffs/`, `decisions/` match by prefix, while the
+**exact file** `CLAUDE.md` matches exactly. Prefix-matching an exact filename silently excluded
+anything merely beginning with it — `CLAUDE.md.ts`, `CLAUDE.md.json`, `CLAUDE.mdx` — so a tracked
+executable could read a credential and the scan would still pass. **A prefix rule is only sound
+for a path ending in `/`.** The guard test uses the same `isProsePath` predicate as its oracle:
+when it re-derived that logic instead, it asserted the bug rather than catching it.
+
+Type-agnostic scope is load-bearing for the same family of reason: an extension-filtered scan left
+`netlify.toml`, every `.sql` file and all `.json` config outside enforcement. Tracked-only scope is
+equally load-bearing — a filesystem walk would read `.env.local` and the failure message would
+print a live key.
+
+**A scan failure never echoes line content.** It reports `file:line` plus which variable was named,
+and nothing else from the line. Redacting "the part after `=`" was tried and is unsafe by
+construction: `"SUPABASE_SECRET_KEY": "sb_secret_…"` in a tracked `.json` puts a quote between the
+identifier and the colon, so a redaction pattern misses and the value lands in the CI log of a
+**public** repo. Any redact-the-dangerous-part scheme must enumerate the syntaxes a value can hide
+in; printing nothing from the line has no enumeration to get wrong. Assertions in that suite
+compare counts and booleans for the same reason — a failing `toEqual` on raw lines would leak just
+as effectively.
+
+Either variable name appearing anywhere outside an exact allowlist fails the build. The allowlist
+has **five** branches: (a) the resolver module (whole file); (b) `.env.local.example` — **only the
+two bare `NAME=` placeholder lines, matched exactly**; (c) exactly two environment-mapping lines in
+`.github/workflows/residual-risk-sweep.yml`; (d) one exact comment line in an already-applied,
+immutable migration; (e) the three credential test suites — **only their two constant-declaration
+lines each**. No path wildcards — for (b)–(e) the file is not exempt, only those lines are.
+
+**`secret-key.ts` must never export a variable NAME.** An exported name is a read primitive: any
+module can import it — or re-export it through an intermediary, so the eventual consumer neither
+spells the identifier nor imports the resolver path — and then `process.env[thatConstant]`. It
+exports `assertNotCredentialVarName` instead, a predicate that can refuse a name but cannot hand
+one out. The three credential test suites spell the literals on **two declaration lines each**,
+allowlisted by exact path and exact line, and manipulate env only via `vi.stubEnv`.
+
+Defence in depth on top of that: **any file importing from `secret-key` is barred from computed
+`process.env[…]` access and from aliasing `process.env`**; the sole exception is the generic
+`env()` helper in `scripts/second-opinion-gate/overdue-rpc.ts`, which calls
+`assertNotCredentialVarName` and **throws** on either credential name. That allowlist entry and its
+runtime guard are a pair — never add one without the other. A repo-wide ban on computed env access
+was rejected deliberately: ~10 unrelated legitimate sites use it.
+
+**Every branch is exact-line, never shape-inferred.** A rule that tries to reject "assigning"
+forms has to enumerate the ways a value can follow a name (`NAME=v`, `NAME = v`, `NAME: v`,
+`# NAME v` with no separator at all) and that enumeration is never complete — two review rounds
+found holes in exactly such rules. Consequently `.env.local.example` prose must **not** name either
+variable; if it ever needs to, the line must be added to the allowlist deliberately.
+
+**Rotation requires a deploy even though it requires no code change.** Env vars are captured per
+deploy and service clients are process-cached: no existing deploy adopts an env change. After any
+credential env change, force a fresh deploy in **every affected context** (production and each
+preview/branch context under test) and confirm each is `ready` with `commit_ref` matched to the
+intended SHA before verifying against it.
 
 ## QA / Deploy-Preview Capability Stack
 

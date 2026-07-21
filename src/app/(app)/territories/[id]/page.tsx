@@ -3,6 +3,7 @@ import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { getSupabaseSecretKey } from '@/lib/supabase/secret-key'
 import { geoToFips, fetchB19001ForCounty, computeAddressableDetail } from '@/lib/census'
 import { CENSUS_CACHE_TTL_DAYS, CENSUS_ACS5_VINTAGE } from '../../../../../lib/addressable-market-constants'
 import ScenarioCards from '@/components/ScenarioCards'
@@ -198,7 +199,7 @@ export default async function TerritoryDetailPage({ params }: PageProps) {
         // Persist census data using admin client (bypasses RLS for server-side write)
         const admin = createAdminClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          getSupabaseSecretKey(),
         )
         await admin
           .from('territories')

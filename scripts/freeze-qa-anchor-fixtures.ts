@@ -27,6 +27,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
+import { getSupabaseSecretKey } from '../src/lib/supabase/secret-key'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -74,9 +75,9 @@ const round2 = (n: number): number => Math.round(n * 100) / 100
 
 async function main(): Promise<void> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url) fail('NEXT_PUBLIC_SUPABASE_URL is not set. Run with: npx tsx --env-file=.env.local scripts/freeze-qa-anchor-fixtures.ts')
-  if (!key) fail('SUPABASE_SERVICE_ROLE_KEY is not set.')
+  // Throws (loudly, naming the variables) when no service credential is configured.
+  const key = getSupabaseSecretKey()
   if (url.includes('kjweckggegifjmmqccul')) fail('Refusing to read the NIP project.')
 
   const db = createClient(url, key, { auth: { persistSession: false } })
