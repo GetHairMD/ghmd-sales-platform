@@ -358,31 +358,67 @@ describe('every service-credential consumer routes through the resolver', () => 
     })
   }
 
-  it('no test suite reads either credential from process.env — not even dynamically', () => {
-    // The round-4 finding: the suites saved/restored originals via process.env[NEW_VAR], which is
-    // both a read outside the resolver and a demonstration that runtime names evade the scan.
-    // They now import the names and delegate save/restore to vi.stubEnv.
-    // Comments are stripped first: these suites DISCUSS the forbidden patterns in prose (that is
+  it('no file that imports the resolver may do computed process.env access (round-5 vector)', () => {
+    /**
+     * The round-5 finding: exporting PREFERRED_VAR / LEGACY_VAR (the round-4 fix) created a read
+     * path needing neither a literal nor runtime assembly —
+     * `import { PREFERRED_VAR } … ; process.env[PREFERRED_VAR]` sails past a text scan.
+     *
+     * The closure exploits the vector's own precondition: to USE an exported name you must IMPORT
+     * it, and the import is plainly visible. So every file importing the resolver module is
+     * forbidden from computed `process.env[…]` access and from aliasing `process.env` to a
+     * variable. Reading a credential through the exported name now requires importing it into a
+     * file that is thereby barred from the only syntax that could consume it.
+     *
+     * A repo-wide ban on computed env access was considered and rejected: ~10 unrelated,
+     * legitimate sites (calendly, notify/email, territory-sizing-jobs, preview-login) would be
+     * swept in, which is a different refactor and not this PR's business.
+     */
+    const EXECUTABLE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
+    const RESOLVER_IMPORT = /from\s+['"][^'"]*secret-key['"]/
+    const COMPUTED_ENV = /process\.env\s*\[/
+    const ENV_ALIAS = /=\s*process\.env\s*(?:[;,)]|$)/m
+    /**
+     * The one exception, by exact path: the generic env() helper, which reads an arbitrary
+     * variable NAME for SUPABASE_URL / GITHUB_TOKEN / GATE_TRACE_HANDLE. It is safe only because
+     * it REFUSES both credential names at runtime (asserted in the next test) — the allowlist
+     * entry and that guard are a pair; neither stands alone.
+     */
+    const COMPUTED_ENV_ALLOWED = new Set(['scripts/second-opinion-gate/overdue-rpc.ts'])
+
+    // Comments are stripped first: these files DISCUSS the forbidden patterns in prose (that is
     // how the reasoning survives), and a check that cannot tell code from commentary would either
     // fail on its own documentation or force the documentation out. Same idiom as
     // proposals-route-removal / app-shell-chrome-guardrails.
     const codeOnly = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
 
+    const importers = SCANNED.filter((f) => EXECUTABLE.test(f)).filter((f) =>
+      RESOLVER_IMPORT.test(codeOnly(readFileSync(join(process.cwd(), f), 'utf8'))),
+    )
+
+    // Non-vacuous: the consumers and the three suites all import it.
+    expect(importers.length).toBeGreaterThanOrEqual(9)
+
+    for (const file of importers) {
+      const src = codeOnly(readFileSync(join(process.cwd(), file), 'utf8'))
+      if (!COMPUTED_ENV_ALLOWED.has(file)) {
+        expect(COMPUTED_ENV.test(src), `${file} performs computed process.env access`).toBe(false)
+      }
+      expect(ENV_ALIAS.test(src), `${file} aliases process.env to a variable`).toBe(false)
+      // And no fragment-assembled identifier name. (Regex form, so this assertion does not itself
+      // contain the sequence it forbids.)
+      expect(/\.join\(\s*['"]_['"]\s*\)/.test(src), `${file} assembles an identifier`).toBe(false)
+    }
+  })
+
+  it('the credential suites take their names from the resolver, not from literals', () => {
     for (const file of [
       'src/lib/__tests__/credential-resolver.test.ts',
       'src/lib/__tests__/credential-request-shape.test.ts',
       'src/lib/__tests__/credential-read-sites.test.ts',
     ]) {
-      const src = codeOnly(readFileSync(join(process.cwd(), file), 'utf8'))
-      // No fragment-assembled identifier names anywhere. (Written as a regex so this assertion
-      // does not itself contain the very sequence it forbids.)
-      expect(/\.join\(\s*['"]_['"]\s*\)/.test(src)).toBe(false)
-      // Names come from the resolver, not from literals or concatenation.
+      const src = readFileSync(join(process.cwd(), file), 'utf8')
       expect(/from '\.\.\/supabase\/secret-key'/.test(src)).toBe(true)
-      // No computed `process.env[...]` access of ANY kind — env manipulation goes through
-      // vi.stubEnv, so no suite ever reads whatever real credential a developer has locally.
-      // (Regex form again, so the assertion does not contain the pattern it forbids.)
-      expect(/process\.env\[/.test(src)).toBe(false)
     }
   })
 

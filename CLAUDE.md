@@ -234,9 +234,16 @@ lines are.
 `PREFERRED_VAR` / `LEGACY_VAR`; tests and tooling import those. Do **not** rebuild a name from
 fragments to get past the scan — a suite that demonstrates the evasion normalises it. Test suites
 manipulate env only via `vi.stubEnv`, so nothing outside the resolver performs a named
-`process.env` read of a credential. As a runtime backstop, the repo's one generic dynamically-named
-env reader (`env()` in `scripts/second-opinion-gate/overdue-rpc.ts`) **throws** if handed either
-credential name — the one gap a text scan structurally cannot close.
+`process.env` read of a credential.
+
+Because an exported name could otherwise be fed straight to `process.env[…]`, **any file that
+imports from `secret-key` is forbidden from computed `process.env[…]` access and from aliasing
+`process.env`** — enforced by the same suite. Using an exported name requires importing it, and
+importing it bars the only syntax that could consume it. The single exception is the generic
+`env()` helper in `scripts/second-opinion-gate/overdue-rpc.ts`, which **throws** if handed either
+credential name; that allowlist entry and its runtime guard are a pair — never add one without the
+other. A repo-wide ban was rejected deliberately: ~10 unrelated legitimate sites use computed env
+access.
 
 **Every branch is exact-line, never shape-inferred.** A rule that tries to reject "assigning"
 forms has to enumerate the ways a value can follow a name (`NAME=v`, `NAME = v`, `NAME: v`,
