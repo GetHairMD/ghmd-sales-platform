@@ -230,6 +230,14 @@ lines, matched exactly**; (c) exactly two environment-mapping lines in
 immutable migration. No path wildcards — for (b), (c) and (d) the file is not exempt, only those
 lines are.
 
+**Identifier names are imported, never re-typed or assembled.** `secret-key.ts` exports
+`PREFERRED_VAR` / `LEGACY_VAR`; tests and tooling import those. Do **not** rebuild a name from
+fragments to get past the scan — a suite that demonstrates the evasion normalises it. Test suites
+manipulate env only via `vi.stubEnv`, so nothing outside the resolver performs a named
+`process.env` read of a credential. As a runtime backstop, the repo's one generic dynamically-named
+env reader (`env()` in `scripts/second-opinion-gate/overdue-rpc.ts`) **throws** if handed either
+credential name — the one gap a text scan structurally cannot close.
+
 **Every branch is exact-line, never shape-inferred.** A rule that tries to reject "assigning"
 forms has to enumerate the ways a value can follow a name (`NAME=v`, `NAME = v`, `NAME: v`,
 `# NAME v` with no separator at all) and that enumeration is never complete — two review rounds

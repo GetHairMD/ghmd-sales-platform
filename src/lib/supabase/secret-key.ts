@@ -44,8 +44,15 @@
  * and must not be marked `server-only`.
  */
 
-const PREFERRED_VAR = 'SUPABASE_SECRET_KEY'
-const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
+/**
+ * The variable NAMES, exported so that tests and tooling can refer to them WITHOUT writing the
+ * literals (which the CI source scan forbids outside this file) and without assembling them at
+ * runtime from fragments. Exporting a name is not a credential read: these are public identifiers,
+ * documented in CLAUDE.md and `.env.local.example`. Only the VALUES are sensitive, and the only
+ * code that touches those is `classify()` below.
+ */
+export const PREFERRED_VAR = 'SUPABASE_SECRET_KEY'
+export const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
 
 /**
  * Applies the absent/malformed/clean rule to one raw environment value.

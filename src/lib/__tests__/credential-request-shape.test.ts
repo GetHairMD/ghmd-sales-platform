@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildOverdueRequest, fetchOverdue } from '../../../scripts/second-opinion-gate/overdue-rpc'
+import { LEGACY_VAR, PREFERRED_VAR as NEW_VAR } from '../supabase/secret-key'
 
 /**
  * Second-Opinion Gate sweep — request shape (decision #199 remediation, D3 + D8).
@@ -15,22 +16,16 @@ import { buildOverdueRequest, fetchOverdue } from '../../../scripts/second-opini
  * and no real or real-shaped credential appears anywhere in this file.
  */
 
-const NEW_VAR = ['SUPABASE', 'SECRET', 'KEY'].join('_')
-const LEGACY_VAR = ['SUPABASE', 'SERVICE', 'ROLE', 'KEY'].join('_')
-
 const NEW_DUMMY = 'synthetic-not-a-real-key-QX7ZNEWMARKER-0000'
 const LEGACY_DUMMY = 'synthetic-not-a-real-key-QX7ZLEGACYMARKER-0000'
 const URL_BASE = 'https://example.invalid'
 
-const ORIGINAL = {
-  [NEW_VAR]: process.env[NEW_VAR],
-  [LEGACY_VAR]: process.env[LEGACY_VAR],
-  SUPABASE_URL: process.env.SUPABASE_URL,
-}
-
+/**
+ * Env is manipulated ONLY through `vi.stubEnv`, so this suite performs no `process.env[NAME]`
+ * read of either credential and the framework owns save/restore.
+ */
 function setVar(name: string, value: string | undefined): void {
-  if (value === undefined) delete process.env[name]
-  else process.env[name] = value
+  vi.stubEnv(name, value)
 }
 
 /** Captures the single fetch the sweep makes, and answers it with an empty result set. */
@@ -68,7 +63,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  for (const [name, value] of Object.entries(ORIGINAL)) setVar(name, value)
+  vi.unstubAllEnvs()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })

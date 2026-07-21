@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
+import { LEGACY_VAR, PREFERRED_VAR as NEW_VAR } from '../supabase/secret-key'
+import { env } from '../../../scripts/second-opinion-gate/overdue-rpc'
 
 /**
  * Credential read-site invariant — decision #199 remediation (D7), permanent CI enforcement.
@@ -33,13 +35,19 @@ import { join } from 'node:path'
  * other line of the sweep workflow, is a violation. Same for the migration: the file is not
  * exempt, only that one line is.
  *
- * ⚠ This test file and its companions assemble the identifiers at runtime (below) rather than
- * writing them as literals, so the suites that exercise the resolver need no exemption from
- * the invariant they enforce.
+ * ⚠ This file and its companions IMPORT the identifiers from the resolver rather than writing
+ * them as literals, so the suites that exercise the resolver need no exemption from the invariant
+ * they enforce. They deliberately do NOT assemble the names at runtime from fragments: that would
+ * evade this very scan, and a test suite demonstrating the evasion normalises it. Exporting the
+ * names from the resolver is the honest form — one source of truth, nothing hidden from the scan.
+ *
+ * KNOWN LIMIT, stated rather than papered over: a text scan cannot catch a name built at runtime
+ * (`'SUPA' + 'BASE_SECRET_KEY'`). It is designed to catch ACCIDENTAL second read sites, which is
+ * the realistic failure mode. The one generic dynamically-named env reader in the repo
+ * (`env()` in scripts/second-opinion-gate/overdue-rpc.ts) refuses both credential names at
+ * RUNTIME, closing the practical version of that gap where name construction cannot help.
  */
 
-const NEW_VAR = ['SUPABASE', 'SECRET', 'KEY'].join('_')
-const LEGACY_VAR = ['SUPABASE', 'SERVICE', 'ROLE', 'KEY'].join('_')
 const IDENTIFIERS = [NEW_VAR, LEGACY_VAR]
 
 /** (a) the single resolver module — the one legitimate read site. */
@@ -349,6 +357,45 @@ describe('every service-credential consumer routes through the resolver', () => 
       expect(src).toContain('getSupabaseSecretKey()')
     })
   }
+
+  it('no test suite reads either credential from process.env — not even dynamically', () => {
+    // The round-4 finding: the suites saved/restored originals via process.env[NEW_VAR], which is
+    // both a read outside the resolver and a demonstration that runtime names evade the scan.
+    // They now import the names and delegate save/restore to vi.stubEnv.
+    // Comments are stripped first: these suites DISCUSS the forbidden patterns in prose (that is
+    // how the reasoning survives), and a check that cannot tell code from commentary would either
+    // fail on its own documentation or force the documentation out. Same idiom as
+    // proposals-route-removal / app-shell-chrome-guardrails.
+    const codeOnly = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+
+    for (const file of [
+      'src/lib/__tests__/credential-resolver.test.ts',
+      'src/lib/__tests__/credential-request-shape.test.ts',
+      'src/lib/__tests__/credential-read-sites.test.ts',
+    ]) {
+      const src = codeOnly(readFileSync(join(process.cwd(), file), 'utf8'))
+      // No fragment-assembled identifier names anywhere. (Written as a regex so this assertion
+      // does not itself contain the very sequence it forbids.)
+      expect(/\.join\(\s*['"]_['"]\s*\)/.test(src)).toBe(false)
+      // Names come from the resolver, not from literals or concatenation.
+      expect(/from '\.\.\/supabase\/secret-key'/.test(src)).toBe(true)
+      // No computed `process.env[...]` access of ANY kind — env manipulation goes through
+      // vi.stubEnv, so no suite ever reads whatever real credential a developer has locally.
+      // (Regex form again, so the assertion does not contain the pattern it forbids.)
+      expect(/process\.env\[/.test(src)).toBe(false)
+    }
+  })
+
+  it('the generic env() helper refuses both credential names at RUNTIME', () => {
+    // Closes the practical bypass: a constructed name defeats the text scan, but not this.
+    for (const name of IDENTIFIERS) {
+      expect(() => env(name)).toThrow(/getSupabaseSecretKey/)
+      // …and it still throws even with a value present, so it can never silently succeed.
+      expect(() => env(name, 'a-fallback')).toThrow(/getSupabaseSecretKey/)
+    }
+    // Unrelated variables are unaffected.
+    expect(env('SOME_UNRELATED_VAR', 'fallback-used')).toBe('fallback-used')
+  })
 
   it('the Netlify background function reaches it indirectly, via createServiceClient', () => {
     const src = readFileSync(join(process.cwd(), 'netlify/functions/size-territory-background.mts'), 'utf8')

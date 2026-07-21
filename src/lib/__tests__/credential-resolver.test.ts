@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getSupabaseSecretKey } from '../supabase/secret-key'
+import { getSupabaseSecretKey, LEGACY_VAR, PREFERRED_VAR as NEW_VAR } from '../supabase/secret-key'
 
 /**
  * Supabase secret-key resolver — decision #199 remediation (credential compatibility layer).
@@ -20,14 +20,18 @@ import { getSupabaseSecretKey } from '../supabase/secret-key'
  *      silently skipped (a malformed credential is an operator error, not a fallback signal).
  *   3. neither present -> THROW naming both variables.
  *
- * ⚠ The variable NAMES are assembled at runtime rather than written as literals. The
- * companion source-scan suite (credential-read-sites.test.ts) enforces that the identifiers
- * appear nowhere outside the resolver module, and that invariant is only meaningful if the
- * test files themselves need no exemption from it.
+ * ⚠ The variable NAMES are IMPORTED from the resolver, never written as literals and never
+ * assembled at runtime from fragments. Two reasons, the second learned from review:
+ *   • the source scan forbids the literals outside the resolver, so importing keeps this file
+ *     honest without needing an exemption from the invariant it helps enforce;
+ *   • runtime assembly (`['SUPA','BASE',…].join('_')`) would evade that text scan, and a test
+ *     suite demonstrating the evasion technique normalises it. Importing the exported constant
+ *     is the honest form: one source of truth, nothing hidden from the scan.
+ *
+ * ⚠ Env is manipulated ONLY through `vi.stubEnv`. This suite performs no `process.env[NAME]`
+ * READ of either credential — the framework owns save/restore, so no test ever needs to look at
+ * whatever real credential a developer has in `.env.local`.
  */
-
-const NEW_VAR = ['SUPABASE', 'SECRET', 'KEY'].join('_')
-const LEGACY_VAR = ['SUPABASE', 'SERVICE', 'ROLE', 'KEY'].join('_')
 
 /**
  * Deliberately synthetic values. Each carries a unique marker substring that cannot occur
@@ -40,12 +44,9 @@ const LEGACY_MARKER = 'QX7ZLEGACYMARKER'
 const NEW_SENTINEL = `synthetic-not-a-real-key-${NEW_MARKER}-0000`
 const LEGACY_SENTINEL = `synthetic-not-a-real-key-${LEGACY_MARKER}-0000`
 
-const ORIGINAL_NEW = process.env[NEW_VAR]
-const ORIGINAL_LEGACY = process.env[LEGACY_VAR]
-
+/** Set (or, with `undefined`, unset) a variable for the current test only. */
 function setVar(name: string, value: string | undefined): void {
-  if (value === undefined) delete process.env[name]
-  else process.env[name] = value
+  vi.stubEnv(name, value)
 }
 
 beforeEach(() => {
@@ -54,8 +55,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  setVar(NEW_VAR, ORIGINAL_NEW)
-  setVar(LEGACY_VAR, ORIGINAL_LEGACY)
+  vi.unstubAllEnvs()
   vi.restoreAllMocks()
 })
 
