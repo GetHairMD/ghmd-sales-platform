@@ -33,6 +33,8 @@ const code = sqlCodeOnly(raw)
 // Anchor offsets of the three executable phases, in order. The targeted cleanup
 // phase begins at its `with tgt as (…)` CTE — which is where its origin/demo-marker
 // predicates live — not at the `update public.deals` keyword that follows the CTE.
+const lockTimeoutAt = code.indexOf('set local lock_timeout')
+const lockTableAt = code.indexOf('lock table public.deals in share mode')
 const guardAt = code.indexOf('into v_unexpected')
 const cleanupAt = code.indexOf('with tgt as')
 const updateKeywordAt = code.indexOf('update public.deals')
@@ -66,6 +68,35 @@ describe('legacy-proposal-url migration — structure (decision #200)', () => {
 
   it('pins the exact retired origin as a constant predicate', () => {
     expect(code).toContain("v_legacy_origin constant text := 'https://proposals.gethairmd.com/proposals/'")
+  })
+})
+
+describe('legacy-proposal-url migration — concurrency lock (decision #200 gate BLOCK fix)', () => {
+  it('bounds the wait with SET LOCAL lock_timeout before locking', () => {
+    expect(lockTimeoutAt).toBeGreaterThan(-1)
+    expect(lockTableAt).toBeGreaterThan(-1)
+    expect(lockTimeoutAt).toBeLessThan(lockTableAt)
+  })
+
+  it('takes LOCK TABLE public.deals IN SHARE MODE (not a stronger/weaker mode)', () => {
+    expect(code).toContain('lock table public.deals in share mode')
+    // SHARE precisely: must NOT be EXCLUSIVE / ACCESS EXCLUSIVE / SHARE ROW EXCLUSIVE
+    // (each of those is either wrong strength or blocks ordinary reads).
+    expect(code).not.toContain('in exclusive mode')
+    expect(code).not.toContain('in access exclusive mode')
+    expect(code).not.toContain('share row exclusive')
+  })
+
+  it('acquires the lock BEFORE the pre-mutation guard (holds through the postcondition)', () => {
+    expect(lockTableAt).toBeLessThan(guardAt)
+  })
+
+  it('full ordering: timeout → lock → guard → update → postcondition', () => {
+    expect(lockTimeoutAt).toBeLessThan(lockTableAt)
+    expect(lockTableAt).toBeLessThan(guardAt)
+    expect(guardAt).toBeLessThan(cleanupAt)
+    expect(cleanupAt).toBeLessThan(updateKeywordAt)
+    expect(updateKeywordAt).toBeLessThan(postAt)
   })
 })
 

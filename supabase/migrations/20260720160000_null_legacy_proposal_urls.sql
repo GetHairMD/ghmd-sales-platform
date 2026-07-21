@@ -34,13 +34,26 @@
 -- hostname appears. Re-runnable: once the rows are NULL they no longer match, so a
 -- second apply is a clean zero-row no-op.
 --
+-- CONCURRENCY GUARANTEE (Second-Opinion Gate finding, decision #200): the guard, UPDATE,
+-- and postcondition are separate statements, so under READ COMMITTED a concurrent write
+-- could commit a legacy `/proposals/` URL between the postcondition snapshot and this
+-- migration's commit and survive undetected. To close that window the block acquires
+-- `LOCK TABLE public.deals IN SHARE MODE` BEFORE the guard and holds it through the
+-- postcondition (released only at transaction end). SHARE MODE conflicts with the ROW
+-- EXCLUSIVE lock every INSERT/UPDATE/DELETE takes — so all concurrent writers are blocked
+-- — while ordinary READS remain allowed. A bounded `SET LOCAL lock_timeout` makes lock
+-- contention fail the migration LOUDLY (uncaught 55P03 → full rollback) rather than wait
+-- indefinitely.
+--
 -- REHEARSED live in aborted transactions (evidence in the PR comment):
 --   • zero matching rows                   → succeeds, no-op;
 --   • demo-tagged legacy rows              → set to NULL;
 --   • exact-origin row with notes IS NULL  → pre-mutation guard raises, rolls back;
 --   • a non-demo-notes legacy row present  → pre-mutation guard raises, rolls back;
 --   • a wrong-origin /proposals/ row       → pre-mutation guard raises, rolls back;
---   • an unexpected URL left behind        → postcondition raises, rolls back.
+--   • an unexpected URL left behind        → postcondition raises, rolls back;
+--   • concurrent writer holds ROW EXCLUSIVE → SHARE lock waits then times out (55P03),
+--     migration fails loud and rolls back — no partial/inconsistent cleanup.
 -- The notes-IS-NULL case is the null-safety fix: the earlier `NOT (…)`/INNER-JOIN guard
 -- excluded it (three-valued logic + inner-join drop); the LEFT JOIN + `IS NOT TRUE`
 -- guard now identifies it BEFORE the UPDATE, per the decision-#200 contract.
@@ -53,6 +66,29 @@ declare
   v_updated       bigint;
   v_remaining     bigint;
 begin
+  -- ── Concurrency guard: serialize against concurrent writers ────────────────
+  -- The guard, UPDATE, and postcondition are three separate statements. Under READ
+  -- COMMITTED each takes its own snapshot, so WITHOUT a lock a concurrent transaction
+  -- could INSERT/UPDATE a legacy `/proposals/` proposal_url that commits AFTER the
+  -- postcondition's snapshot but BEFORE this migration commits — the migration would
+  -- then report a clean, zero-remaining cleanup while a legacy URL is in fact stored
+  -- (Second-Opinion Gate finding, decision #200).
+  --
+  -- Fix: take a table lock BEFORE the guard and hold it through the postcondition (it
+  -- releases only at transaction end). SHARE MODE — not EXCLUSIVE — is the correct
+  -- strength: SHARE conflicts with the ROW EXCLUSIVE lock every INSERT/UPDATE/DELETE on
+  -- `deals` must take, so it blocks the entire concurrent-write threat, while still
+  -- permitting ordinary concurrent READS (SHARE does not conflict with ACCESS SHARE).
+  -- The migration's own UPDATE does not conflict with this lock — a transaction never
+  -- conflicts with locks it already holds.
+  --
+  -- `set local lock_timeout` bounds the wait so contention fails the migration LOUDLY and
+  -- immediately (uncaught error → full rollback) rather than blocking indefinitely; SET
+  -- LOCAL scopes it to this transaction only. There is deliberately NO exception handler,
+  -- so a lock timeout (55P03) propagates and rolls everything back.
+  set local lock_timeout = '5s';
+  lock table public.deals in share mode;
+
   -- ── Pre-mutation guard ─────────────────────────────────────────────────────
   -- Protect real records in ANY environment: if a deals.proposal_url references a
   -- '/proposals/' path but is NOT a demo-tagged row at the exact retired origin,
