@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { transformWithEsbuild } from 'vite'
+import { transformWithOxc } from 'vite'
 
 // Allowlisted declaration lines — see publishable-read-sites.test.ts branch (e).
 const APP_PREFERRED_VAR = 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'
@@ -28,13 +28,22 @@ const APP_LEGACY_VAR = 'NEXT_PUBLIC_SUPABASE_ANON_KEY'
  * environment is never read, printed, hashed, or embedded. This test would behave identically on a
  * machine with no Supabase configuration at all.
  *
- * The substituter is reached through Vite's `transformWithEsbuild`, a supported API of a package
- * this repo DECLARES. An earlier revision imported `esbuild` directly; that resolved only because
- * npm happened to hoist a transitive dependency of Vite/Vitest, which is an incidental layout
- * rather than a repository contract — a dependency, lockfile, or hoisting change could turn the
- * test guarding this invariant into a hard module-not-found failure. It is a modelling stand-in
- * for the production bundler, not the production bundler itself; the negative control is what
- * makes the model's verdict meaningful.
+ * The substituter is reached through Vite's `transformWithOxc`, a first-class API of a package this
+ * repo DECLARES. Two earlier revisions are worth remembering, because each failure mode is
+ * different:
+ *   • importing `esbuild` directly resolved only because npm happened to hoist a transitive
+ *     dependency of Vite/Vitest. That is an incidental layout, not a repository contract, so a
+ *     dependency, lockfile, or hoisting change could turn the test guarding this invariant into a
+ *     hard module-not-found failure;
+ *   • `transformWithEsbuild` fixed the declaration problem but is deprecated in the installed Vite
+ *     major, emitting an explicit removal warning on every run — trading an incidental break for
+ *     an announced one.
+ * `transformWithOxc` is declared, current, and on Vite 8's Oxc/Rolldown path. It was adopted only
+ * after empirically confirming it preserves BOTH directions of this test: positive define
+ * substitution AND a still-untransformed parameterised negative control.
+ *
+ * It is a modelling stand-in for the production bundler, not the production bundler itself; the
+ * negative control is what makes the model's verdict meaningful.
  */
 
 const APP_RESOLVER = 'src/lib/supabase/publishable-key.ts'
@@ -57,8 +66,7 @@ const DEFINE: Record<string, string> = {
  * verdict to mean anything.
  */
 async function substitute(source: string): Promise<string> {
-  const { code } = await transformWithEsbuild(source, 'publishable-key-under-test.ts', {
-    loader: 'ts',
+  const { code } = await transformWithOxc(source, 'publishable-key-under-test.ts', {
     define: DEFINE,
   })
   return code
