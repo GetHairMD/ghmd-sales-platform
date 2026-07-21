@@ -65,7 +65,17 @@ export async function fetchOverdue(): Promise<OverdueRow[]> {
   // uses the service credential.
   const { url, init } = buildOverdueRequest()
   const res = await fetch(url, init)
-  if (!res.ok) throw new Error(`residual_risk_overdue() failed: ${res.status} ${await res.text()}`)
+  // ⚠ STATUS ONLY — never the response body, and never any other reflected field.
+  // This request carries the service credential, so the endpoint's error body is UNTRUSTED with
+  // respect to credential material: anything it reflects would land in the Actions log verbatim
+  // (the sweep's top-level handler console.errors the thrown error). The body is withheld
+  // entirely rather than redacted — a redaction pattern must enumerate the shapes a secret can
+  // take, and that enumeration is never complete. `statusText`, headers and `res.url` are
+  // excluded for the same reason: they are server-controlled. The numeric status is enough to
+  // diagnose, and the full response is one manual re-run away for a human who needs it.
+  if (!res.ok) {
+    throw new Error(`residual_risk_overdue() failed with HTTP ${res.status}`)
+  }
   const data = (await res.json()) as unknown
   return (Array.isArray(data) ? data : []) as OverdueRow[]
 }

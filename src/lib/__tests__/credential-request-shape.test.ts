@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { buildOverdueRequest, fetchOverdue } from '../../../scripts/second-opinion-gate/overdue-rpc'
 
 // Allowlisted declaration lines — see credential-read-sites.test.ts branch (e).
@@ -22,6 +24,10 @@ const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
 const NEW_DUMMY = 'synthetic-not-a-real-key-QX7ZNEWMARKER-0000'
 const LEGACY_DUMMY = 'synthetic-not-a-real-key-QX7ZLEGACYMARKER-0000'
 const URL_BASE = 'https://example.invalid'
+
+/** Round 9: unique marker for anything a failing response could reflect back at us. */
+const FAIL_MARKER = 'QX7ZBODYLEAKMARKER'
+const FAIL_BODY = `{"hint":"synthetic-reflected-value-${FAIL_MARKER}-0000"}`
 
 /**
  * Env is manipulated ONLY through `vi.stubEnv`, so this suite performs no `process.env[NAME]`
@@ -57,6 +63,32 @@ function serialize(url: string, init: RequestInit | undefined): string {
 
 function headerNames(init: RequestInit | undefined): string[] {
   return Object.keys((init?.headers ?? {}) as Record<string, string>).map((h) => h.toLowerCase())
+}
+
+/**
+ * Answers the sweep with a NON-OK response whose body, statusText, headers and url all carry
+ * synthetic sentinels, and records whether `text()` / `json()` were ever consumed.
+ */
+function interceptFailingFetch(status: number, bodySentinel: string) {
+  const consumed = { text: 0, json: 0 }
+  vi.stubGlobal('fetch', () =>
+    Promise.resolve({
+      ok: false,
+      status,
+      statusText: `STATUSTEXT-${FAIL_MARKER}`,
+      url: `https://example.invalid/?leak=${FAIL_MARKER}`,
+      headers: { get: () => `HEADER-${FAIL_MARKER}` },
+      text: () => {
+        consumed.text += 1
+        return Promise.resolve(bodySentinel)
+      },
+      json: () => {
+        consumed.json += 1
+        return Promise.resolve({ leaked: bodySentinel })
+      },
+    } as unknown as Response),
+  )
+  return consumed
 }
 
 beforeEach(() => {
@@ -128,6 +160,60 @@ describe('overdue RPC request — apikey-only, resolver-preferred credential', (
     expect(headerNames(init)).toEqual(['apikey', 'content-type'])
   })
 
+  it('a failing response produces a STATUS-ONLY error — no body, and text() is never called', async () => {
+    // Round 9. This request carries the service credential, so the endpoint's error body is
+    // untrusted with respect to credential material; the sweep's top-level handler console.errors
+    // whatever is thrown, straight into the Actions log.
+    const logs: string[] = []
+    for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {
+      vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
+        logs.push(args.map(String).join(' '))
+      })
+    }
+    const consumed = interceptFailingFetch(503, FAIL_BODY)
+
+    let thrown = ''
+    try {
+      await fetchOverdue()
+    } catch (err) {
+      thrown = `${(err as Error).message}\n${(err as Error).stack ?? ''}`
+    }
+
+    // (1) status-only exception
+    expect(thrown).not.toBe('')
+    expect(thrown).toContain('503')
+    expect(thrown).toContain('residual_risk_overdue')
+
+    // (2) neither the sentinel nor its unique substring reaches the message or any log
+    const haystack = `${thrown}\n${logs.join('\n')}`
+    for (const secret of [FAIL_BODY, FAIL_MARKER]) {
+      expect(haystack).not.toContain(secret)
+    }
+    // Nor any other server-controlled field (statusText / headers / url all carried the marker).
+    expect(haystack).not.toContain('STATUSTEXT-')
+    expect(haystack).not.toContain('HEADER-')
+
+    // (3) the body was never even read — withheld, not redacted
+    expect(consumed.text).toBe(0)
+    expect(consumed.json).toBe(0)
+  })
+
+  it('withholds the body for every non-OK status, not just one', async () => {
+    for (const status of [400, 401, 403, 404, 429, 500, 503]) {
+      const consumed = interceptFailingFetch(status, FAIL_BODY)
+      await expect(fetchOverdue()).rejects.toThrow(new RegExp(`HTTP ${status}`))
+      expect(consumed.text).toBe(0)
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('(4) successful-response behaviour is unchanged', async () => {
+    const { calls } = interceptFetch()
+    await expect(fetchOverdue()).resolves.toEqual([])
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe(`${URL_BASE}/rest/v1/rpc/residual_risk_overdue`)
+  })
+
   it('throws (rather than sending an unauthenticated request) when no credential is configured', async () => {
     setVar(NEW_VAR, undefined)
     setVar(LEGACY_VAR, undefined)
@@ -135,5 +221,47 @@ describe('overdue RPC request — apikey-only, resolver-preferred credential', (
 
     await expect(fetchOverdue()).rejects.toThrow()
     expect(calls).toHaveLength(0)
+  })
+})
+
+describe('sweep error paths never put a response body into a CI-visible error (round 9)', () => {
+  /**
+   * (5) Narrow source assertion over the KNOWN Second-Opinion Gate sweep paths, so a response
+   * body cannot be reintroduced into a thrown error later. Deliberately scoped to these two
+   * files — this is not a repository-wide error-handling rule.
+   */
+  const SWEEP_SOURCES = [
+    'scripts/second-opinion-gate/overdue-rpc.ts',
+    'scripts/second-opinion-gate/run-sweep.ts',
+  ]
+  const codeOnly = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+
+  for (const file of SWEEP_SOURCES) {
+    it(`${file} consumes no response body on a failure path`, () => {
+      const src = codeOnly(readFileSync(join(process.cwd(), file), 'utf8'))
+      // No body consumption at all in these files (the success path uses res.json() only in
+      // overdue-rpc, which is asserted separately below).
+      expect(/res\.text\(\)/.test(src), 'response body must never be read for an error').toBe(false)
+      // No server-controlled field interpolated into an error either.
+      expect(/statusText/.test(src)).toBe(false)
+      expect(/throw new Error\([^)]*res\.url/.test(src)).toBe(false)
+      expect(/throw new Error\([^)]*res\.headers/.test(src)).toBe(false)
+    })
+
+    it(`${file} throws status-only errors`, () => {
+      const src = codeOnly(readFileSync(join(process.cwd(), file), 'utf8'))
+      const throwsOnNotOk = src.match(/if \(!res\.ok\)[\s\S]{0,160}?throw new Error\(`[^`]*`/g) ?? []
+      expect(throwsOnNotOk.length).toBeGreaterThan(0)
+      for (const stmt of throwsOnNotOk) {
+        // Exactly one interpolation, and it is the numeric status.
+        const interpolations = stmt.match(/\$\{[^}]*\}/g) ?? []
+        expect(interpolations, stmt).toEqual(['${res.status}'])
+      }
+    })
+  }
+
+  it('the success path still parses the body (the fix withholds only on failure)', () => {
+    const src = codeOnly(readFileSync(join(process.cwd(), 'scripts/second-opinion-gate/overdue-rpc.ts'), 'utf8'))
+    expect(src.includes('await res.json()')).toBe(true)
   })
 })

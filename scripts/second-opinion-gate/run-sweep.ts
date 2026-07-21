@@ -59,7 +59,9 @@ function renderIssueBody(rows: OverdueRow[], trace: string, today: string): stri
 
 async function findTrackingIssue(repo: string, token: string): Promise<{ number: number; state: string } | null> {
   const res = await gh(`/repos/${repo}/issues?labels=${ISSUE_LABEL}&state=all&per_page=1`, token)
-  if (!res.ok) throw new Error(`Issue search failed: ${res.status} ${await res.text()}`)
+  // Status only — see the note in overdue-rpc.ts. These responses are server-controlled and this
+  // job runs with secrets in env; nothing from a response body may reach the Actions log.
+  if (!res.ok) throw new Error(`Issue search failed with HTTP ${res.status}`)
   const arr = (await res.json()) as Array<{ number: number; state: string }>
   return arr.length ? { number: arr[0].number, state: arr[0].state } : null
 }
@@ -111,7 +113,8 @@ async function main(): Promise<void> {
         labels: [ISSUE_LABEL],
       }),
     })
-    if (!res.ok) throw new Error(`Issue create failed: ${res.status} ${await res.text()}`)
+    // Status only — see the note in overdue-rpc.ts.
+    if (!res.ok) throw new Error(`Issue create failed with HTTP ${res.status}`)
     const created = (await res.json()) as { number: number }
     console.log(`Opened tracking issue #${created.number}.`)
   }
