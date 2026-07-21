@@ -5,8 +5,13 @@ import { getSupabaseSecretKey } from '../supabase/secret-key'
  * Supabase secret-key resolver — decision #199 remediation (credential compatibility layer).
  *
  * The resolver is the ONE place in the repo that reads the Supabase service credential.
- * It exists so the legacy `service_role` JWT can be swapped for a modern `sb_secret_` key
- * as a pure value change, with no code deploy in the rotation window.
+ * It exists so the legacy `service_role` JWT can be swapped for a modern `sb_secret_` key as a
+ * pure VALUE change — no further code change is required for rotation once this layer ships.
+ *
+ * ⚠ That is not the same as "no deploy". Env vars are captured per deploy and service clients
+ * are process-cached, so every env change still requires a fresh deploy in EVERY affected
+ * context (production and any preview/branch context under test), each confirmed `ready` with
+ * its `commit_ref` matched to the intended SHA before it is verified against.
  *
  * Contract under test (exact, in order):
  *   1. new var: absent / empty / whitespace-only  -> fall through;  padded non-blank -> THROW;

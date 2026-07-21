@@ -16,9 +16,15 @@ import { join } from 'node:path'
  * `const e = process.env; e.X`), whereas "the identifier does not appear" has no gaps and
  * produces a failure message a future reader can act on immediately.
  *
- * The allowlist is EXACT — specific paths, and for the workflow specific LINES. There is no
- * `.github/workflows/*` wildcard: any occurrence in any other workflow, or on any other line
- * of the sweep workflow, is a violation.
+ * The allowlist is EXACT — specific paths, and for two of the three branches specific LINES:
+ *   (a) the resolver module (whole file);
+ *   (b) `.env.local.example` — bare placeholder assignments and non-assigning comments only,
+ *       so a real value pasted there fails CI even if it is commented out. The file is scanned
+ *       by EXACT NAME, since its extension is outside SCANNED_EXTENSIONS; leaving a credential
+ *       -config file unscanned would put the one likeliest leak site outside the invariant.
+ *   (c) the sweep workflow — the two exact environment-mapping lines, nothing else.
+ * There is no `.github/workflows/*` wildcard: any occurrence in any other workflow, or on any
+ * other line of the sweep workflow, is a violation.
  *
  * ⚠ This test file and its companions assemble the identifiers at runtime (below) rather than
  * writing them as literals, so the suites that exercise the resolver need no exemption from
@@ -31,7 +37,16 @@ const IDENTIFIERS = [NEW_VAR, LEGACY_VAR]
 
 /** (a) the single resolver module — the one legitimate read site. */
 const RESOLVER = 'src/lib/supabase/secret-key.ts'
-/** (b) the example env file — placeholders only (outside the scanned extensions; declared for completeness). */
+/**
+ * (b) the example env file — BARE PLACEHOLDERS ONLY.
+ *
+ * It is pulled into the scan explicitly (its extension is not in SCANNED_EXTENSIONS), because a
+ * credential-config file left outside the invariant would be the one place a real value could
+ * land unnoticed. Its allowlist is correspondingly narrow: an assignment must be exactly
+ * `<IDENT>=` with NO value, and prose comments may name a variable but may not contain
+ * `<IDENT>=`. So either identifier followed by `=` and any value at all fails CI — including
+ * commented out, which is how a pasted key would most plausibly arrive here.
+ */
 const EXAMPLE_ENV = '.env.local.example'
 /** (c) the sweep workflow, and ONLY these two environment-mapping lines within it. */
 const SWEEP_WORKFLOW = '.github/workflows/residual-risk-sweep.yml'
@@ -83,14 +98,24 @@ function hitsIn(file: string): Hit[] {
   return hits
 }
 
+/**
+ * A line in the example env file is allowed only if it carries NO value for either identifier:
+ * either the bare placeholder assignment, or a comment that never assigns.
+ */
+function isAllowedExampleEnvLine(text: string): boolean {
+  if (IDENTIFIERS.some((id) => text === `${id}=`)) return true
+  return text.startsWith('#') && !IDENTIFIERS.some((id) => text.includes(`${id}=`))
+}
+
 function isAllowed(hit: Hit): boolean {
   if (hit.file === RESOLVER) return true
-  if (hit.file === EXAMPLE_ENV) return true
+  if (hit.file === EXAMPLE_ENV) return isAllowedExampleEnvLine(hit.text)
   if (hit.file === SWEEP_WORKFLOW) return SWEEP_ALLOWED_LINES.includes(hit.text)
   return false
 }
 
-const SCANNED = collect('')
+/** Extension-matched files, PLUS the example env file pulled in by exact name (branch (b)). */
+const SCANNED = [...collect(''), EXAMPLE_ENV]
 
 describe('credential identifiers appear only at the allowlisted sites (decision #199)', () => {
   it('scans a non-trivial slice of the repo (guards against a collector that silently matches nothing)', () => {
@@ -127,6 +152,27 @@ describe('credential identifiers appear only at the allowlisted sites (decision 
     const src = readFileSync(path, 'utf8')
     expect(src).toContain(`${NEW_VAR}=`)
     expect(src.indexOf(`${NEW_VAR}=`)).toBeLessThan(src.indexOf(`${LEGACY_VAR}=`))
+  })
+
+  it('the example env file is genuinely IN the scan, and every hit clears its narrow branch', () => {
+    expect(SCANNED).toContain(EXAMPLE_ENV)
+    const hits = hitsIn(EXAMPLE_ENV)
+    // Non-vacuous: the placeholders exist, so the branch is exercised on every CI run.
+    expect(hits.length).toBeGreaterThanOrEqual(2)
+    expect(hits.filter((h) => !isAllowed(h))).toEqual([])
+    expect(hits.some((h) => h.text === `${NEW_VAR}=`)).toBe(true)
+    expect(hits.some((h) => h.text === `${LEGACY_VAR}=`)).toBe(true)
+  })
+
+  it('a VALUE in the example env file would fail CI — bare or commented out (negative control)', () => {
+    for (const id of IDENTIFIERS) {
+      expect(isAllowedExampleEnvLine(`${id}=`)).toBe(true)
+      expect(isAllowedExampleEnvLine(`# prose naming ${id} without assigning it`)).toBe(true)
+
+      expect(isAllowedExampleEnvLine(`${id}=synthetic-value`)).toBe(false)
+      expect(isAllowedExampleEnvLine(`# ${id}=synthetic-value`)).toBe(false)
+      expect(isAllowedExampleEnvLine(`export ${id}=synthetic-value`)).toBe(false)
+    }
   })
 })
 

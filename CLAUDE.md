@@ -205,8 +205,22 @@ reach untrusted deploy previews).
 repo that reads either credential variable; everything else calls `getSupabaseSecretKey()`. It
 prefers `SUPABASE_SECRET_KEY`, falls back to `SUPABASE_SERVICE_ROLE_KEY` only when the preferred
 one is absent/blank, throws on a whitespace-padded (malformed) value rather than trimming it, and
-throws when neither is set. The invariant is enforced in CI by
-`src/lib/__tests__/credential-read-sites.test.ts` — adding a second read site fails the build.
+throws when neither is set.
+
+The invariant is enforced in CI by `src/lib/__tests__/credential-read-sites.test.ts`, a whole-line
+scan over every `.ts/.tsx/.mts/.cts/.js/.jsx/.mjs/.cjs/.yml/.yaml` file **plus `.env.local.example`
+by exact name** (docs/, handoffs/ and decisions/ are excluded as prose). Either variable name
+appearing anywhere outside an exact allowlist fails the build — so adding a second read site, or
+naming a variable in a new workflow, breaks CI. The allowlist is (a) the resolver module, (b)
+`.env.local.example` **restricted to bare `NAME=` placeholders and non-assigning comments**, so a
+real value committed there fails CI even if commented out, and (c) exactly two environment-mapping
+lines in `.github/workflows/residual-risk-sweep.yml` — there is no workflow-path wildcard.
+
+**Rotation requires a deploy even though it requires no code change.** Env vars are captured per
+deploy and service clients are process-cached: no existing deploy adopts an env change. After any
+credential env change, force a fresh deploy in **every affected context** (production and each
+preview/branch context under test) and confirm each is `ready` with `commit_ref` matched to the
+intended SHA before verifying against it.
 
 ## QA / Deploy-Preview Capability Stack
 

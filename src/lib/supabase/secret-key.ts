@@ -4,12 +4,22 @@
  *
  * WHY THIS EXISTS
  * Supabase's modern `sb_secret_` keys are not JWTs, and the legacy `service_role` JWT is
- * being rotated out. Routing every consumer through one resolver makes that rotation a pure
- * value swap in the credential stores — no code change, no deploy, in the rotation window:
+ * being rotated out. Routing every consumer through one resolver makes rotation a pure VALUE
+ * swap in the credential stores — no FURTHER CODE CHANGE is required once this layer has
+ * shipped:
  *
  *   1. provision the new variable alongside the legacy one  -> new value is preferred here;
  *   2. remove the legacy variable                            -> new-only operation;
  *   3. disable the legacy key at the Supabase source.
+ *
+ * ⚠ "No further code change" is NOT "no deploy". Environment variables are captured PER DEPLOY,
+ * and service clients are process-cached, so no existing deploy — in any context — ever adopts
+ * an env change on its own. Production and each preview/branch context are separate deployment
+ * boundaries: a fresh deploy in one does not update any other. Therefore EVERY env change at
+ * steps 1 and 2 above must be followed by a FRESH DEPLOY IN EVERY AFFECTED CONTEXT, and before
+ * verifying against a context that deploy must be confirmed `ready` with its `commit_ref`
+ * matched to the intended SHA. Step 3 changes no env var and so needs no new deploy; it
+ * re-verifies the already-deployed new-only state.
  *
  * CONTRACT (exact, evaluated in order)
  *   • Preferred variable, then legacy variable, each under the identical rule:
