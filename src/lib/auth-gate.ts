@@ -117,6 +117,25 @@ export function isPublicPath(pathname: string): boolean {
 }
 
 /**
+ * The retired public buyer route `/proposals/[prospectId]` (decision #200), for the
+ * pre-auth middleware tombstone. TRUE only for a path with a NON-EMPTY segment after
+ * `/proposals/` — i.e. `/proposals/<something>` (the deleted dynamic route and anything
+ * beneath it).
+ *
+ * Deliberately segment-required, NOT a bare `startsWith('/proposals/')`: that prefix also
+ * matches `/proposals/` itself — the trailing-slash form of the REP-facing bare index —
+ * and tombstoning it would 404 an authenticated user reaching the canonical index (the
+ * Block-A regression). Both `/proposals` and `/proposals/` must fall through to the normal
+ * auth gate; only `/proposals/<segment>` is a retired surface. `/proposals` never matches
+ * ('/proposals'.startsWith('/proposals/') is false); `/proposals/` matches the prefix but
+ * has zero trailing segment, so the length guard excludes it.
+ */
+export function isRetiredProposalPath(pathname: string): boolean {
+  const PREFIX = '/proposals/'
+  return pathname.startsWith(PREFIX) && pathname.length > PREFIX.length
+}
+
+/**
  * The full gate decision: should an unauthenticated request be redirected to
  * /login? Fail-closed — redirects unless the user is authenticated, the path is
  * public, or the bypass is explicitly and exactly enabled.

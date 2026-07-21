@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { isPublicPath } from '../auth-gate'
+import { isPublicPath, isRetiredProposalPath } from '../auth-gate'
 
 /**
  * Legacy public proposal route removal — decision #200, Sprint 0.1 Phase 0 containment.
@@ -58,9 +58,32 @@ describe('legacy /proposals route removal — page + gate (decision #200)', () =
   })
 })
 
+describe('isRetiredProposalPath — tombstone only /proposals/<segment>, preserve the index', () => {
+  it('does NOT tombstone the bare index in either form (Block-A regression)', () => {
+    // Both must fall through to the normal auth gate, not the pre-auth 404.
+    expect(isRetiredProposalPath('/proposals')).toBe(false)
+    expect(isRetiredProposalPath('/proposals/')).toBe(false)
+  })
+
+  it('tombstones a retired dynamic path (non-empty segment after /proposals/)', () => {
+    expect(isRetiredProposalPath('/proposals/00000000-0000-0000-0000-000000000000')).toBe(true)
+    expect(isRetiredProposalPath('/proposals/abc-123')).toBe(true)
+  })
+
+  it('tombstones a deeper retired path', () => {
+    expect(isRetiredProposalPath('/proposals/00000000-0000-0000-0000-000000000000/anything')).toBe(true)
+  })
+
+  it('never matches unrelated or lookalike paths', () => {
+    for (const p of ['/p/slug', '/proposalsX', '/proposalsz/y', '/dashboard', '/']) {
+      expect(isRetiredProposalPath(p)).toBe(false)
+    }
+  })
+})
+
 describe('middleware tombstone — pre-auth 404 with tombstone-before-client ordering', () => {
   const src = codeOnly(read(MIDDLEWARE))
-  const tombstoneAt = src.indexOf("startsWith('/proposals/')")
+  const tombstoneAt = src.indexOf('isRetiredProposalPath(')
   const status404At = src.indexOf('status: 404')
   const clientAt = src.indexOf('createServerClient(')
   const getUserAt = src.indexOf('auth.getUser(')

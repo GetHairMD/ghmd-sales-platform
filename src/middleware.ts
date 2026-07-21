@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { shouldRedirectToLogin } from '@/lib/auth-gate'
+import { shouldRedirectToLogin, isRetiredProposalPath } from '@/lib/auth-gate'
 import { shouldRefuseServing } from '@/lib/deployment-guard.mjs'
 
 export async function middleware(request: NextRequest) {
@@ -39,11 +39,12 @@ export async function middleware(request: NextRequest) {
   // and ZERO auth work. Placing it above the Supabase client construction is the
   // load-bearing part: it must not be reachable through any session/cookie code path.
   //
-  // Scope: the trailing slash matches only the (retired) dynamic segment. The BARE
-  // '/proposals' internal index is REP-facing and stays auth-gated — it is NOT matched
-  // here ('/proposals'.startsWith('/proposals/') === false) and flows through to the
-  // normal gate below.
-  if (request.nextUrl.pathname.startsWith('/proposals/')) {
+  // Scope: ONLY a retired path with a non-empty segment after '/proposals/' (i.e.
+  // '/proposals/<something>') is tombstoned — see isRetiredProposalPath. The REP-facing
+  // bare index is preserved in BOTH forms: '/proposals' AND '/proposals/' fall through to
+  // the normal auth gate below (tombstoning '/proposals/' would 404 an authenticated user
+  // reaching the canonical index — the Block-A regression). '/p/[slug]' is untouched.
+  if (isRetiredProposalPath(request.nextUrl.pathname)) {
     return new NextResponse('Not Found', {
       status: 404,
       headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },

@@ -34,7 +34,7 @@ const code = sqlCodeOnly(raw)
 // phase begins at its `with tgt as (…)` CTE — which is where its origin/demo-marker
 // predicates live — not at the `update public.deals` keyword that follows the CTE.
 const lockTimeoutAt = code.indexOf('set local lock_timeout')
-const lockTableAt = code.indexOf('lock table public.deals in share mode')
+const lockTableAt = code.indexOf('lock table public.deals, public.prospects in share mode')
 const guardAt = code.indexOf('into v_unexpected')
 const cleanupAt = code.indexOf('with tgt as')
 const updateKeywordAt = code.indexOf('update public.deals')
@@ -78,8 +78,12 @@ describe('legacy-proposal-url migration — concurrency lock (decision #200 gate
     expect(lockTimeoutAt).toBeLessThan(lockTableAt)
   })
 
-  it('takes LOCK TABLE public.deals IN SHARE MODE (not a stronger/weaker mode)', () => {
-    expect(code).toContain('lock table public.deals in share mode')
+  it('locks BOTH public.deals AND public.prospects in ONE SHARE MODE statement', () => {
+    // Both tables contribute a mutable column to the destructive eligibility predicate
+    // (deals.proposal_url/notes and prospects.lead_source), so both must be held immutable.
+    expect(code).toContain('lock table public.deals, public.prospects in share mode')
+    // exactly one LOCK TABLE statement (single, consistently-ordered lock).
+    expect((code.match(/lock table/g) ?? []).length).toBe(1)
     // SHARE precisely: must NOT be EXCLUSIVE / ACCESS EXCLUSIVE / SHARE ROW EXCLUSIVE
     // (each of those is either wrong strength or blocks ordinary reads).
     expect(code).not.toContain('in exclusive mode')

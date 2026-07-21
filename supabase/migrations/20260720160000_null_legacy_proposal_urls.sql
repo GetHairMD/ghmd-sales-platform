@@ -34,16 +34,18 @@
 -- hostname appears. Re-runnable: once the rows are NULL they no longer match, so a
 -- second apply is a clean zero-row no-op.
 --
--- CONCURRENCY GUARANTEE (Second-Opinion Gate finding, decision #200): the guard, UPDATE,
+-- CONCURRENCY GUARANTEE (Second-Opinion Gate findings, decision #200): the guard, UPDATE,
 -- and postcondition are separate statements, so under READ COMMITTED a concurrent write
--- could commit a legacy `/proposals/` URL between the postcondition snapshot and this
--- migration's commit and survive undetected. To close that window the block acquires
--- `LOCK TABLE public.deals IN SHARE MODE` BEFORE the guard and holds it through the
--- postcondition (released only at transaction end). SHARE MODE conflicts with the ROW
--- EXCLUSIVE lock every INSERT/UPDATE/DELETE takes — so all concurrent writers are blocked
--- — while ordinary READS remain allowed. A bounded `SET LOCAL lock_timeout` makes lock
--- contention fail the migration LOUDLY (uncaught 55P03 → full rollback) rather than wait
--- indefinitely.
+-- could commit between a snapshot and this migration's commit and survive undetected. To
+-- close that window the block acquires `LOCK TABLE public.deals, public.prospects IN SHARE
+-- MODE` BEFORE the guard and holds it through the postcondition (released only at
+-- transaction end). BOTH tables are locked because BOTH contribute a mutable column to the
+-- destructive eligibility predicate: `deals` (the nulled `proposal_url` + `notes`) and
+-- `prospects` (`lead_source`). SHARE MODE conflicts with the ROW EXCLUSIVE lock every
+-- INSERT/UPDATE/DELETE on either table takes — so all concurrent writers to `deals` AND
+-- `prospects` are blocked — while ordinary READS remain allowed. A bounded `SET LOCAL
+-- lock_timeout` makes lock contention fail the migration LOUDLY (uncaught 55P03 → full
+-- rollback) rather than wait indefinitely.
 --
 -- REHEARSED live in aborted transactions (evidence in the PR comment):
 --   • zero matching rows                   → succeeds, no-op;
@@ -52,8 +54,8 @@
 --   • a non-demo-notes legacy row present  → pre-mutation guard raises, rolls back;
 --   • a wrong-origin /proposals/ row       → pre-mutation guard raises, rolls back;
 --   • an unexpected URL left behind        → postcondition raises, rolls back;
---   • concurrent writer holds ROW EXCLUSIVE → SHARE lock waits then times out (55P03),
---     migration fails loud and rolls back — no partial/inconsistent cleanup.
+--   • concurrent writer holds ROW EXCLUSIVE on deals OR prospects → SHARE lock waits then
+--     times out (55P03), migration fails loud and rolls back — no partial cleanup.
 -- The notes-IS-NULL case is the null-safety fix: the earlier `NOT (…)`/INNER-JOIN guard
 -- excluded it (three-valued logic + inner-join drop); the LEFT JOIN + `IS NOT TRUE`
 -- guard now identifies it BEFORE the UPDATE, per the decision-#200 contract.
@@ -69,25 +71,36 @@ begin
   -- ── Concurrency guard: serialize against concurrent writers ────────────────
   -- The guard, UPDATE, and postcondition are three separate statements. Under READ
   -- COMMITTED each takes its own snapshot, so WITHOUT a lock a concurrent transaction
-  -- could INSERT/UPDATE a legacy `/proposals/` proposal_url that commits AFTER the
-  -- postcondition's snapshot but BEFORE this migration commits — the migration would
-  -- then report a clean, zero-remaining cleanup while a legacy URL is in fact stored
-  -- (Second-Opinion Gate finding, decision #200).
+  -- could change state that commits AFTER a snapshot but BEFORE this migration commits —
+  -- the migration would then report a clean, zero-remaining cleanup while the promised
+  -- targeting is in fact violated (Second-Opinion Gate findings, decision #200).
   --
-  -- Fix: take a table lock BEFORE the guard and hold it through the postcondition (it
-  -- releases only at transaction end). SHARE MODE — not EXCLUSIVE — is the correct
-  -- strength: SHARE conflicts with the ROW EXCLUSIVE lock every INSERT/UPDATE/DELETE on
-  -- `deals` must take, so it blocks the entire concurrent-write threat, while still
-  -- permitting ordinary concurrent READS (SHARE does not conflict with ACCESS SHARE).
-  -- The migration's own UPDATE does not conflict with this lock — a transaction never
-  -- conflicts with locks it already holds.
+  -- EVERY TABLE CONTRIBUTING A MUTABLE COLUMN TO THE DESTRUCTIVE ELIGIBILITY PREDICATE IS
+  -- LOCKED — both are load-bearing:
+  --   • public.deals     — the row whose `proposal_url` is nulled (write target), and the
+  --                        source of `notes = '[demo_seed]'`;
+  --   • public.prospects — the source of `lead_source = 'demo_seed'` in the join predicate.
+  -- Locking `deals` alone (the earlier fix) left `prospects.lead_source` mutable: a
+  -- concurrent UPDATE of that column could commit between the guard/UPDATE snapshot and
+  -- this migration's commit, so the migration would null `proposal_url` on a row that is no
+  -- longer doubly demo-tagged — an irreversible wrong-row deletion the guard/postcondition
+  -- cannot detect (the URL is already nulled). Locking BOTH tables closes that window.
+  --
+  -- SHARE MODE — not EXCLUSIVE — is the correct strength: SHARE conflicts with the ROW
+  -- EXCLUSIVE lock every INSERT/UPDATE/DELETE on either table must take, so it blocks the
+  -- entire concurrent-write threat on BOTH `deals.proposal_url` and `prospects.lead_source`,
+  -- while still permitting ordinary concurrent READS (SHARE does not conflict with ACCESS
+  -- SHARE). The migration's own UPDATE does not conflict with these locks — a transaction
+  -- never conflicts with locks it already holds. Both tables are named in ONE lock statement
+  -- in a fixed order (deals, prospects) to avoid lock-ordering ambiguity, and both locks are
+  -- acquired BEFORE the guard and held through the postcondition (released at txn end).
   --
   -- `set local lock_timeout` bounds the wait so contention fails the migration LOUDLY and
   -- immediately (uncaught error → full rollback) rather than blocking indefinitely; SET
   -- LOCAL scopes it to this transaction only. There is deliberately NO exception handler,
   -- so a lock timeout (55P03) propagates and rolls everything back.
   set local lock_timeout = '5s';
-  lock table public.deals in share mode;
+  lock table public.deals, public.prospects in share mode;
 
   -- ── Pre-mutation guard ─────────────────────────────────────────────────────
   -- Protect real records in ANY environment: if a deals.proposal_url references a
