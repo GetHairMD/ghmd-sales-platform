@@ -316,8 +316,17 @@ const CI_LEGACY_VAR = 'SUPABASE_ANON_KEY'
  * SERVICE-CREDENTIAL POLICY (decision #199 remediation, D7).
  *
  * Semantics are carried over from src/lib/__tests__/credential-read-sites.test.ts UNCHANGED —
- * same identifiers, same five allowlist branches, same whole-file exemption for the resolver.
+ * same identifiers, same whole-file exemption for the resolver, and the same permitted lines.
  * This move must not alter what is permitted; it only makes the scan enforceable at build time.
+ *
+ * The implemented `isAllowed` below has SIX branches: the resolver (whole file), `.env.local.example`,
+ * the sweep workflow, the immutable migration, the three credential suites, and — the sixth, easy to
+ * overlook — an exact-line `policyModule` self-scan branch. This module defines the policies, so it
+ * necessarily names the identifiers on its two constant-declaration lines; it is therefore scanned
+ * like any other tracked file and allowlisted only on those exact lines, with NO whole-file
+ * exemption of its own. (Documentation-accuracy correction: this comment previously said five and
+ * omitted the `policyModule` branch. Prose only — no behaviour change, and nothing added to,
+ * removed from, widened, or narrowed in the allowlist.)
  */
 const SERVICE_RESOLVER = 'src/lib/supabase/secret-key.ts'
 const SERVICE_EXAMPLE_ENV = '.env.local.example'
