@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { shouldRedirectToLogin, isRetiredProposalPath } from '@/lib/auth-gate'
 import { shouldRefuseServing } from '@/lib/deployment-guard.mjs'
+import { getSupabasePublishableKey } from '@/lib/supabase/publishable-key'
 
 export async function middleware(request: NextRequest) {
   // ── RUNTIME SERVE-REFUSAL (PR-0a.1, decision-log #182) ────────────────────
@@ -55,7 +56,7 @@ export async function middleware(request: NextRequest) {
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    getSupabasePublishableKey(),
     {
       cookies: {
         getAll() {

@@ -3,6 +3,13 @@ import { existsSync, readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { env } from '../../../scripts/second-opinion-gate/overdue-rpc'
+import {
+  SERVICE_CREDENTIAL_POLICY,
+  isProsePath,
+  trackedFiles,
+  hitsIn as scanHitsIn,
+  renderViolation as scanRenderViolation,
+} from '../../../scripts/security/read-site-scan.mjs'
 
 // Allowlisted declaration lines — branch (e) below. These are the ONLY lines in the three
 // credential suites permitted to spell an identifier; everything else uses these constants.
@@ -57,22 +64,32 @@ const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
  * RUNTIME, closing the practical version of that gap where name construction cannot help.
  */
 
-const IDENTIFIERS = [NEW_VAR, LEGACY_VAR]
+/**
+ * ⚠ MECHANISM AND POLICY NOW LIVE IN scripts/security/read-site-scan.mjs; this suite CONSUMES
+ * them. The move exists because these invariants were previously enforced ONLY here, and nothing
+ * in CI or the build ran Vitest — the Second-Opinion Gate blocked PR #159 on exactly that. The
+ * shared module is invoked from next.config.mjs, so `next build`, and therefore the required
+ * Netlify deploy-preview check, now fails on a prohibited read site.
+ *
+ * NOTHING ABOUT WHAT IS PERMITTED CHANGED: same identifiers, same five allowlist branches, same
+ * prose-exclusion semantics — defined once instead of twice. This suite continues to FREEZE them:
+ * the assertions below pin the policy's identifiers and allowlist contents to literals, so a
+ * silent widening of the shared policy fails here rather than passing quietly.
+ */
+const POLICY = SERVICE_CREDENTIAL_POLICY
+const IDENTIFIERS = POLICY.identifiers
 
 /** (a) the single resolver module — the one legitimate read site. */
-const RESOLVER = 'src/lib/supabase/secret-key.ts'
+const RESOLVER = POLICY.resolver
 /**
  * (b) the example env file — the TWO BARE PLACEHOLDER LINES, matched exactly (see
  * EXAMPLE_ENV_ALLOWED_LINES). It is pulled into the scan explicitly, because a credential-config
  * file left outside the invariant would be the one place a real value could land unnoticed.
  */
-const EXAMPLE_ENV = '.env.local.example'
+const EXAMPLE_ENV = POLICY.exampleEnv
 /** (c) the sweep workflow, and ONLY these two environment-mapping lines within it. */
-const SWEEP_WORKFLOW = '.github/workflows/residual-risk-sweep.yml'
-const SWEEP_ALLOWED_LINES = [
-  `${NEW_VAR}: \${{ secrets.${NEW_VAR} }}`,
-  `${LEGACY_VAR}: \${{ secrets.${LEGACY_VAR} }}`,
-]
+const SWEEP_WORKFLOW = POLICY.sweepWorkflow
+const SWEEP_ALLOWED_LINES = POLICY.allowedLines.sweepWorkflow
 
 /**
  * (d) ONE line of an already-applied migration, allowlisted by exact path AND exact line.
@@ -80,8 +97,8 @@ const SWEEP_ALLOWED_LINES = [
  * drift for a comment that is not an env read. Pinned to the exact text so the exemption cannot
  * widen to the rest of the file.
  */
-const IMMUTABLE_MIGRATION = 'supabase/migrations/20260720120000_revoke_sizing_jobs_client_grants.sql'
-const IMMUTABLE_MIGRATION_ALLOWED_LINES = [`--       ${LEGACY_VAR} (script-layer, human-invoked)`]
+const IMMUTABLE_MIGRATION = POLICY.immutableMigration
+const IMMUTABLE_MIGRATION_ALLOWED_LINES = POLICY.allowedLines.immutableMigration
 
 /**
  * (e) the three credential suites — ONLY their two constant-DECLARATION lines.
@@ -98,15 +115,8 @@ const IMMUTABLE_MIGRATION_ALLOWED_LINES = [`--       ${LEGACY_VAR} (script-layer
  * Tests are not credential consumers: they never authenticate, and they manipulate env only via
  * `vi.stubEnv`, which the importer rule below independently enforces.
  */
-const CREDENTIAL_SUITES = [
-  'src/lib/__tests__/credential-resolver.test.ts',
-  'src/lib/__tests__/credential-request-shape.test.ts',
-  'src/lib/__tests__/credential-read-sites.test.ts',
-]
-const SUITE_ALLOWED_LINES = [
-  `const NEW_VAR = '${NEW_VAR}'`,
-  `const LEGACY_VAR = '${LEGACY_VAR}'`,
-]
+const CREDENTIAL_SUITES = POLICY.suites
+const SUITE_ALLOWED_LINES = POLICY.allowedLines.suites
 
 /**
  * Human documentation surfaces, excluded by PATH (never by filename pattern). These legitimately
@@ -114,8 +124,9 @@ const SUITE_ALLOWED_LINES = [
  * enforced invariant is about READ SITES in the repository's executable and configuration
  * surface, not about whether prose may say a variable's name.
  */
-const PROSE_DIRECTORY_PREFIXES = ['docs/', 'handoffs/', 'decisions/']
-const PROSE_EXACT_PATHS = new Set(['CLAUDE.md'])
+// Defined once in scripts/security/read-site-scan.mjs and imported here, so the build-time
+// enforcement and this suite cannot disagree about what counts as prose. The exact-vs-prefix
+// semantics they encode are pinned by the adversarial corpus further down.
 
 /**
  * The ONE predicate deciding prose exclusion. Every site that excludes prose calls this — the
@@ -130,11 +141,7 @@ const PROSE_EXACT_PATHS = new Set(['CLAUDE.md'])
  * guard test encoded the same predicate, so it validated the hole instead of catching it. A
  * prefix rule is only sound for a path that ends in `/`; anything else must match exactly.
  */
-function isProsePath(path: string): boolean {
-  return (
-    PROSE_EXACT_PATHS.has(path) || PROSE_DIRECTORY_PREFIXES.some((prefix) => path.startsWith(prefix))
-  )
-}
+// `isProsePath` is imported from the shared module — see the note above.
 
 /**
  * Every TRACKED file in the repository, minus the prose surfaces.
@@ -156,18 +163,9 @@ function isProsePath(path: string): boolean {
  *    variable was named. An earlier renderer redacted post-`=` text instead; that was replaced
  *    because a JSON object entry defeats it. The two protections are independent.)
  */
-function trackedFiles(): string[] {
-  // Fails loudly rather than silently scanning nothing if git is unavailable.
-  const out = execFileSync('git', ['ls-files', '-z'], {
-    cwd: process.cwd(),
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  })
-  return out
-    .split('\0')
-    .filter((p) => p.length > 0)
-    .filter((p) => !isProsePath(p))
-}
+// `trackedFiles` is imported from the shared module. It additionally THROWS when git is missing,
+// git errors, or zero tracked files are reported — the fail-closed behaviour the build depends on,
+// exercised directly by read-site-scan.test.ts.
 
 /**
  * Strip comments before any STRUCTURAL check. These files discuss the forbidden patterns in prose
@@ -184,21 +182,8 @@ interface Hit {
   text: string
 }
 
-function hitsIn(file: string): Hit[] {
-  const abs = join(process.cwd(), file)
-  // Tracked binaries (png/woff/xlsx) simply never contain the ASCII identifiers.
-  let src: string
-  try {
-    src = readFileSync(abs, 'utf8')
-  } catch {
-    return []
-  }
-  const hits: Hit[] = []
-  src.split(/\r?\n/).forEach((text, i) => {
-    if (IDENTIFIERS.some((id) => text.includes(id))) hits.push({ file, line: i + 1, text: text.trim() })
-  })
-  return hits
-}
+/** Thin binding of the shared whole-line scanner to THIS policy's identifiers. */
+const hitsIn = (file: string): Hit[] => scanHitsIn(file, IDENTIFIERS) as Hit[]
 
 /**
  * Render a violation by WHITELISTING what may be printed — the location and which identifier was
@@ -216,10 +201,7 @@ function hitsIn(file: string): Hit[] {
  * variable name is enough to find and fix it; the content is one `git show` away for a human who
  * needs it, and never in a log.
  */
-function renderViolation(hit: Hit): string {
-  const named = IDENTIFIERS.filter((id) => hit.text.includes(id)).join(', ')
-  return `${hit.file}:${hit.line}  names ${named} (line content withheld — see the file)`
-}
+const renderViolation = (hit: Hit): string => scanRenderViolation(hit, IDENTIFIERS)
 
 /**
  * The ONLY lines allowed to name an identifier in the example env file: the two bare placeholder
@@ -237,20 +219,13 @@ function renderViolation(hit: Hit): string {
  * friction for the one tracked file whose entire purpose is holding credential assignments.
  * This is the same exact-line discipline already used for branches (c) and (d).
  */
-const EXAMPLE_ENV_ALLOWED_LINES = [`${NEW_VAR}=`, `${LEGACY_VAR}=`]
+const EXAMPLE_ENV_ALLOWED_LINES = POLICY.allowedLines.exampleEnv
 
 function isAllowedExampleEnvLine(text: string): boolean {
   return EXAMPLE_ENV_ALLOWED_LINES.includes(text)
 }
 
-function isAllowed(hit: Hit): boolean {
-  if (hit.file === RESOLVER) return true
-  if (hit.file === EXAMPLE_ENV) return isAllowedExampleEnvLine(hit.text)
-  if (hit.file === SWEEP_WORKFLOW) return SWEEP_ALLOWED_LINES.includes(hit.text)
-  if (hit.file === IMMUTABLE_MIGRATION) return IMMUTABLE_MIGRATION_ALLOWED_LINES.includes(hit.text)
-  if (CREDENTIAL_SUITES.includes(hit.file)) return SUITE_ALLOWED_LINES.includes(hit.text)
-  return false
-}
+const isAllowed = (hit: Hit): boolean => POLICY.isAllowed(hit)
 
 const SCANNED = trackedFiles()
 
@@ -555,5 +530,80 @@ describe('every service-credential consumer routes through the resolver', () => 
     const src = readFileSync(join(process.cwd(), 'netlify/functions/size-territory-background.mts'), 'utf8')
     expect(src).toContain("from '../../src/lib/supabase/service'")
     expect(src).toContain('createServiceClient()')
+  })
+})
+
+/**
+ * The policy now lives in the shared module, so this suite's remaining job for those values is to
+ * FREEZE them. Without this, a future edit could widen the shared allowlist and every assertion
+ * above would still pass — they consume the policy rather than pinning it.
+ */
+describe('the shared service-credential policy is frozen to exactly these values', () => {
+  it('pins the identifier set to the two literals, and nothing else', () => {
+    expect([...POLICY.identifiers]).toEqual([NEW_VAR, LEGACY_VAR])
+  })
+
+  it('pins every allowlist branch, exactly', () => {
+    expect([...POLICY.allowedLines.exampleEnv]).toEqual([`${NEW_VAR}=`, `${LEGACY_VAR}=`])
+    expect([...POLICY.allowedLines.sweepWorkflow]).toEqual([
+      `${NEW_VAR}: \${{ secrets.${NEW_VAR} }}`,
+      `${LEGACY_VAR}: \${{ secrets.${LEGACY_VAR} }}`,
+    ])
+    expect([...POLICY.allowedLines.immutableMigration]).toEqual([
+      `--       ${LEGACY_VAR} (script-layer, human-invoked)`,
+    ])
+    expect([...POLICY.allowedLines.suites]).toEqual([
+      `const NEW_VAR = '${NEW_VAR}'`,
+      `const LEGACY_VAR = '${LEGACY_VAR}'`,
+    ])
+    expect([...POLICY.suites]).toEqual([
+      'src/lib/__tests__/credential-resolver.test.ts',
+      'src/lib/__tests__/credential-request-shape.test.ts',
+      'src/lib/__tests__/credential-read-sites.test.ts',
+    ])
+  })
+
+  it('pins the REQUIRED literal reads, spelled out (positive invariant)', () => {
+    // read-site-scan.test.ts pins the structure but cannot spell an identifier — it is not on any
+    // suite allowlist. This file is, so the literal text is pinned here: if a required read were
+    // silently dropped or reworded, this fails.
+    expect(POLICY.requiredReads).toEqual({
+      'src/lib/supabase/secret-key.ts': [
+        `const preferred = classify(PREFERRED_VAR, process.env.${NEW_VAR})`,
+        `const legacy = classify(LEGACY_VAR, process.env.${LEGACY_VAR})`,
+      ],
+    })
+  })
+
+  it('the policy module itself is in scope and allowlisted by exact LINE, not by file', () => {
+    // It names both identifiers on its two declaration lines, so it must be scanned like anything
+    // else. A whole-file exemption there would let any future line of it name a credential.
+    const POLICY_MODULE = 'scripts/security/read-site-scan.mjs'
+    expect(SCANNED).toContain(POLICY_MODULE)
+    const hits = hitsIn(POLICY_MODULE)
+    expect(hits.length).toBe(POLICY.allowedLines.policyModule.length)
+    expect(hits.every(isAllowed)).toBe(true)
+    expect(isAllowed({ file: POLICY_MODULE, line: 1, text: `process.env.${NEW_VAR}` })).toBe(false)
+  })
+
+  it('NEGATIVE CONTROL — a synthetic prohibited service-key read is rejected and rendered safely', () => {
+    // The property the build now depends on: an unreviewed read site in an ordinary tracked file
+    // is NOT allowed, and reporting it leaks nothing.
+    const MARKER = 'QX7ZSERVICENEGCTL'
+    for (const text of [
+      `const k = process.env.${NEW_VAR}`,
+      `const k = process.env['${LEGACY_VAR}']`,
+      `const { ${NEW_VAR} } = process.env`,
+      `${LEGACY_VAR}=synthetic-${MARKER}`,
+      `"${NEW_VAR}": "sb_secret_synthetic-${MARKER}"`,
+    ]) {
+      const hit = { file: 'src/app/some-new-file.ts', line: 12, text }
+      expect(isAllowed(hit)).toBe(false)
+      const rendered = renderViolation(hit)
+      expect(rendered).toContain('src/app/some-new-file.ts:12')
+      expect(rendered).not.toContain(MARKER)
+      expect(rendered).not.toContain('synthetic-')
+      expect(rendered).not.toContain('sb_secret_')
+    }
   })
 })
