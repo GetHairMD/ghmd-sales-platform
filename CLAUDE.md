@@ -182,7 +182,7 @@ Never committed to git.
 |----------|-------|-------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Client + Server | Sales project only |
 | `SUPABASE_SECRET_KEY` | Server only | **Preferred** Supabase service credential (modern `sb_secret_` key — not a JWT). Never expose to client |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server only | **Deprecated fallback** — legacy `service_role` JWT, read only when `SUPABASE_SECRET_KEY` is absent/blank; removed once rotation completes (decision #199). Never expose to client |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server only | **Retired** (decision #199) — legacy `service_role` JWT; the resolver no longer reads it. The name is permanently refused by `assertNotCredentialVarName` and denylisted in the read-site scan to block reintroduction. Do not set |
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Client | Restricted to proposals.gethairmd.com domain |
 | `CENSUS_API_KEY` | Server only | Netlify function only |
 | `GOOGLE_PLACES_API_KEY` | Server only | Netlify function only; restricted to server IP |
@@ -202,10 +202,11 @@ additionally scoped context-by-context (least privilege; the repo is public, so 
 reach untrusted deploy previews).
 
 **Every read goes through one module.** `src/lib/supabase/secret-key.ts` is the only place in the
-repo that reads either credential variable; everything else calls `getSupabaseSecretKey()`. It
-prefers `SUPABASE_SECRET_KEY`, falls back to `SUPABASE_SERVICE_ROLE_KEY` only when the preferred
-one is absent/blank, throws on a whitespace-padded (malformed) value rather than trimming it, and
-throws when neither is set.
+repo that reads the Supabase service credential; everything else calls `getSupabaseSecretKey()`. It
+reads `SUPABASE_SECRET_KEY` only — decision #199 removed the legacy `SUPABASE_SERVICE_ROLE_KEY`
+fallback — throws on a whitespace-padded (malformed) value rather than trimming it, and throws when
+it is unset or blank. The retired name is retained in the module solely so
+`assertNotCredentialVarName` keeps refusing it (permanent defence in depth), never as a read.
 
 The invariant is enforced in CI by `src/lib/__tests__/credential-read-sites.test.ts`, a whole-line
 scan over **every git-tracked file in the repo, with no extension filter**, minus the prose
@@ -231,12 +232,17 @@ in; printing nothing from the line has no enumeration to get wrong. Assertions i
 compare counts and booleans for the same reason — a failing `toEqual` on raw lines would leak just
 as effectively.
 
-Either variable name appearing anywhere outside an exact allowlist fails the build. The allowlist
-has **five** branches: (a) the resolver module (whole file); (b) `.env.local.example` — **only the
-two bare `NAME=` placeholder lines, matched exactly**; (c) exactly two environment-mapping lines in
+Either service-credential variable name appearing anywhere outside an exact allowlist fails the
+build; the retired `SUPABASE_SERVICE_ROLE_KEY` stays in the scan's identifier set permanently as a
+denylisted reintroduction target. After the decision #199 preferred-only cleanup the allowlist has
+**six** branches, **all exact-line** (the former whole-file resolver exemption is gone): (a) the
+resolver — its preferred read plus its two constant declarations (`LEGACY_VAR` survives only for the
+refusal guard, as a declaration, never a read); (b) `.env.local.example` — **only the single bare
+`SUPABASE_SECRET_KEY=` placeholder line**; (c) the single environment-mapping line in
 `.github/workflows/residual-risk-sweep.yml`; (d) one exact comment line in an already-applied,
 immutable migration; (e) the three credential test suites — **only their two constant-declaration
-lines each**. No path wildcards — for (b)–(e) the file is not exempt, only those lines are.
+lines each**; (f) the shared policy module — its two constant-declaration lines. No path wildcards —
+the file is not exempt, only those lines are.
 
 **`secret-key.ts` must never export a variable NAME.** An exported name is a read primitive: any
 module can import it — or re-export it through an intermediary, so the eventual consumer neither

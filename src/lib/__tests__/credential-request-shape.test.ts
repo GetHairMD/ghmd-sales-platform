@@ -141,14 +141,13 @@ describe('overdue RPC request — apikey-only, resolver-preferred credential', (
     expect(whole).toContain(NEW_DUMMY)
   })
 
-  it('falls back to the legacy value only when the new var is absent — still apikey-only', async () => {
+  it('does NOT fall back to the retired var — throws and sends nothing when only it is set', async () => {
+    // Reintroduction regression: the legacy fallback was removed. With the modern var absent and
+    // only the retired var set, the resolver throws, so no request is issued.
     setVar(NEW_VAR, undefined)
     const { calls } = interceptFetch()
-    await fetchOverdue()
-
-    const headers = (calls[0].init?.headers ?? {}) as Record<string, string>
-    expect(headers.apikey).toBe(LEGACY_DUMMY)
-    expect(headerNames(calls[0].init)).not.toContain('authorization')
+    await expect(fetchOverdue()).rejects.toThrow()
+    expect(calls).toHaveLength(0)
   })
 
   it('builds the same shape without performing any request at all', () => {

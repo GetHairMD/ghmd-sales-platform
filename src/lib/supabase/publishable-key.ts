@@ -1,6 +1,6 @@
 /**
  * Supabase publishable-key resolver — the ONE place in this repo that reads the Supabase
- * PUBLIC client credential from the environment (publishable-key compatibility layer).
+ * PUBLIC client credential from the environment.
  *
  * ⚠ SENSITIVITY DIVERGENCE FROM src/lib/supabase/secret-key.ts — READ THIS FIRST.
  * The credential resolved here is PUBLIC BY DESIGN. It is statically inlined into the client
@@ -10,10 +10,10 @@
  *
  * So the invariant this module protects is NOT value secrecy — it has none to protect. It is:
  *
- *   1. FAIL-CLOSED ON ABSENCE. The three consumers previously did `process.env.<NAME>!`, whose
- *      non-null assertion turns a missing or blank value into an undefined key handed to the SDK
- *      and a confusing downstream auth failure. Resolving here throws at the read site, naming the
- *      variables, so a misconfigured environment fails where it can be diagnosed.
+ *   1. FAIL-CLOSED ON ABSENCE. The consumers previously did `process.env.<NAME>!`, whose non-null
+ *      assertion turns a missing or blank value into an undefined key handed to the SDK and a
+ *      confusing downstream auth failure. Resolving here throws at the read site, naming the
+ *      variable, so a misconfigured environment fails where it can be diagnosed.
  *
  *   2. STATIC-SUBSTITUTION SAFETY. See the dot-access note below — this is the property most
  *      likely to be broken by a well-meaning future refactor.
@@ -23,34 +23,31 @@
  * protections to match this file. secret-key.ts exists to keep a value SECRET; this file exists to
  * keep resolution CORRECT and FAIL-CLOSED. The two files look alike and mean different things.
  *
- * CONTRACT (exact, evaluated in order) — identical in shape to secret-key.ts, deliberately:
- *   • Preferred variable, then legacy variable, each under the identical rule:
- *       unset / empty / whitespace-only -> treated as ABSENT, fall through;
- *       non-blank but padded with leading or trailing whitespace -> THROW (malformed).
- *         A padded value is an operator paste error. Trimming it would silently authenticate with
- *         a credential nobody intended; falling through would silently prefer the other variable.
- *       clean non-blank -> return VERBATIM (no trimming, no normalisation).
- *   • Neither present -> THROW naming both variables.
+ * CONTRACT (exact) — preferred-only (decision #199, legacy fallback removed):
+ *   • unset / empty / whitespace-only -> THROW (fail closed);
+ *   • non-blank but padded with leading or trailing whitespace -> THROW (malformed).
+ *       A padded value is an operator paste error. Trimming it would silently authenticate with a
+ *       credential nobody intended.
+ *   • clean non-blank -> return VERBATIM (no trimming, no normalisation).
  *
- * ⚠ THE TWO ENVIRONMENT READS BELOW MUST STAY LITERAL DOT ACCESSES. This is load-bearing here in a
- * way it is not for a server-only resolver. Next.js/webpack substitutes `NEXT_PUBLIC_`-prefixed
- * reads at BUILD TIME, and it can only do so for a literal `process.env.NAME` expression. A
- * computed `process.env[name]` lookup is not substituted, so in the browser bundle — and in edge
- * middleware — it resolves to `undefined`. The failure mode is the nastiest kind: the preferred
- * branch silently never fires, the fallback silently always wins, and every deterministic test
- * that runs under Node still passes. Never convert these to a loop, a table, or a helper that
- * takes the name as a parameter.
+ * ⚠ THE ENVIRONMENT READ BELOW MUST STAY A LITERAL DOT ACCESS. This is load-bearing here in a way
+ * it is not for a server-only resolver. Next.js/webpack substitutes `NEXT_PUBLIC_`-prefixed reads
+ * at BUILD TIME, and it can only do so for a literal `process.env.NAME` expression. A computed
+ * `process.env[name]` lookup is not substituted, so in the browser bundle — and in edge middleware
+ * — it resolves to `undefined`. The failure mode is the nastiest kind: the read silently resolves
+ * to undefined, and every deterministic test that runs under Node still passes. Never convert this
+ * to a loop, a table, or a helper that takes the name as a parameter.
  *
- * ⚠ Because the values are build-time inlined, changing either variable in a deployment context
- * has NO effect on an existing deploy. Every environment change requires a fresh deploy in EVERY
- * affected context, confirmed `ready` with `commit_ref` matched to the intended SHA.
+ * ⚠ Because the value is build-time inlined, changing the variable in a deployment context has NO
+ * effect on an existing deploy. Every environment change requires a fresh deploy in EVERY affected
+ * context, confirmed `ready` with `commit_ref` matched to the intended SHA.
  *
- * The variable NAMES are module-private. Unlike secret-key.ts, that is a consistency choice rather
- * than a security control — there is no secret to launder — but keeping one read site is what
- * makes the eventual legacy-variable removal a single-file edit.
+ * The variable NAME is module-private. Unlike secret-key.ts, that is a consistency choice rather
+ * than a security control — there is no secret to launder — but keeping one read site is what makes
+ * this the single point of change.
  *
- * No `assertNotPublishableVarName` guard is provided, deliberately: secret-key.ts needs one
- * because a generic env reader could otherwise fetch a SECRET without naming it. Nothing here is
+ * No `assertNotPublishableVarName` guard is provided, deliberately: secret-key.ts needs one because
+ * a generic env reader could otherwise fetch a SECRET without naming it. Nothing here is
  * confidential, no consumer needs such a guard, and speculative guard machinery would imply a
  * confidentiality property this credential does not have.
  *
@@ -59,7 +56,6 @@
  */
 
 const PREFERRED_VAR = 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'
-const LEGACY_VAR = 'NEXT_PUBLIC_SUPABASE_ANON_KEY'
 
 /**
  * Applies the absent/malformed/clean rule to one raw environment value.
@@ -82,7 +78,7 @@ function classify(name: string, raw: string | undefined): string | null {
 /**
  * Resolves the Supabase publishable (public client) credential.
  *
- * @throws if a configured value is malformed, or if no credential is configured at all.
+ * @throws if the configured value is malformed, or if no credential is configured at all.
  *         Callers do not catch this: a client that cannot identify its project must fail loudly
  *         rather than construct a Supabase client with an undefined key.
  */
@@ -93,14 +89,7 @@ export function getSupabasePublishableKey(): string {
   )
   if (preferred !== null) return preferred
 
-  const legacy = classify(
-    LEGACY_VAR,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  )
-  if (legacy !== null) return legacy
-
   throw new Error(
-    `No Supabase publishable credential is configured. Set ${PREFERRED_VAR} (preferred), or the ` +
-      `deprecated ${LEGACY_VAR} as a fallback, in this environment.`,
+    `No Supabase publishable credential is configured. Set ${PREFERRED_VAR} in this environment.`,
   )
 }

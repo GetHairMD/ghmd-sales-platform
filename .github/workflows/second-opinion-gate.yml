@@ -63,12 +63,10 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
           GATE_TRACE_HANDLE: ${{ vars.GATE_TRACE_HANDLE }}
-          # Declaration-integrity lookup: anon/publishable role only (can EXECUTE
+          # Declaration-integrity lookup: publishable role only (can EXECUTE
           # public.gate_decision_for_pr() but cannot read ops.decision_log).
-          # Both variables are mapped during the compatibility phase. An unprovisioned
-          # repository secret expands to an empty string, which the resolver treats as
-          # absent — so this resolves to the legacy value until the modern secret exists.
+          # Preferred-only (decision #199): the modern publishable key is the sole
+          # credential the gate resolver reads; the legacy anon mapping was removed.
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: npx tsx scripts/second-opinion-gate/run-gate.ts

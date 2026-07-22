@@ -45,20 +45,22 @@ const CI_LEGACY_VAR = 'SUPABASE_ANON_KEY'
  *   • TRACKED-ONLY via `git ls-files`, never a filesystem walk — a walk would read `.env.local`,
  *     which holds a real developer credential.
  *
- * The allowlist is EXACT and has SEVEN branches, ALL of them exact-LINE — no whole-file exemption:
- *   (a) the application resolver — its two declaration lines and its two literal read lines;
- *   (b) the gate resolver — likewise;
- *   (c) `.env.local.example` — the two bare placeholder lines;
- *   (d) the gate workflow — the two environment-mapping lines;
- *   (e) one exact comment line in an already-applied, immutable migration;
- *   (f) the publishable suites — their constant-DECLARATION lines;
- *   (g) the shared policy module — its four constant-DECLARATION lines. It defines the policies,
- *       so it necessarily names the identifiers, and it is scanned like any other file rather than
- *       exempted as one.
- *
- * (Documentation-accuracy correction: this list previously said SIX branches and omitted (g),
- * while `isAllowed` has always implemented the `policyModule` branch. Prose only — no behaviour,
- * and no widening or narrowing of what is permitted.)
+ * The allowlist is EXACT and has SEVEN branches, ALL of them exact-LINE — no whole-file exemption.
+ * After the decision #199 preferred-only cleanup, only the preferred names have operational
+ * allowances; the two retired anon names keep only their narrow declaration allowances plus the one
+ * immutable historical migration comment:
+ *   (a) the application resolver — its one preferred declaration line and its one preferred read
+ *       line (the legacy declaration and read were removed);
+ *   (b) the gate resolver — likewise, one preferred declaration and one preferred read;
+ *   (c) `.env.local.example` — the single preferred placeholder line;
+ *   (d) the gate workflow — the single preferred environment-mapping line;
+ *   (e) one exact comment line in an already-applied, immutable migration (names the retired gate
+ *       anon variable in prose — a historical record, never a read);
+ *   (f) the publishable suites — their constant-DECLARATION lines, which still declare all four
+ *       identifiers for the no-fallback and reintroduction-regression tests;
+ *   (g) the shared policy module — its four constant-DECLARATION lines. It defines the policies, so
+ *       it necessarily names all four identifiers (the two retired ones stay in the DENYLIST), and
+ *       it is scanned like any other file rather than exempted as one.
  *
  * ⚠ Branch (a)/(b) are exact-LINE where the service-credential scan uses a whole-FILE exemption for
  * its resolver. That difference is intentional and is the stricter choice: a whole-file exemption
@@ -232,12 +234,14 @@ describe('publishable identifiers appear only at the allowlisted sites', () => {
   })
 
   it('both resolvers really are the read sites (positive control — the scan is not vacuous)', () => {
+    // Preferred-only: each resolver reads ONLY its preferred variable; the retired anon reads were
+    // removed (reintroduction regression).
     const app = readFileSync(join(process.cwd(), APP_RESOLVER), 'utf8')
     expect(app).toContain(`process.env.${APP_PREFERRED_VAR}`)
-    expect(app).toContain(`process.env.${APP_LEGACY_VAR}`)
+    expect(app).not.toContain(`process.env.${APP_LEGACY_VAR}`)
     const ci = readFileSync(join(process.cwd(), CI_RESOLVER), 'utf8')
     expect(ci).toContain(`process.env.${CI_PREFERRED_VAR}`)
-    expect(ci).toContain(`process.env.${CI_LEGACY_VAR}`)
+    expect(ci).not.toContain(`process.env.${CI_LEGACY_VAR}`)
   })
 
   it('each resolver is allowlisted by exact LINE, not by file', () => {
@@ -254,28 +258,33 @@ describe('publishable identifiers appear only at the allowlisted sites', () => {
     }
   })
 
-  it('the gate workflow maps BOTH variables, on exactly the allowlisted lines', () => {
+  it('the gate workflow maps ONLY the preferred variable, on exactly the allowlisted line', () => {
     const hits = hitsIn(GATE_WORKFLOW)
     expect(hits.length).toBe(GATE_WORKFLOW_ALLOWED_LINES.length)
     expect(hits.every(isAllowed)).toBe(true)
     expect(GATE_WORKFLOW_ALLOWED_LINES.every((line) => hits.some((h) => h.text === line))).toBe(true)
+    // Reintroduction regression: the retired anon mapping is gone from the workflow entirely.
+    expect(hits.some((h) => h.text.includes(CI_LEGACY_VAR))).toBe(false)
   })
 
-  it('the example env file lists the preferred variable above the deprecated one', () => {
+  it('the example env file lists the preferred publishable variable and NOT the retired one', () => {
     const path = join(process.cwd(), EXAMPLE_ENV)
     expect(existsSync(path)).toBe(true)
     const src = readFileSync(path, 'utf8')
-    expect(src.includes(`${APP_PREFERRED_VAR}=`)).toBe(true)
-    expect(src.indexOf(`${APP_PREFERRED_VAR}=`)).toBeLessThan(src.indexOf(`${APP_LEGACY_VAR}=`))
+    const lines = src.split(/\r?\n/).map((l) => l.trim())
+    expect(lines).toContain(`${APP_PREFERRED_VAR}=`)
+    // Reintroduction regression: the retired anon placeholder line was removed.
+    expect(lines).not.toContain(`${APP_LEGACY_VAR}=`)
   })
 
   it('the example env file is genuinely IN the scan, and every hit clears its narrow branch', () => {
     expect(SCANNED).toContain(EXAMPLE_ENV)
     const hits = hitsIn(EXAMPLE_ENV)
-    expect(hits.length).toBeGreaterThanOrEqual(2)
+    expect(hits.length).toBeGreaterThanOrEqual(1)
     expect(hits.filter((h) => !isAllowed(h)).map(renderViolation)).toEqual([])
     expect(hits.some((h) => h.text === `${APP_PREFERRED_VAR}=`)).toBe(true)
-    expect(hits.some((h) => h.text === `${APP_LEGACY_VAR}=`)).toBe(true)
+    // The retired anon name appears nowhere in the file.
+    expect(hits.some((h) => h.text.includes(APP_LEGACY_VAR))).toBe(false)
   })
 
   it('no unprefixed gate placeholder was added to the example env file', () => {
@@ -332,9 +341,14 @@ describe('publishable identifiers appear only at the allowlisted sites', () => {
     }
   })
 
-  it('ONLY the two bare placeholders pass — every other shape fails CI (negative control)', () => {
-    for (const id of [APP_PREFERRED_VAR, APP_LEGACY_VAR]) {
-      expect(EXAMPLE_ENV_ALLOWED_LINES.includes(`${id}=`)).toBe(true)
+  it('ONLY the preferred bare placeholder passes — every other shape fails CI (negative control)', () => {
+    // The preferred publishable placeholder is the sole allowed example-env line.
+    expect(EXAMPLE_ENV_ALLOWED_LINES.includes(`${APP_PREFERRED_VAR}=`)).toBe(true)
+    // Reintroduction regression: the retired anon placeholder no longer passes, in ANY shape —
+    // including the bare `NAME=` form that was allowed before this cleanup.
+    expect(EXAMPLE_ENV_ALLOWED_LINES.includes(`${APP_LEGACY_VAR}=`)).toBe(false)
+
+    for (const id of IDENTIFIERS) {
       for (const leak of [
         `${id}=synthetic-value`,
         `${id} = synthetic-value`,
@@ -374,22 +388,18 @@ describe('the shared publishable policy is frozen to exactly these values', () =
   })
 
   it('pins every allowlist branch, exactly', () => {
+    // Preferred-only: each resolver keeps its one preferred declaration and one preferred read.
     expect([...POLICY.allowedLines.appResolver]).toEqual([
       `const PREFERRED_VAR = '${APP_PREFERRED_VAR}'`,
-      `const LEGACY_VAR = '${APP_LEGACY_VAR}'`,
       `process.env.${APP_PREFERRED_VAR},`,
-      `process.env.${APP_LEGACY_VAR},`,
     ])
     expect([...POLICY.allowedLines.ciResolver]).toEqual([
       `const PREFERRED_VAR = '${CI_PREFERRED_VAR}'`,
-      `const LEGACY_VAR = '${CI_LEGACY_VAR}'`,
       `const preferred = classify(PREFERRED_VAR, process.env.${CI_PREFERRED_VAR})`,
-      `const legacy = classify(LEGACY_VAR, process.env.${CI_LEGACY_VAR})`,
     ])
-    expect([...POLICY.allowedLines.exampleEnv]).toEqual([`${APP_PREFERRED_VAR}=`, `${APP_LEGACY_VAR}=`])
+    expect([...POLICY.allowedLines.exampleEnv]).toEqual([`${APP_PREFERRED_VAR}=`])
     expect([...POLICY.allowedLines.gateWorkflow]).toEqual([
       `${CI_PREFERRED_VAR}: \${{ secrets.${CI_PREFERRED_VAR} }}`,
-      `${CI_LEGACY_VAR}: \${{ secrets.${CI_LEGACY_VAR} }}`,
     ])
     expect([...POLICY.allowedLines.immutableMigration]).toEqual([
       `--     calls it as the anon role via ${CI_LEGACY_VAR}. Revoking it breaks the gate.`,
@@ -403,17 +413,16 @@ describe('the shared publishable policy is frozen to exactly these values', () =
   })
 
   it('pins the REQUIRED literal reads, spelled out (positive invariant)', () => {
-    // These four are the reads whose silent loss the negative allowlist cannot detect. The app
-    // resolver's two are the most dangerous: they are NEXT_PUBLIC_-prefixed, so a computed rewrite
-    // yields undefined in the browser bundle and edge middleware while Node-side tests still pass.
+    // The two preferred reads whose silent loss the negative allowlist cannot detect. The app
+    // resolver's is the most dangerous: it is NEXT_PUBLIC_-prefixed, so a computed rewrite yields
+    // undefined in the browser bundle and edge middleware while Node-side tests still pass. The
+    // legacy reads were removed, so they are no longer required.
     expect(POLICY.requiredReads).toEqual({
       'src/lib/supabase/publishable-key.ts': [
         `process.env.${APP_PREFERRED_VAR},`,
-        `process.env.${APP_LEGACY_VAR},`,
       ],
       'scripts/second-opinion-gate/publishable-key.ts': [
         `const preferred = classify(PREFERRED_VAR, process.env.${CI_PREFERRED_VAR})`,
-        `const legacy = classify(LEGACY_VAR, process.env.${CI_LEGACY_VAR})`,
       ],
     })
   })
