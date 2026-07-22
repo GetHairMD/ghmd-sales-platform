@@ -45,13 +45,20 @@ const CI_LEGACY_VAR = 'SUPABASE_ANON_KEY'
  *   • TRACKED-ONLY via `git ls-files`, never a filesystem walk — a walk would read `.env.local`,
  *     which holds a real developer credential.
  *
- * The allowlist is EXACT and has SIX branches, ALL of them exact-LINE — no whole-file exemption:
+ * The allowlist is EXACT and has SEVEN branches, ALL of them exact-LINE — no whole-file exemption:
  *   (a) the application resolver — its two declaration lines and its two literal read lines;
  *   (b) the gate resolver — likewise;
  *   (c) `.env.local.example` — the two bare placeholder lines;
  *   (d) the gate workflow — the two environment-mapping lines;
  *   (e) one exact comment line in an already-applied, immutable migration;
- *   (f) the publishable suites — their constant-DECLARATION lines.
+ *   (f) the publishable suites — their constant-DECLARATION lines;
+ *   (g) the shared policy module — its four constant-DECLARATION lines. It defines the policies,
+ *       so it necessarily names the identifiers, and it is scanned like any other file rather than
+ *       exempted as one.
+ *
+ * (Documentation-accuracy correction: this list previously said SIX branches and omitted (g),
+ * while `isAllowed` has always implemented the `policyModule` branch. Prose only — no behaviour,
+ * and no widening or narrowing of what is permitted.)
  *
  * ⚠ Branch (a)/(b) are exact-LINE where the service-credential scan uses a whole-FILE exemption for
  * its resolver. That difference is intentional and is the stricter choice: a whole-file exemption
@@ -393,6 +400,22 @@ describe('the shared publishable policy is frozen to exactly these values', () =
       'src/lib/__tests__/publishable-read-sites.test.ts',
       'src/lib/__tests__/publishable-static-substitution.test.ts',
     ])
+  })
+
+  it('pins the REQUIRED literal reads, spelled out (positive invariant)', () => {
+    // These four are the reads whose silent loss the negative allowlist cannot detect. The app
+    // resolver's two are the most dangerous: they are NEXT_PUBLIC_-prefixed, so a computed rewrite
+    // yields undefined in the browser bundle and edge middleware while Node-side tests still pass.
+    expect(POLICY.requiredReads).toEqual({
+      'src/lib/supabase/publishable-key.ts': [
+        `process.env.${APP_PREFERRED_VAR},`,
+        `process.env.${APP_LEGACY_VAR},`,
+      ],
+      'scripts/second-opinion-gate/publishable-key.ts': [
+        `const preferred = classify(PREFERRED_VAR, process.env.${CI_PREFERRED_VAR})`,
+        `const legacy = classify(LEGACY_VAR, process.env.${CI_LEGACY_VAR})`,
+      ],
+    })
   })
 
   it('NEITHER resolver has a whole-file exemption — both are exact-line', () => {

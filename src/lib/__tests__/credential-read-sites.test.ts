@@ -563,6 +563,18 @@ describe('the shared service-credential policy is frozen to exactly these values
     ])
   })
 
+  it('pins the REQUIRED literal reads, spelled out (positive invariant)', () => {
+    // read-site-scan.test.ts pins the structure but cannot spell an identifier — it is not on any
+    // suite allowlist. This file is, so the literal text is pinned here: if a required read were
+    // silently dropped or reworded, this fails.
+    expect(POLICY.requiredReads).toEqual({
+      'src/lib/supabase/secret-key.ts': [
+        `const preferred = classify(PREFERRED_VAR, process.env.${NEW_VAR})`,
+        `const legacy = classify(LEGACY_VAR, process.env.${LEGACY_VAR})`,
+      ],
+    })
+  })
+
   it('the policy module itself is in scope and allowlisted by exact LINE, not by file', () => {
     // It names both identifiers on its two declaration lines, so it must be scanned like anything
     // else. A whole-file exemption there would let any future line of it name a credential.

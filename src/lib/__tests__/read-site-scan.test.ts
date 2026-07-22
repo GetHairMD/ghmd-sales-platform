@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   ENFORCED_POLICIES,
@@ -10,6 +10,7 @@ import {
   ReadSiteScanError,
   SERVICE_CREDENTIAL_POLICY,
   assertPolicyClean,
+  assertRequiredReads,
   enforceReadSitePolicies,
   hitsIn,
   renderViolation,
@@ -214,6 +215,218 @@ describe('per-file read failures fail CLOSED (gate finding, run 29871897176)', (
   })
 })
 
+describe('required literal reads must still exist (positive invariant)', () => {
+  /**
+   * The allowlist scan is purely NEGATIVE and cannot notice a read that DISAPPEARS: rewriting a
+   * resolver's `process.env.NAME` as `process.env[name]` removes the literal identifier, so the
+   * negative scan finds nothing prohibited and the required build passes — while `NEXT_PUBLIC_`
+   * static substitution silently breaks. These fixtures reproduce each way that can happen.
+   *
+   * Every fixture is a REAL git repository containing the policy's required files at their exact
+   * repository-relative paths, so the production code path runs unchanged: no injected seam, no
+   * skip flag, no test-only weakening.
+   */
+  const FILLER = 'export const filler = 1'
+
+  /** Builds a repo containing every required read of `policy`, then applies optional edits. */
+  function fixtureRepo(
+    policy: { requiredReads: Record<string, readonly string[]> },
+    edit: (contents: Record<string, string[]>) => void = () => {},
+    opts: { commit?: (path: string) => boolean } = {},
+  ): string {
+    const dir = makeTempDir('read-site-required-')
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t', ...args], {
+        cwd: dir,
+        stdio: 'ignore',
+      })
+    git('init', '--quiet')
+
+    // Indented on purpose: the invariant compares TRIMMED text, so indentation must not matter.
+    const contents: Record<string, string[]> = {}
+    for (const [file, lines] of Object.entries(policy.requiredReads)) {
+      contents[file] = ['// fixture', ...lines.map((l) => `  ${l}`), FILLER]
+    }
+    edit(contents)
+
+    const shouldCommit = opts.commit ?? (() => true)
+    writeFileSync(join(dir, 'filler.ts'), `${FILLER}\n`)
+    git('add', 'filler.ts')
+    for (const [file, lines] of Object.entries(contents)) {
+      mkdirSync(join(dir, dirname(file)), { recursive: true })
+      writeFileSync(join(dir, file), `${lines.join('\n')}\n`)
+      if (shouldCommit(file)) git('add', '--', file)
+    }
+    git('commit', '--quiet', '-m', 'fixture')
+    return dir
+  }
+
+  it.each(ENFORCED_POLICIES.map((p) => [p.name, p] as const))(
+    'POSITIVE CONTROL — %s: every required read present exactly once passes',
+    (_name, policy) => {
+      const dir = fixtureRepo(policy as never)
+      expect(() => assertRequiredReads(policy, dir)).not.toThrow()
+    },
+  )
+
+  it.each(ENFORCED_POLICIES.map((p) => [p.name, p] as const))(
+    '%s: a required read rewritten as COMPUTED access fails closed',
+    (_name, policy) => {
+      const dir = fixtureRepo(policy as never, (contents) => {
+        const file = Object.keys(contents)[0]
+        // The exact evasion the gate described: literal identifier gone, allowlist still satisfied.
+        contents[file] = contents[file].map((l, i) => (i === 1 ? '  const v = process.env[name]' : l))
+      })
+      expect(() => assertRequiredReads(policy, dir)).toThrow(ReadSiteScanError)
+      expect(() => assertRequiredReads(policy, dir)).toThrow(/0 occurrence\(s\)/)
+    },
+  )
+
+  it.each(ENFORCED_POLICIES.map((p) => [p.name, p] as const))(
+    '%s: a DUPLICATED required read fails closed',
+    (_name, policy) => {
+      const dir = fixtureRepo(policy as never, (contents) => {
+        const file = Object.keys(contents)[0]
+        contents[file] = [...contents[file], `  ${policy.requiredReads[file][0]}`]
+      })
+      expect(() => assertRequiredReads(policy, dir)).toThrow(/2 occurrence\(s\)/)
+    },
+  )
+
+  it.each(ENFORCED_POLICIES.map((p) => [p.name, p] as const))(
+    '%s: a TEXTUALLY ALTERED required read fails closed',
+    (_name, policy) => {
+      const dir = fixtureRepo(policy as never, (contents) => {
+        const file = Object.keys(contents)[0]
+        // Same identifier, different exact form — the bundler substitutes only the exact form.
+        contents[file] = contents[file].map((l, i) => (i === 1 ? `${l.replace(/,$/, '')} ?? ''` : l))
+      })
+      expect(() => assertRequiredReads(policy, dir)).toThrow(/0 occurrence\(s\)/)
+    },
+  )
+
+  it('a required read MOVED to another file fails closed', () => {
+    const policy = PUBLISHABLE_POLICY
+    const dir = fixtureRepo(policy as never, (contents) => {
+      const [from, to] = Object.keys(contents)
+      const moved = policy.requiredReads[from][0]
+      contents[from] = contents[from].filter((l) => l.trim() !== moved)
+      contents[to] = [...contents[to], `  ${moved}`]
+    })
+    // The designated file no longer contains it, so relocation is not a rescue.
+    expect(() => assertRequiredReads(policy, dir)).toThrow(/0 occurrence\(s\)/)
+  })
+
+  it('a required file missing from the TRACKED set fails closed (not a clean scan)', () => {
+    const policy = SERVICE_CREDENTIAL_POLICY
+    const target = Object.keys(policy.requiredReads)[0]
+    // Present on disk and correct, but never committed — enumeration comes from the index.
+    const dir = fixtureRepo(policy as never, () => {}, { commit: (p) => p !== target })
+    expect(() => assertRequiredReads(policy, dir)).toThrow(ReadSiteScanError)
+    expect(() => assertRequiredReads(policy, dir)).toThrow(/not in the git-tracked enumeration/)
+  })
+
+  it('moving a required read WITHIN its designated file does not fail', () => {
+    const policy = SERVICE_CREDENTIAL_POLICY
+    const dir = fixtureRepo(policy as never, (contents) => {
+      const file = Object.keys(contents)[0]
+      // Same lines, different order and extra padding above: line numbers are not pinned.
+      contents[file] = ['// moved', '', '', ...contents[file].slice().reverse()]
+    })
+    expect(() => assertRequiredReads(policy, dir)).not.toThrow()
+  })
+
+  it('a policy with no required reads fails closed rather than passing vacuously', () => {
+    const empty = { name: 'empty', identifiers: ['X'], requiredReads: Object.freeze({}) }
+    expect(() => assertRequiredReads(empty, process.cwd())).toThrow(/no required reads defined/)
+  })
+
+  it('required-read failures stay sanitized — path, phase, identifier and count only', () => {
+    const policy = PUBLISHABLE_POLICY
+    const file = Object.keys(policy.requiredReads)[0]
+    const requiredLine = policy.requiredReads[file][0]
+    const SENTINEL = 'QX7ZREQUIREDREADSENTINEL'
+    const dir = fixtureRepo(policy as never, (contents) => {
+      contents[file] = contents[file]
+        .filter((l) => l.trim() !== requiredLine)
+        .concat(`  const v = '${SENTINEL}'`)
+    })
+
+    let message = ''
+    try {
+      assertRequiredReads(policy, dir)
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+
+    // Must say enough to act on.
+    expect(message).toContain(file)
+    expect(message).toContain('phase: required-read')
+    expect(message).toContain('0 occurrence(s)')
+    // Interpolated, not spelled: this file is not on the suite allowlist (see the pinning test).
+    expect(message).toContain(policy.identifiers[0])
+
+    // Must not leak. No expected/actual source-line text, no fixture content, no OS/system detail.
+    expect(message).not.toContain(requiredLine)
+    expect(message).not.toContain(SENTINEL)
+    expect(message).not.toContain(dir)
+    expect(message).not.toMatch(/ENOENT|EACCES|errno|syscall/i)
+    expect(message).not.toMatch(/[A-Za-z]:\\/)
+    expect(message).not.toMatch(/(^|\s)\/(tmp|home|Users)\//)
+    // A missing occurrence has no truthful line number, so none is manufactured.
+    expect(message).not.toMatch(/line \d+/i)
+  })
+
+  it('ALL SIX required reads are pinned — dropping one silently fails this suite', () => {
+    /**
+     * ⚠ This file must not spell a credential identifier: it is NOT on either policy's suite
+     * allowlist, and doing so would itself be a prohibited read site (the scan caught exactly that
+     * while this test was being written — working as designed). So the IDENTIFIER halves are
+     * interpolated from the policies, whose literal values are pinned in credential-read-sites and
+     * publishable-read-sites, the two suites that ARE allowlisted for that purpose. What this test
+     * uniquely pins is the STRUCTURE the identifiers sit in: which file owns which read, the exact
+     * surrounding call syntax and punctuation, and the total count.
+     */
+    const [svcNew, svcLegacy] = SERVICE_CREDENTIAL_POLICY.identifiers
+    expect(SERVICE_CREDENTIAL_POLICY.requiredReads).toEqual({
+      'src/lib/supabase/secret-key.ts': [
+        `const preferred = classify(PREFERRED_VAR, process.env.${svcNew})`,
+        `const legacy = classify(LEGACY_VAR, process.env.${svcLegacy})`,
+      ],
+    })
+
+    const [appPreferred, appLegacy, ciPreferred, ciLegacy] = PUBLISHABLE_POLICY.identifiers
+    expect(PUBLISHABLE_POLICY.requiredReads).toEqual({
+      'src/lib/supabase/publishable-key.ts': [
+        `process.env.${appPreferred},`,
+        `process.env.${appLegacy},`,
+      ],
+      'scripts/second-opinion-gate/publishable-key.ts': [
+        `const preferred = classify(PREFERRED_VAR, process.env.${ciPreferred})`,
+        `const legacy = classify(LEGACY_VAR, process.env.${ciLegacy})`,
+      ],
+    })
+
+    const total = ENFORCED_POLICIES.flatMap((p) => Object.values(p.requiredReads).flat())
+    expect(total).toHaveLength(6)
+    // Non-vacuous: the interpolated halves really are distinct, non-empty identifiers.
+    expect(new Set([svcNew, svcLegacy, appPreferred, appLegacy, ciPreferred, ciLegacy]).size).toBe(6)
+  })
+
+  it('the required-read maps are FROZEN at every level', () => {
+    for (const policy of ENFORCED_POLICIES) {
+      expect(Object.isFrozen(policy.requiredReads)).toBe(true)
+      for (const lines of Object.values(policy.requiredReads)) expect(Object.isFrozen(lines)).toBe(true)
+    }
+  })
+
+  it('the real repository satisfies every required read (what next build asserts)', () => {
+    for (const policy of ENFORCED_POLICIES) {
+      expect(() => assertRequiredReads(policy, process.cwd())).not.toThrow()
+    }
+  })
+})
+
 describe('assertPolicyClean reports violations without leaking line content', () => {
   /** A synthetic policy over a marker that really does occur in a tracked file: this test file. */
   const SYNTHETIC_MARKER = 'QX7ZSYNTHETICSCANTARGET'
@@ -293,5 +506,19 @@ describe('the module is mechanism-only and enforces both policies', () => {
 
   it('the real repository passes both enforced policies (what next build asserts)', () => {
     expect(() => enforceReadSitePolicies()).not.toThrow()
+  })
+
+  it('enforceReadSitePolicies is the ONE build-time entry point, and it runs BOTH directions', () => {
+    // A second invocation site in next.config.mjs, or a positive check wired separately, would be
+    // two enforcement paths that can drift. The config calls exactly one function, once.
+    const config = readFileSync(join(process.cwd(), 'next.config.mjs'), 'utf8')
+    expect(config.match(/enforceReadSitePolicies\(\)/g)).toHaveLength(1)
+    expect(config).not.toMatch(/assertRequiredReads|assertPolicyClean|scanPolicy/)
+
+    // …and that one function performs the negative AND positive checks for every policy.
+    const src = readFileSync(join(process.cwd(), 'scripts/security/read-site-scan.mjs'), 'utf8')
+    const body = src.slice(src.indexOf('export function enforceReadSitePolicies'))
+    expect(body).toContain('assertPolicyClean(policy, cwd)')
+    expect(body).toContain('assertRequiredReads(policy, cwd)')
   })
 })

@@ -125,6 +125,24 @@ export function trackedFiles(cwd = process.cwd()) {
  * `const e = process.env; e.X`), whereas "the identifier does not appear" has no gaps.
  */
 export function hitsIn(file, identifiers, cwd = process.cwd()) {
+  const hits = []
+  readTrackedFileLines(file, cwd).forEach((text, i) => {
+    if (identifiers.some((id) => text.includes(id))) {
+      hits.push({ file, line: i + 1, text: text.trim() })
+    }
+  })
+  return hits
+}
+
+/**
+ * THE ONE PER-FILE READ PATH. Both the negative allowlist scan and the positive required-read
+ * check go through here, so the positive check inherits per-file fail-closed behaviour by
+ * construction rather than by a second, drifting implementation.
+ *
+ * @returns the file's lines, untrimmed.
+ * @throws {ReadSiteScanError} sanitized, when the file cannot be read.
+ */
+function readTrackedFileLines(file, cwd) {
   let src
   try {
     // Tracked binaries (png/woff/xlsx) decode lossily rather than throwing, and never contain the
@@ -149,13 +167,7 @@ export function hitsIn(file, identifiers, cwd = process.cwd()) {
         'path. Do NOT make this failure non-fatal.',
     )
   }
-  const hits = []
-  src.split(/\r?\n/).forEach((text, i) => {
-    if (identifiers.some((id) => text.includes(id))) {
-      hits.push({ file, line: i + 1, text: text.trim() })
-    }
-  })
-  return hits
+  return src.split(/\r?\n/)
 }
 
 /**
@@ -182,6 +194,87 @@ export function scanPolicy(policy, cwd = process.cwd()) {
   return trackedFiles(cwd)
     .flatMap((file) => hitsIn(file, policy.identifiers, cwd))
     .filter((hit) => !policy.isAllowed(hit))
+}
+
+/**
+ * POSITIVE-PRESENCE INVARIANT — the required literal reads must still exist.
+ *
+ * WHY THIS EXISTS. The allowlist scan is purely NEGATIVE: it rejects identifier occurrences
+ * outside approved locations. It cannot notice a read that DISAPPEARS. A resolver could be
+ * changed from a literal `process.env.NAME` to a computed `process.env[name]` while keeping its
+ * allowlisted declaration lines — the literal identifier vanishes, the negative scan finds nothing
+ * prohibited, and the required build passes. But `NEXT_PUBLIC_` static substitution only applies
+ * to a literal member expression, so in the browser bundle and edge middleware the read would
+ * resolve to `undefined`: the preferred credential silently missing, or clients silently pinned to
+ * the legacy one. Only a non-required test caught that; the required build must catch it itself.
+ *
+ * CONTRACT, per required read:
+ *   • the designated file must be present in the git-tracked enumeration — a required file that
+ *     disappears from the tracked set is a FAILURE, never a clean scan;
+ *   • the exact required line text must occur in that file EXACTLY ONCE;
+ *   • zero occurrences fail closed (removed, renamed, or rewritten as a computed read);
+ *   • more than one occurrence fails closed (an ambiguous second read site);
+ *   • a textually altered occurrence fails closed, because the exact form is what the bundler
+ *     substitutes.
+ *
+ * ⚠ LINE NUMBERS ARE NOT PINNED. Moving a required line within its designated file must not fail
+ * merely because it moved; only presence, exactness and count are enforced. Conversely a required
+ * read moved to a DIFFERENT file fails, because the designated file no longer contains it.
+ *
+ * ⚠ The declaration lines (`PREFERRED_VAR` / `LEGACY_VAR`) are deliberately NOT required here.
+ * Their absence cannot cause the silent-read failure this closes, so requiring them would add
+ * brittleness without closing the gap.
+ *
+ * @throws {ReadSiteScanError} sanitized: repository-relative path, a fixed `required-read` phase,
+ *         the affected identifier, the observed count, and a fixed remediation — never the
+ *         expected or actual source-line text, a credential value, OS error text, or an absolute
+ *         path. A missing occurrence has no truthful line number, so none is manufactured.
+ */
+export function assertRequiredReads(policy, cwd = process.cwd()) {
+  const required = policy.requiredReads
+  const files = required ? Object.keys(required) : []
+  if (files.length === 0) {
+    // Fail closed rather than treating "no required reads" as success: a policy that lost its
+    // requiredReads map would otherwise silently stop enforcing the positive invariant.
+    throw new ReadSiteScanError(
+      `Credential read-site scan has no required reads defined for policy "${policy.name}" ` +
+        '(phase: required-read). Failing the build CLOSED: an empty positive invariant enforces ' +
+        'nothing, which is indistinguishable from a policy whose critical reads were all removed.',
+    )
+  }
+
+  const tracked = new Set(trackedFiles(cwd))
+
+  for (const file of files) {
+    if (!tracked.has(file)) {
+      throw new ReadSiteScanError(
+        `Credential read-site scan requires a file that is not in the git-tracked enumeration ` +
+          `(phase: required-read; path: ${file}). Failing the build CLOSED: a required resolver ` +
+          'that is untracked, deleted, or excluded is not a clean scan. Restore the file, or ' +
+          'update the policy deliberately.',
+      )
+    }
+
+    const lines = readTrackedFileLines(file, cwd).map((text) => text.trim())
+    for (const requiredLine of required[file]) {
+      const count = lines.filter((text) => text === requiredLine).length
+      if (count === 1) continue
+      // Name the identifier, never the line: the longest match avoids reporting a shorter
+      // identifier that is merely a substring of the one actually on the line.
+      const identifier =
+        policy.identifiers
+          .filter((id) => requiredLine.includes(id))
+          .sort((a, b) => b.length - a.length)[0] ?? 'unknown'
+      throw new ReadSiteScanError(
+        `Credential read-site scan found ${count} occurrence(s) of the required literal read of ` +
+          `${identifier} (phase: required-read; path: ${file}); exactly 1 is required. Failing ` +
+          'the build CLOSED: this read must remain a literal process.env member expression, ' +
+          'because build-time static substitution applies to no other form — a computed read ' +
+          'resolves to undefined in the browser bundle and in edge middleware. Restore the exact ' +
+          'read, remove the duplicate, or change the policy deliberately.',
+      )
+    }
+  }
 }
 
 /**
@@ -264,6 +357,16 @@ export const SERVICE_CREDENTIAL_POLICY = Object.freeze({
   suites: SERVICE_SUITES,
   policyModule: POLICY_MODULE,
   allowedLines: SERVICE_CREDENTIAL_ALLOWED_LINES,
+  /**
+   * Positive invariant: the resolver's two LITERAL reads must survive. Exact committed line text,
+   * including the surrounding call syntax. Declaration lines are deliberately not required.
+   */
+  requiredReads: Object.freeze({
+    [SERVICE_RESOLVER]: Object.freeze([
+      `const preferred = classify(PREFERRED_VAR, process.env.${SERVICE_NEW_VAR})`,
+      `const legacy = classify(LEGACY_VAR, process.env.${SERVICE_LEGACY_VAR})`,
+    ]),
+  }),
   remediation:
     'Read the Supabase service credential via getSupabaseSecretKey() from ' +
     `${SERVICE_RESOLVER} instead of naming the environment variable directly.`,
@@ -348,6 +451,22 @@ export const PUBLISHABLE_POLICY = Object.freeze({
   suites: PUBLISHABLE_SUITES,
   policyModule: POLICY_MODULE,
   allowedLines: PUBLISHABLE_ALLOWED_LINES,
+  /**
+   * Positive invariant: all four LITERAL reads must survive, in their designated files. The app
+   * resolver's are the ones whose loss is most dangerous — they are `NEXT_PUBLIC_`-prefixed, so a
+   * computed rewrite yields `undefined` in the browser bundle and edge middleware while every
+   * Node-side test still passes.
+   */
+  requiredReads: Object.freeze({
+    [APP_RESOLVER]: Object.freeze([
+      `process.env.${APP_PREFERRED_VAR},`,
+      `process.env.${APP_LEGACY_VAR},`,
+    ]),
+    [CI_RESOLVER]: Object.freeze([
+      `const preferred = classify(PREFERRED_VAR, process.env.${CI_PREFERRED_VAR})`,
+      `const legacy = classify(LEGACY_VAR, process.env.${CI_LEGACY_VAR})`,
+    ]),
+  }),
   remediation:
     'Read the publishable credential via getSupabasePublishableKey() from ' +
     `${APP_RESOLVER} (app) or getGatePublishableKey() from ${CI_RESOLVER} (gate) instead of ` +
@@ -373,5 +492,11 @@ export const ENFORCED_POLICIES = Object.freeze([SERVICE_CREDENTIAL_POLICY, PUBLI
  * or on any fail-closed enumeration condition.
  */
 export function enforceReadSitePolicies(cwd = process.cwd()) {
-  for (const policy of ENFORCED_POLICIES) assertPolicyClean(policy, cwd)
+  for (const policy of ENFORCED_POLICIES) {
+    // Both directions, through the ONE build-time entry point — next.config.mjs calls only this:
+    //   negative — an identifier occurs outside its exact allowlist;
+    //   positive — a required literal read is absent, duplicated, altered, or moved elsewhere.
+    assertPolicyClean(policy, cwd)
+    assertRequiredReads(policy, cwd)
+  }
 }
