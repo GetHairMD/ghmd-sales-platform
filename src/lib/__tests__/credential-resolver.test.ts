@@ -8,10 +8,11 @@ const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
 /**
  * Supabase secret-key resolver — decision #199, preferred-only.
  *
- * The resolver is the ONE place in the repo that reads the Supabase service credential. With
- * rotation complete, it reads the modern `sb_secret_` key ONLY: the legacy `service_role` fallback
- * was removed. The retired name survives solely as a permanently-refused identifier
- * (`assertNotCredentialVarName`), never as a read.
+ * The resolver is the ONE place in the repo that reads the Supabase service credential. With the
+ * legacy fallback removed from this resolver, it reads the modern `sb_secret_` key ONLY; provider-
+ * level deactivation of the legacy key remains a separate pending step under decision #199. The
+ * retired name survives solely as a permanently-refused identifier (`assertNotCredentialVarName`),
+ * never as a read.
  *
  * ⚠ Env changes still require a fresh deploy in EVERY affected context — env vars are captured per
  * deploy and service clients are process-cached — each confirmed `ready` with its `commit_ref`

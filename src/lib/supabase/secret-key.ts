@@ -3,9 +3,12 @@
  * service credential from the environment (decision #199).
  *
  * WHY THIS EXISTS
- * Supabase's modern `sb_secret_` keys are not JWTs, and the legacy `service_role` JWT has been
- * rotated out. Routing every consumer through one resolver made that rotation a pure VALUE swap in
- * the credential stores; with rotation complete, this resolver reads the modern key ONLY. The
+ * Supabase's modern `sb_secret_` keys are not JWTs. The legacy `service_role` credential has been
+ * removed from all currently inventoried consumer stores and application read paths; provider-level
+ * deactivation of the legacy key remains pending under decision #199. Routing every consumer through
+ * one resolver made that removal a pure VALUE swap in the credential stores; this resolver reads the
+ * modern key ONLY; provider-level deactivation of the legacy key remains a separate pending step
+ * under decision #199. The
  * legacy variable is no longer read as an operational credential — its name survives here solely as
  * a permanently-refused, denylisted identifier (see `assertNotCredentialVarName` below), so a future
  * reintroduction fails loudly rather than silently re-opening a second credential path.
