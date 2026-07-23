@@ -377,7 +377,7 @@ describe('required literal reads must still exist (positive invariant)', () => {
     expect(message).not.toMatch(/line \d+/i)
   })
 
-  it('ALL SIX required reads are pinned — dropping one silently fails this suite', () => {
+  it('ALL THREE preferred required reads are pinned — dropping one silently fails this suite', () => {
     /**
      * ⚠ This file must not spell a credential identifier: it is NOT on either policy's suite
      * allowlist, and doing so would itself be a prohibited read site (the scan caught exactly that
@@ -386,31 +386,33 @@ describe('required literal reads must still exist (positive invariant)', () => {
      * publishable-read-sites, the two suites that ARE allowlisted for that purpose. What this test
      * uniquely pins is the STRUCTURE the identifiers sit in: which file owns which read, the exact
      * surrounding call syntax and punctuation, and the total count.
+     *
+     * Preferred-only (decision #199): the legacy reads were removed, so only the three PREFERRED
+     * reads remain required. The retired identifiers stay in each policy's `identifiers` denylist,
+     * but they are no longer required reads.
      */
-    const [svcNew, svcLegacy] = SERVICE_CREDENTIAL_POLICY.identifiers
+    const [svcNew] = SERVICE_CREDENTIAL_POLICY.identifiers
     expect(SERVICE_CREDENTIAL_POLICY.requiredReads).toEqual({
       'src/lib/supabase/secret-key.ts': [
         `const preferred = classify(PREFERRED_VAR, process.env.${svcNew})`,
-        `const legacy = classify(LEGACY_VAR, process.env.${svcLegacy})`,
       ],
     })
 
-    const [appPreferred, appLegacy, ciPreferred, ciLegacy] = PUBLISHABLE_POLICY.identifiers
+    // identifiers order: [appPreferred, appLegacy, ciPreferred, ciLegacy] — skip the two legacy.
+    const [appPreferred, , ciPreferred] = PUBLISHABLE_POLICY.identifiers
     expect(PUBLISHABLE_POLICY.requiredReads).toEqual({
       'src/lib/supabase/publishable-key.ts': [
         `process.env.${appPreferred},`,
-        `process.env.${appLegacy},`,
       ],
       'scripts/second-opinion-gate/publishable-key.ts': [
         `const preferred = classify(PREFERRED_VAR, process.env.${ciPreferred})`,
-        `const legacy = classify(LEGACY_VAR, process.env.${ciLegacy})`,
       ],
     })
 
     const total = ENFORCED_POLICIES.flatMap((p) => Object.values(p.requiredReads).flat())
-    expect(total).toHaveLength(6)
-    // Non-vacuous: the interpolated halves really are distinct, non-empty identifiers.
-    expect(new Set([svcNew, svcLegacy, appPreferred, appLegacy, ciPreferred, ciLegacy]).size).toBe(6)
+    expect(total).toHaveLength(3)
+    // Non-vacuous: the three preferred identifiers really are distinct, non-empty.
+    expect(new Set([svcNew, appPreferred, ciPreferred]).size).toBe(3)
   })
 
   it('the required-read maps are FROZEN at every level', () => {

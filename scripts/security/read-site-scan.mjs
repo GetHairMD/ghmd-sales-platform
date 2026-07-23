@@ -313,20 +313,25 @@ const CI_PREFERRED_VAR = 'SUPABASE_PUBLISHABLE_KEY'
 const CI_LEGACY_VAR = 'SUPABASE_ANON_KEY'
 
 /**
- * SERVICE-CREDENTIAL POLICY (decision #199 remediation, D7).
+ * SERVICE-CREDENTIAL POLICY (decision #199, preferred-only cleanup).
  *
- * Semantics are carried over from src/lib/__tests__/credential-read-sites.test.ts UNCHANGED —
- * same identifiers, same whole-file exemption for the resolver, and the same permitted lines.
- * This move must not alter what is permitted; it only makes the scan enforceable at build time.
+ * The legacy `service_role` fallback READ was removed from the resolver; only the modern
+ * `sb_secret_` key is read. But BOTH identifiers stay in the policy's `identifiers` set — the
+ * retired name is permanently DENYLISTED so a reintroduced read or mapping fails the build. What
+ * narrowed is the set of places the retired name may still appear.
  *
- * The implemented `isAllowed` below has SIX branches: the resolver (whole file), `.env.local.example`,
- * the sweep workflow, the immutable migration, the three credential suites, and — the sixth, easy to
- * overlook — an exact-line `policyModule` self-scan branch. This module defines the policies, so it
- * necessarily names the identifiers on its two constant-declaration lines; it is therefore scanned
- * like any other tracked file and allowlisted only on those exact lines, with NO whole-file
- * exemption of its own. (Documentation-accuracy correction: this comment previously said five and
- * omitted the `policyModule` branch. Prose only — no behaviour change, and nothing added to,
- * removed from, widened, or narrowed in the allowlist.)
+ * The implemented `isAllowed` below has SIX branches, ALL exact-LINE (no whole-file exemption):
+ *   • the resolver — its preferred read plus its two constant declarations. The legacy declaration
+ *     survives only because `assertNotCredentialVarName` must keep refusing the retired name; it is
+ *     a declaration, never a read. The former whole-file exemption was replaced with these exact
+ *     lines, so any OTHER line of the resolver naming a credential is now a violation;
+ *   • `.env.local.example` — the single preferred placeholder line (the legacy placeholder removed);
+ *   • the sweep workflow — the single preferred mapping line (the legacy mapping removed);
+ *   • the immutable migration — one exact historical comment line, unchanged;
+ *   • the three credential suites — their two constant-declaration lines each (the retired name is
+ *     still declared there for the refusal and reintroduction-regression tests);
+ *   • the `policyModule` self-scan — this module names the identifiers on its two declaration lines,
+ *     so it is scanned like any other file and allowlisted only on those exact lines.
  */
 const SERVICE_RESOLVER = 'src/lib/supabase/secret-key.ts'
 const SERVICE_EXAMPLE_ENV = '.env.local.example'
@@ -340,11 +345,13 @@ const SERVICE_SUITES = Object.freeze([
 ])
 
 export const SERVICE_CREDENTIAL_ALLOWED_LINES = Object.freeze({
-  exampleEnv: Object.freeze([`${SERVICE_NEW_VAR}=`, `${SERVICE_LEGACY_VAR}=`]),
-  sweepWorkflow: Object.freeze([
-    `${SERVICE_NEW_VAR}: \${{ secrets.${SERVICE_NEW_VAR} }}`,
-    `${SERVICE_LEGACY_VAR}: \${{ secrets.${SERVICE_LEGACY_VAR} }}`,
+  resolver: Object.freeze([
+    `const PREFERRED_VAR = '${SERVICE_NEW_VAR}'`,
+    `const LEGACY_VAR = '${SERVICE_LEGACY_VAR}'`,
+    `const preferred = classify(PREFERRED_VAR, process.env.${SERVICE_NEW_VAR})`,
   ]),
+  exampleEnv: Object.freeze([`${SERVICE_NEW_VAR}=`]),
+  sweepWorkflow: Object.freeze([`${SERVICE_NEW_VAR}: \${{ secrets.${SERVICE_NEW_VAR} }}`]),
   immutableMigration: Object.freeze([`--       ${SERVICE_LEGACY_VAR} (script-layer, human-invoked)`]),
   suites: Object.freeze([
     `const NEW_VAR = '${SERVICE_NEW_VAR}'`,
@@ -367,13 +374,13 @@ export const SERVICE_CREDENTIAL_POLICY = Object.freeze({
   policyModule: POLICY_MODULE,
   allowedLines: SERVICE_CREDENTIAL_ALLOWED_LINES,
   /**
-   * Positive invariant: the resolver's two LITERAL reads must survive. Exact committed line text,
-   * including the surrounding call syntax. Declaration lines are deliberately not required.
+   * Positive invariant: the resolver's ONE LITERAL preferred read must survive. Exact committed
+   * line text, including the surrounding call syntax. Declaration lines are deliberately not
+   * required. The legacy read was removed, so it is no longer a required read.
    */
   requiredReads: Object.freeze({
     [SERVICE_RESOLVER]: Object.freeze([
       `const preferred = classify(PREFERRED_VAR, process.env.${SERVICE_NEW_VAR})`,
-      `const legacy = classify(LEGACY_VAR, process.env.${SERVICE_LEGACY_VAR})`,
     ]),
   }),
   remediation:
@@ -381,7 +388,7 @@ export const SERVICE_CREDENTIAL_POLICY = Object.freeze({
     `${SERVICE_RESOLVER} instead of naming the environment variable directly.`,
   isAllowed(hit) {
     const a = SERVICE_CREDENTIAL_ALLOWED_LINES
-    if (hit.file === SERVICE_RESOLVER) return true
+    if (hit.file === SERVICE_RESOLVER) return a.resolver.includes(hit.text)
     if (hit.file === SERVICE_EXAMPLE_ENV) return a.exampleEnv.includes(hit.text)
     if (hit.file === SERVICE_SWEEP_WORKFLOW) return a.sweepWorkflow.includes(hit.text)
     if (hit.file === SERVICE_IMMUTABLE_MIGRATION) return a.immutableMigration.includes(hit.text)
@@ -392,14 +399,19 @@ export const SERVICE_CREDENTIAL_POLICY = Object.freeze({
 })
 
 /**
- * PUBLISHABLE-KEY POLICY (PR #159).
+ * PUBLISHABLE-KEY POLICY (decision #199, preferred-only cleanup).
  *
  * ⚠ The gate's names are proper SUBSTRINGS of the app's names. Every rule is therefore EXACT-LINE,
  * never "contains"-based reasoning about which variable a line refers to.
  *
- * ⚠ Both resolvers are allowlisted by exact LINE, with NO whole-file exemption — deliberately
- * stricter than the service policy's resolver branch, which is retained as-is only because
- * changing it is out of scope here.
+ * ⚠ Both resolvers are allowlisted by exact LINE, with NO whole-file exemption. The service policy's
+ * resolver branch is now exact-line too, so both policies enforce their resolvers identically.
+ *
+ * The four identifiers all remain in the policy's `identifiers` set: the two preferred names because
+ * they are read, and the two legacy anon names because they are permanently DENYLISTED — a
+ * reintroduced anon read or mapping must fail the build. The legacy names retain only their narrow
+ * declaration allowances (suites, policy module) and the one immutable historical migration comment;
+ * every operational allowance (resolver read, example placeholder, workflow mapping) was removed.
  */
 const APP_RESOLVER = 'src/lib/supabase/publishable-key.ts'
 const CI_RESOLVER = 'scripts/second-opinion-gate/publishable-key.ts'
@@ -417,21 +429,14 @@ const PUBLISHABLE_SUITES = Object.freeze([
 export const PUBLISHABLE_ALLOWED_LINES = Object.freeze({
   appResolver: Object.freeze([
     `const PREFERRED_VAR = '${APP_PREFERRED_VAR}'`,
-    `const LEGACY_VAR = '${APP_LEGACY_VAR}'`,
     `process.env.${APP_PREFERRED_VAR},`,
-    `process.env.${APP_LEGACY_VAR},`,
   ]),
   ciResolver: Object.freeze([
     `const PREFERRED_VAR = '${CI_PREFERRED_VAR}'`,
-    `const LEGACY_VAR = '${CI_LEGACY_VAR}'`,
     `const preferred = classify(PREFERRED_VAR, process.env.${CI_PREFERRED_VAR})`,
-    `const legacy = classify(LEGACY_VAR, process.env.${CI_LEGACY_VAR})`,
   ]),
-  exampleEnv: Object.freeze([`${APP_PREFERRED_VAR}=`, `${APP_LEGACY_VAR}=`]),
-  gateWorkflow: Object.freeze([
-    `${CI_PREFERRED_VAR}: \${{ secrets.${CI_PREFERRED_VAR} }}`,
-    `${CI_LEGACY_VAR}: \${{ secrets.${CI_LEGACY_VAR} }}`,
-  ]),
+  exampleEnv: Object.freeze([`${APP_PREFERRED_VAR}=`]),
+  gateWorkflow: Object.freeze([`${CI_PREFERRED_VAR}: \${{ secrets.${CI_PREFERRED_VAR} }}`]),
   immutableMigration: Object.freeze([
     `--     calls it as the anon role via ${CI_LEGACY_VAR}. Revoking it breaks the gate.`,
   ]),
@@ -461,19 +466,17 @@ export const PUBLISHABLE_POLICY = Object.freeze({
   policyModule: POLICY_MODULE,
   allowedLines: PUBLISHABLE_ALLOWED_LINES,
   /**
-   * Positive invariant: all four LITERAL reads must survive, in their designated files. The app
-   * resolver's are the ones whose loss is most dangerous — they are `NEXT_PUBLIC_`-prefixed, so a
+   * Positive invariant: the two preferred LITERAL reads must survive, in their designated files.
+   * The app resolver's is the one whose loss is most dangerous — it is `NEXT_PUBLIC_`-prefixed, so a
    * computed rewrite yields `undefined` in the browser bundle and edge middleware while every
-   * Node-side test still passes.
+   * Node-side test still passes. The legacy reads were removed, so they are no longer required.
    */
   requiredReads: Object.freeze({
     [APP_RESOLVER]: Object.freeze([
       `process.env.${APP_PREFERRED_VAR},`,
-      `process.env.${APP_LEGACY_VAR},`,
     ]),
     [CI_RESOLVER]: Object.freeze([
       `const preferred = classify(PREFERRED_VAR, process.env.${CI_PREFERRED_VAR})`,
-      `const legacy = classify(LEGACY_VAR, process.env.${CI_LEGACY_VAR})`,
     ]),
   }),
   remediation:

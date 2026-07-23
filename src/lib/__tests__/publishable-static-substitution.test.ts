@@ -3,58 +3,43 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { transformWithOxc } from 'vite'
 
-// Allowlisted declaration lines — see publishable-read-sites.test.ts branch (e).
+// Allowlisted declaration lines — see publishable-read-sites.test.ts branch (f).
 const APP_PREFERRED_VAR = 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'
 const APP_LEGACY_VAR = 'NEXT_PUBLIC_SUPABASE_ANON_KEY'
 
 /**
  * BUILD-TIME STATIC SUBSTITUTION — the property most likely to be silently broken.
  *
- * Next.js/webpack replaces `NEXT_PUBLIC_`-prefixed environment reads at BUILD time, and can only
- * do so for a LITERAL `process.env.NAME` member expression. If someone "cleans up" the resolver
- * into a loop, a lookup table, or a helper taking the name as a parameter, the read is no longer
- * substitutable: in the browser bundle and in edge middleware it resolves to `undefined`, the
- * preferred branch silently never fires, the fallback silently always wins — and every Node-based
- * unit test still passes, because under Node `process.env` is real. That combination is why this
- * needs its own assertion rather than being left to the resolver's unit tests.
+ * Next.js/webpack replaces `NEXT_PUBLIC_`-prefixed environment reads at BUILD time, and can only do
+ * so for a LITERAL `process.env.NAME` member expression. If someone "cleans up" the resolver into a
+ * loop, a lookup table, or a helper taking the name as a parameter, the read is no longer
+ * substitutable: in the browser bundle and in edge middleware it resolves to `undefined`, and every
+ * Node-based unit test still passes, because under Node `process.env` is real. That combination is
+ * why this needs its own assertion rather than being left to the resolver's unit tests.
  *
- * HOW THIS PROVES IT. The resolver's real source is run through a define-based substituter with
- * SYNTHETIC sentinel values bound to the two reads. If the reads are in substitutable form the
- * sentinels appear in the output; if they have been refactored into a computed lookup they do not.
- * A negative control asserts the substituter genuinely fails on the parameterised shape, so a pass
- * here cannot come from a substituter that rewrites everything.
+ * The resolver is now PREFERRED-ONLY (decision #199): a single read of the modern publishable key.
  *
- * ⚠ NO REAL VALUE IS EVER INVOLVED. The sentinels are synthetic and defined by this test; the real
- * environment is never read, printed, hashed, or embedded. This test would behave identically on a
- * machine with no Supabase configuration at all.
+ * HOW THIS PROVES IT. The resolver's real source is run through a define-based substituter with a
+ * SYNTHETIC sentinel bound to the preferred read. If the read is in substitutable form the sentinel
+ * appears in the output; if it has been refactored into a computed lookup it does not. A negative
+ * control asserts the substituter genuinely fails on the parameterised shape, so a pass here cannot
+ * come from a substituter that rewrites everything.
+ *
+ * ⚠ NO REAL VALUE IS EVER INVOLVED. The sentinel is synthetic and defined by this test; the real
+ * environment is never read, printed, hashed, or embedded.
  *
  * The substituter is reached through Vite's `transformWithOxc`, a first-class API of a package this
- * repo DECLARES. Two earlier revisions are worth remembering, because each failure mode is
- * different:
- *   • importing `esbuild` directly resolved only because npm happened to hoist a transitive
- *     dependency of Vite/Vitest. That is an incidental layout, not a repository contract, so a
- *     dependency, lockfile, or hoisting change could turn the test guarding this invariant into a
- *     hard module-not-found failure;
- *   • `transformWithEsbuild` fixed the declaration problem but is deprecated in the installed Vite
- *     major, emitting an explicit removal warning on every run — trading an incidental break for
- *     an announced one.
- * `transformWithOxc` is declared, current, and on Vite 8's Oxc/Rolldown path. It was adopted only
- * after empirically confirming it preserves BOTH directions of this test: positive define
- * substitution AND a still-untransformed parameterised negative control.
- *
- * It is a modelling stand-in for the production bundler, not the production bundler itself; the
- * negative control is what makes the model's verdict meaningful.
+ * repo DECLARES — chosen after empirically confirming it preserves BOTH directions of this test:
+ * positive define substitution AND a still-untransformed parameterised negative control.
  */
 
 const APP_RESOLVER = 'src/lib/supabase/publishable-key.ts'
 const CONSUMERS = ['src/lib/supabase/client.ts', 'src/lib/supabase/server.ts', 'src/middleware.ts']
 
 const PREFERRED_SENTINEL = 'QX7ZSUBSTPREFERRED0000'
-const LEGACY_SENTINEL = 'QX7ZSUBSTLEGACY0000'
 
 const DEFINE: Record<string, string> = {
   [`process.env.${APP_PREFERRED_VAR}`]: JSON.stringify(PREFERRED_SENTINEL),
-  [`process.env.${APP_LEGACY_VAR}`]: JSON.stringify(LEGACY_SENTINEL),
 }
 
 /**
@@ -79,17 +64,18 @@ const sourceOf = (file: string) => readFileSync(join(process.cwd(), file), 'utf8
 const codeOnly = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
 
 describe('the publishable resolver survives build-time static substitution', () => {
-  it('BOTH reads are substituted — the preferred branch is reachable in a bundle', async () => {
+  it('the preferred read IS substituted — the resolver is reachable in a bundle', async () => {
     const out = await substitute(resolverSource())
     expect(out).toContain(PREFERRED_SENTINEL)
-    expect(out).toContain(LEGACY_SENTINEL)
   })
 
-  it('no un-substituted process.env read of either variable survives in the output', async () => {
-    // If a read were left in computed form, the identifier would still be present as a string.
+  it('no un-substituted preferred read survives, and the retired identifier is absent entirely', async () => {
     const out = await substitute(resolverSource())
+    // If the read were left in computed form, the identifier would still be present as a string.
     expect(out).not.toContain(`process.env.${APP_PREFERRED_VAR}`)
-    expect(out).not.toContain(`process.env.${APP_LEGACY_VAR}`)
+    // Reintroduction regression: the retired anon read was removed from the resolver, so its
+    // identifier appears nowhere in the transformed output.
+    expect(out).not.toContain(APP_LEGACY_VAR)
   })
 
   it('NEGATIVE CONTROL — a parameterised read is NOT substituted (the model is not vacuous)', async () => {
@@ -98,11 +84,9 @@ describe('the publishable resolver survives build-time static substitution', () 
     const refactored = `
       function read(name: string): string | undefined { return process.env[name] }
       export const preferred = read('${APP_PREFERRED_VAR}')
-      export const legacy = read('${APP_LEGACY_VAR}')
     `
     const out = await substitute(refactored)
     expect(out).not.toContain(PREFERRED_SENTINEL)
-    expect(out).not.toContain(LEGACY_SENTINEL)
     // Non-vacuous in the other direction too: the snippet really did transform, it just kept the
     // computed read. Otherwise a transformer that silently returned '' would "pass" this control.
     expect(out).toContain('process.env[')
@@ -112,9 +96,10 @@ describe('the publishable resolver survives build-time static substitution', () 
     const src = codeOnly(resolverSource())
     expect(/process\.env\s*\[/.test(src), 'resolver performs computed process.env access').toBe(false)
     expect(/=\s*process\.env\s*(?:[;,)]|$)/m.test(src), 'resolver aliases process.env').toBe(false)
-    // Positive control: the two literal member reads really are present.
+    // Positive control: the one literal member read really is present.
     expect(src).toContain(`process.env.${APP_PREFERRED_VAR}`)
-    expect(src).toContain(`process.env.${APP_LEGACY_VAR}`)
+    // …and the retired read is gone.
+    expect(src).not.toContain(`process.env.${APP_LEGACY_VAR}`)
   })
 })
 
@@ -126,7 +111,7 @@ describe('every application consumer goes through the resolver', () => {
         /import\s*\{[^}]*getSupabasePublishableKey[^}]*\}\s*from\s*['"][^'"]*publishable-key['"]/,
       )
       expect(src).toContain('getSupabasePublishableKey()')
-      // The whole point of the migration: the identifier no longer appears in the consumer at all.
+      // The whole point of the migration: neither identifier appears in the consumer at all.
       expect(src).not.toContain(APP_PREFERRED_VAR)
       expect(src).not.toContain(APP_LEGACY_VAR)
     })

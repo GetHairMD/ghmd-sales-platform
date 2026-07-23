@@ -37,15 +37,21 @@ const LEGACY_VAR = 'SUPABASE_SERVICE_ROLE_KEY'
  * and any future `.sh`/`.py` outside enforcement. Prefix-matching the exact file was a second,
  * subtler hole of the same kind — see the `isProsePath` docblock.
  *
- * The allowlist is EXACT — FIVE branches, of which one is whole-file and four are exact-LINE:
- *   (a) the resolver module (WHOLE FILE — the one legitimate read site);
- *   (b) `.env.local.example` — the two bare placeholder lines, matched exactly, so a real value
- *       pasted there fails CI in any shape, including commented out and with no separator;
- *   (c) the sweep workflow — the two exact environment-mapping lines, nothing else;
+ * The allowlist is EXACT — SIX branches, ALL exact-LINE (the whole-file resolver exemption was
+ * removed in the decision #199 preferred-only cleanup):
+ *   (a) the resolver module — its preferred read plus its two constant declarations. LEGACY_VAR is
+ *       still declared, solely so `assertNotCredentialVarName` keeps refusing the retired name; it
+ *       is a declaration, never a read. Any OTHER line of the resolver naming a credential — a
+ *       reintroduced legacy read included — is a violation;
+ *   (b) `.env.local.example` — the single preferred placeholder line, matched exactly (the retired
+ *       placeholder was removed);
+ *   (c) the sweep workflow — the single preferred environment-mapping line (the retired mapping
+ *       was removed);
  *   (d) one exact comment line in an already-applied, immutable migration;
- *   (e) the three credential suites — their two constant-DECLARATION lines each, nothing else.
- * Branches (b)–(e) are EXACT-LINE, never shape-inferred: rules that try to reject "assigning"
- * forms must enumerate the ways a value can follow a name, and that enumeration is never complete.
+ *   (e) the three credential suites — their two constant-DECLARATION lines each, nothing else;
+ *   (f) the shared policy module — its two constant-DECLARATION lines.
+ * Every branch is EXACT-LINE, never shape-inferred: rules that try to reject "assigning" forms must
+ * enumerate the ways a value can follow a name, and that enumeration is never complete.
  * There is no `.github/workflows/*` wildcard: any occurrence in any other workflow, or on any
  * other line of the sweep workflow, is a violation. Same for the migration and the suites: those
  * files are not exempt, only those lines are.
@@ -324,9 +330,26 @@ describe('credential identifiers appear only at the allowlisted sites (decision 
 
   it('the resolver really is the read site (positive control — the scan is not vacuous)', () => {
     const src = readFileSync(join(process.cwd(), RESOLVER), 'utf8')
+    // Both names still appear — preferred as the read, retired as the refused-guard declaration.
     for (const id of IDENTIFIERS) expect(src).toContain(id)
+    // Only the preferred variable is READ; the legacy read was removed.
     expect(src).toContain(`process.env.${NEW_VAR}`)
-    expect(src).toContain(`process.env.${LEGACY_VAR}`)
+    expect(src).not.toContain(`process.env.${LEGACY_VAR}`)
+  })
+
+  it('the service resolver is allowlisted by exact LINE — whole-file exemption removed', () => {
+    // The former whole-file exemption became an exact-line allowlist: the preferred read plus the
+    // two constant declarations, and nothing else.
+    const hits = hitsIn(RESOLVER)
+    expect(hits.length).toBe(POLICY.allowedLines.resolver.length)
+    expect(hits.every(isAllowed)).toBe(true)
+    expect(POLICY.allowedLines.resolver.every((l) => hits.some((h) => h.text === l))).toBe(true)
+    // Reintroduction regression: a legacy read reinstated in the resolver is now a violation,
+    // as is any other unreviewed credential line in it.
+    expect(
+      isAllowed({ file: RESOLVER, line: 1, text: `const legacy = classify(LEGACY_VAR, process.env.${LEGACY_VAR})` }),
+    ).toBe(false)
+    expect(isAllowed({ file: RESOLVER, line: 2, text: `const k = process.env.${NEW_VAR}` })).toBe(false)
   })
 
   /**
@@ -336,29 +359,34 @@ describe('credential identifiers appear only at the allowlisted sites (decision 
    * file whose purpose permits assignments (the env example, the workflow, the migration); source
    * files are separately asserted to contain no values at all.
    */
-  it('the sweep workflow maps BOTH variables, on exactly the allowlisted lines', () => {
+  it('the sweep workflow maps ONLY the preferred variable, on exactly the allowlisted line', () => {
     const hits = hitsIn(SWEEP_WORKFLOW)
     expect(hits.length).toBe(SWEEP_ALLOWED_LINES.length)
     expect(hits.every(isAllowed)).toBe(true)
     expect(SWEEP_ALLOWED_LINES.every((line) => hits.some((h) => h.text === line))).toBe(true)
+    // Reintroduction regression: the retired mapping is gone from the workflow entirely.
+    expect(hits.some((h) => h.text.includes(LEGACY_VAR))).toBe(false)
   })
 
-  it('the example env file lists the preferred variable above the deprecated one', () => {
+  it('the example env file lists the preferred variable and NOT the retired one', () => {
     const path = join(process.cwd(), EXAMPLE_ENV)
     expect(existsSync(path)).toBe(true)
     const src = readFileSync(path, 'utf8')
-    expect(src.includes(`${NEW_VAR}=`)).toBe(true)
-    expect(src.indexOf(`${NEW_VAR}=`)).toBeLessThan(src.indexOf(`${LEGACY_VAR}=`))
+    const lines = src.split(/\r?\n/).map((l) => l.trim())
+    expect(lines).toContain(`${NEW_VAR}=`)
+    // Reintroduction regression: the retired placeholder line was removed.
+    expect(lines).not.toContain(`${LEGACY_VAR}=`)
   })
 
   it('the example env file is genuinely IN the scan, and every hit clears its narrow branch', () => {
     expect(SCANNED).toContain(EXAMPLE_ENV)
     const hits = hitsIn(EXAMPLE_ENV)
-    // Non-vacuous: the placeholders exist, so the branch is exercised on every CI run.
-    expect(hits.length).toBeGreaterThanOrEqual(2)
+    // Non-vacuous: the preferred placeholder exists, so the branch is exercised on every CI run.
+    expect(hits.length).toBeGreaterThanOrEqual(1)
     expect(hits.filter((h) => !isAllowed(h)).map(renderViolation)).toEqual([])
     expect(hits.some((h) => h.text === `${NEW_VAR}=`)).toBe(true)
-    expect(hits.some((h) => h.text === `${LEGACY_VAR}=`)).toBe(true)
+    // The retired name appears nowhere in the file (not even in prose).
+    expect(hits.some((h) => h.text.includes(LEGACY_VAR))).toBe(false)
   })
 
   it('the immutable migration is allowlisted by exact line only, not by file', () => {
@@ -398,10 +426,14 @@ describe('credential identifiers appear only at the allowlisted sites (decision 
     }
   })
 
-  it('ONLY the two bare placeholders pass — every other shape fails CI (negative control)', () => {
-    for (const id of IDENTIFIERS) {
-      expect(isAllowedExampleEnvLine(`${id}=`)).toBe(true)
+  it('ONLY the preferred bare placeholder passes — every other shape fails CI (negative control)', () => {
+    // The preferred placeholder is the sole allowed line.
+    expect(isAllowedExampleEnvLine(`${NEW_VAR}=`)).toBe(true)
+    // Reintroduction regression: the retired placeholder no longer passes, in ANY shape —
+    // including the bare `NAME=` form that was allowed before this cleanup.
+    expect(isAllowedExampleEnvLine(`${LEGACY_VAR}=`)).toBe(false)
 
+    for (const id of IDENTIFIERS) {
       for (const leak of [
         `${id}=synthetic-value`,
         `${id} = synthetic-value`,
@@ -544,10 +576,16 @@ describe('the shared service-credential policy is frozen to exactly these values
   })
 
   it('pins every allowlist branch, exactly', () => {
-    expect([...POLICY.allowedLines.exampleEnv]).toEqual([`${NEW_VAR}=`, `${LEGACY_VAR}=`])
+    // The resolver branch is exact-line now (no whole-file exemption): preferred read + two decls.
+    expect([...POLICY.allowedLines.resolver]).toEqual([
+      `const PREFERRED_VAR = '${NEW_VAR}'`,
+      `const LEGACY_VAR = '${LEGACY_VAR}'`,
+      `const preferred = classify(PREFERRED_VAR, process.env.${NEW_VAR})`,
+    ])
+    // Preferred-only: one placeholder, one mapping (the retired lines were removed).
+    expect([...POLICY.allowedLines.exampleEnv]).toEqual([`${NEW_VAR}=`])
     expect([...POLICY.allowedLines.sweepWorkflow]).toEqual([
       `${NEW_VAR}: \${{ secrets.${NEW_VAR} }}`,
-      `${LEGACY_VAR}: \${{ secrets.${LEGACY_VAR} }}`,
     ])
     expect([...POLICY.allowedLines.immutableMigration]).toEqual([
       `--       ${LEGACY_VAR} (script-layer, human-invoked)`,
@@ -563,14 +601,13 @@ describe('the shared service-credential policy is frozen to exactly these values
     ])
   })
 
-  it('pins the REQUIRED literal reads, spelled out (positive invariant)', () => {
+  it('pins the REQUIRED literal read, spelled out (positive invariant)', () => {
     // read-site-scan.test.ts pins the structure but cannot spell an identifier — it is not on any
-    // suite allowlist. This file is, so the literal text is pinned here: if a required read were
-    // silently dropped or reworded, this fails.
+    // suite allowlist. This file is, so the literal text is pinned here: if the required read were
+    // silently dropped or reworded, this fails. Only the preferred read is required now.
     expect(POLICY.requiredReads).toEqual({
       'src/lib/supabase/secret-key.ts': [
         `const preferred = classify(PREFERRED_VAR, process.env.${NEW_VAR})`,
-        `const legacy = classify(LEGACY_VAR, process.env.${LEGACY_VAR})`,
       ],
     })
   })

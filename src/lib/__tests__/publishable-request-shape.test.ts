@@ -94,17 +94,19 @@ describe('buildDeclarationRequest — API-key-only header shape', () => {
     expect(String(init.body ?? '')).not.toContain(PREFERRED_MARKER)
   })
 
-  it('uses the legacy credential when the modern one is absent (compatibility phase)', () => {
+  it('THROWS when only the retired var is set — the legacy fallback is gone', () => {
+    // Reintroduction regression: with the modern var absent and only the retired var set, the
+    // resolver throws, so no request is constructed, and the retired value never reaches the wire.
     setVar(CI_LEGACY_VAR, LEGACY_SENTINEL)
-    const { init } = buildDeclarationRequest(REPO, PR_NUMBER)
-    expect(headerValue(init, 'apikey')).toBe(LEGACY_SENTINEL)
-    expect(headerKeys(init)).not.toContain('authorization')
+    expect(() => buildDeclarationRequest(REPO, PR_NUMBER)).toThrow(new RegExp(CI_PREFERRED_VAR))
   })
 
-  it('prefers the modern credential when both are present', () => {
+  it('uses the modern credential and ignores the retired one when both are present', () => {
     setVar(CI_PREFERRED_VAR, PREFERRED_SENTINEL)
     setVar(CI_LEGACY_VAR, LEGACY_SENTINEL)
-    expect(headerValue(buildDeclarationRequest(REPO, PR_NUMBER).init, 'apikey')).toBe(PREFERRED_SENTINEL)
+    const value = headerValue(buildDeclarationRequest(REPO, PR_NUMBER).init, 'apikey')
+    expect(value).toBe(PREFERRED_SENTINEL)
+    expect(value).not.toBe(LEGACY_SENTINEL)
   })
 
   it('targets the RPC endpoint and scopes the lookup to (repo, pr)', () => {
@@ -125,7 +127,7 @@ describe('buildDeclarationRequest — API-key-only header shape', () => {
 })
 
 describe('buildDeclarationRequest — fail closed, without echoing values', () => {
-  it('THROWS when no publishable credential is configured', () => {
+  it('THROWS naming ONLY the preferred variable when no publishable credential is configured', () => {
     let message = ''
     try {
       buildDeclarationRequest(REPO, PR_NUMBER)
@@ -133,7 +135,8 @@ describe('buildDeclarationRequest — fail closed, without echoing values', () =
       message = err instanceof Error ? err.message : String(err)
     }
     expect(message).toContain(CI_PREFERRED_VAR)
-    expect(message).toContain(CI_LEGACY_VAR)
+    // The retired variable is no longer named in the missing-credential message.
+    expect(message).not.toContain(CI_LEGACY_VAR)
   })
 
   it('THROWS when the project URL is unset', () => {

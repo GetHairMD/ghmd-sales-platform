@@ -2,43 +2,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getSupabasePublishableKey } from '../supabase/publishable-key'
 import { getGatePublishableKey } from '../../../scripts/second-opinion-gate/publishable-key'
 
-// Allowlisted declaration lines — see publishable-read-sites.test.ts branch (e).
+// Allowlisted declaration lines — see publishable-read-sites.test.ts branch (f).
 const APP_PREFERRED_VAR = 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'
 const APP_LEGACY_VAR = 'NEXT_PUBLIC_SUPABASE_ANON_KEY'
 const CI_PREFERRED_VAR = 'SUPABASE_PUBLISHABLE_KEY'
 const CI_LEGACY_VAR = 'SUPABASE_ANON_KEY'
 
 /**
- * Publishable-key resolvers — application and Second-Opinion Gate.
+ * Publishable-key resolvers — application and Second-Opinion Gate, decision #199 preferred-only.
  *
- * Both resolvers implement the identical contract, so both are driven through the identical
- * matrix here rather than one being tested and the other assumed:
- *   1. preferred: absent / empty / whitespace-only -> fall through; padded non-blank -> THROW;
- *      clean -> return verbatim.
- *   2. legacy: identical rule — a padded legacy value THROWS rather than being silently skipped.
- *   3. neither present -> THROW naming BOTH variables (fail closed).
- *
- * ⚠ EVIDENTIARY LIMIT — the point of these tests. A both-variable environment CANNOT prove the
- * preferred branch was taken, because the fallback would satisfy the same observable outcome. So
- * these deterministic tests, which set the variables independently, are the ONLY place preferred-
- * path selection is proven at this stage. Operational preferred-path proof happens only after the
- * legacy variables are removed, during the new-only rollout step — not from any run in which both
- * variables are present.
+ * Both resolvers implement the identical PREFERRED-ONLY contract, so both are driven through the
+ * identical matrix here rather than one being tested and the other assumed:
+ *   1. preferred: absent / empty / whitespace-only -> THROW (fail closed, no fallback);
+ *      padded non-blank -> THROW; clean -> return verbatim.
+ *   2. the retired anon var is IGNORED — setting it never rescues resolution.
+ *   3. neither/blank -> THROW naming the PREFERRED variable only.
  *
  * ⚠ SENSITIVITY. Unlike the service-credential suites, the values here are PUBLIC by design — the
  * app's publishable key is inlined into the client bundle on purpose. The leakage assertions below
- * are therefore about hygiene and about not normalising value-echoing in error paths, NOT about
- * protecting a secret. Do not infer from this file that a publishable key is confidential, and do
- * not relax the service-credential suites to match it.
+ * are about hygiene and about not normalising value-echoing in error paths, NOT about protecting a
+ * secret. Do not infer from this file that a publishable key is confidential, and do not relax the
+ * service-credential suites to match it.
  *
  * ⚠ Env is manipulated ONLY through `vi.stubEnv`; no test reads a real environment value.
  */
 
-/**
- * Synthetic values carrying unique marker substrings, so "did the value leak?" is decidable.
- * A designated unique substring is asserted separately from the whole value: an error renderer
- * that truncated a value would still fail the marker assertion, which is the point.
- */
 const APP_PREFERRED_MARKER = 'QX7ZAPPPREFMARKER'
 const APP_LEGACY_MARKER = 'QX7ZAPPLEGACYMARKER'
 const CI_PREFERRED_MARKER = 'QX7ZCIPREFMARKER'
@@ -100,20 +88,20 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe.each(RESOLVERS)('$label — precedence and fail-closed contract', (c) => {
-  it('prefers the modern value when BOTH are present, and does not return the fallback', () => {
+describe.each(RESOLVERS)('$label — preferred-only contract', (c) => {
+  it('returns the modern value when it is set', () => {
+    setVar(c.preferredVar, c.preferredSentinel)
+    expect(c.resolve()).toBe(c.preferredSentinel)
+  })
+
+  it('returns the modern value and ignores the retired var when BOTH are present', () => {
     setVar(c.preferredVar, c.preferredSentinel)
     setVar(c.legacyVar, c.legacySentinel)
     const resolved = c.resolve()
     expect(resolved).toBe(c.preferredSentinel)
-    // The discriminating half: the fallback value was not selected.
+    // The discriminating half: the retired value was not selected.
     expect(resolved).not.toBe(c.legacySentinel)
     expect(resolved).not.toContain(c.legacyMarker)
-  })
-
-  it('returns the modern value when it is the only one set', () => {
-    setVar(c.preferredVar, c.preferredSentinel)
-    expect(c.resolve()).toBe(c.preferredSentinel)
   })
 
   it('returns the value verbatim — no trimming, no normalisation of inner whitespace', () => {
@@ -127,10 +115,26 @@ describe.each(RESOLVERS)('$label — precedence and fail-closed contract', (c) =
     ['empty', ''],
     ['whitespace-only', '   '],
     ['tab/newline-only', '\t\n '],
-  ])('falls back when the modern value is %s', (_label, value) => {
+  ])('THROWS when the modern value is %s (fail closed, no fallback)', (_label, value) => {
+    // Reintroduction regression: the retired var is set but must NOT rescue resolution.
     setVar(c.preferredVar, value as string | undefined)
     setVar(c.legacyVar, c.legacySentinel)
-    expect(c.resolve()).toBe(c.legacySentinel)
+    expect(() => c.resolve()).toThrow(new RegExp(c.preferredVar))
+  })
+
+  it('THROWS when ONLY the retired var is set — the legacy fallback is gone', () => {
+    setVar(c.legacyVar, c.legacySentinel)
+    let message = ''
+    try {
+      c.resolve()
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+    expect(message).not.toBe('')
+    expect(message).toContain(c.preferredVar)
+    // The retired value never leaks.
+    expect(message).not.toContain(c.legacySentinel)
+    expect(message).not.toContain(c.legacyMarker)
   })
 
   it.each([
@@ -138,28 +142,17 @@ describe.each(RESOLVERS)('$label — precedence and fail-closed contract', (c) =
     ['trailing space', (v: string) => `${v} `],
     ['leading newline', (v: string) => `\n${v}`],
     ['trailing tab', (v: string) => `${v}\t`],
-  ])('THROWS on a modern value with a %s, and does NOT fall back', (_label, pad) => {
+  ])('THROWS on a modern value with a %s', (_label, pad) => {
     setVar(c.preferredVar, pad(c.preferredSentinel))
-    setVar(c.legacyVar, c.legacySentinel)
-    // Falling through on a padded value would silently prefer the other variable — the operator
-    // pasted something for THIS variable and must be told, not quietly overridden.
     expect(() => c.resolve()).toThrow(new RegExp(c.preferredVar))
-  })
-
-  it.each([
-    ['leading space', (v: string) => ` ${v}`],
-    ['trailing space', (v: string) => `${v} `],
-  ])('THROWS on a fallback value with a %s rather than treating it as absent', (_label, pad) => {
-    setVar(c.legacyVar, pad(c.legacySentinel))
-    expect(() => c.resolve()).toThrow(new RegExp(c.legacyVar))
   })
 
   it.each([
     ['both unset', undefined, undefined],
     ['both empty', '', ''],
     ['both whitespace-only', '  ', '\t'],
-    ['modern unset, fallback blank', undefined, ''],
-  ])('THROWS naming BOTH variables when %s (fail closed)', (_label, preferred, legacy) => {
+    ['modern unset, retired blank', undefined, ''],
+  ])('THROWS naming ONLY the preferred variable when %s (fail closed)', (_label, preferred, legacy) => {
     setVar(c.preferredVar, preferred as string | undefined)
     setVar(c.legacyVar, legacy as string | undefined)
     let message = ''
@@ -172,11 +165,11 @@ describe.each(RESOLVERS)('$label — precedence and fail-closed contract', (c) =
       }
     }).toThrow()
     expect(message).toContain(c.preferredVar)
-    expect(message).toContain(c.legacyVar)
+    // The retired variable is no longer named in the missing-credential message.
+    expect(message).not.toContain(c.legacyVar)
   })
 
   it('never echoes a value — neither the whole sentinel nor its unique marker', () => {
-    // Every throwing shape, checked against both the full value and the designated substring.
     const shapes: Array<[string | undefined, string | undefined]> = [
       [` ${c.preferredSentinel} `, c.legacySentinel],
       [undefined, ` ${c.legacySentinel} `],
